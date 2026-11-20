@@ -1,5 +1,5 @@
 import {readOperations} from '../../web/api/trading/operations.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote} from '../../web/api/trading/demo-portfolio.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../web/api/trading/demo-portfolio.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 const random=()=>randomBytes(32).toString('base64url');
@@ -51,19 +51,19 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     sessions.delete(sid);setCookie(res,cookieName,'',0);return json(res,200,{ok:true});
    }
    if(!session)return json(res,401,{error:'Sign in with Deriv first.'});
-  if (['/api/demo/portfolio','/api/demo/history','/api/demo/quote','/api/demo/operations'].includes(path) && req.method === 'GET') {
+  if (['/api/demo/portfolio','/api/demo/history','/api/demo/quote','/api/demo/operations','/api/demo/signal'].includes(path) && req.method === 'GET') {
     try {
       const accountId = new URL(req.url,'http://localhost').searchParams.get('account');
       const accounts = await listAccounts(session.token, fetcher, config.clientId);
       const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
       const context = {token:session.token, accountId, accounts, appId:config.clientId, fetchImpl:fetcher};
       const params = new URL(req.url,'http://localhost').searchParams;
-      const result = path.endsWith('/quote') ? await readMarketQuote(context, {
+      const result = path.endsWith('/signal') ? await readDemoSignal(context,params) : path.endsWith('/quote') ? await readMarketQuote(context, {
         symbol:'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 5),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
       }) : await read(context);
       return json(res, 200, result);
     } catch (err) {
-      return json(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : err.message === 'INVALID_QUOTE' ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
+      return json(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : ['INVALID_QUOTE','INVALID_STRATEGY'].includes(err.message) ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
     }
   }
    if(path==='/api/accounts'&&req.method==='GET'){

@@ -1,6 +1,6 @@
 import {readOperations} from './trading/operations.js';
 import {listAccounts} from '../../api/src/providers/deriv.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote} from './trading/demo-portfolio.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from './trading/demo-portfolio.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
@@ -145,19 +145,19 @@ export default async function handler(req, res) {
     return respond(res, 200, { ok: true });
   }
   if (!session) return respond(res, 401, { error: 'Sign in with Deriv first.' });
-  if (['demo/portfolio','demo/history','demo/quote','demo/operations'].includes(path) && req.method === 'GET') {
+  if (['demo/portfolio','demo/history','demo/quote','demo/operations','demo/signal'].includes(path) && req.method === 'GET') {
     try {
       const accountId = req.query.account;
       const accounts = await listAccounts(session.token, fetch, CLIENT);
       const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
       const context = {token:session.token, accountId, accounts, appId:CLIENT, fetchImpl:fetch};
       const params = new URLSearchParams(req.query);
-      const result = path.endsWith('/quote') ? await readMarketQuote(context, {
+      const result = path.endsWith('/signal') ? await readDemoSignal(context,params) : path.endsWith('/quote') ? await readMarketQuote(context, {
         symbol:'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 5),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
       }) : await read(context);
       return respond(res, 200, result);
     } catch (err) {
-      return respond(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : err.message === 'INVALID_QUOTE' ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
+      return respond(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : ['INVALID_QUOTE','INVALID_STRATEGY'].includes(err.message) ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
     }
   }
   if (path === 'accounts' && req.method === 'GET') {

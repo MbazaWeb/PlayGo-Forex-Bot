@@ -1,3 +1,4 @@
+import {crossover,validPeriods} from './crossover.js';
 import {getDemoWebSocketUrl,demoProposal} from './deriv-demo.js';
 
 async function readDemo({token, accountId, accounts, appId, fetchImpl, Socket = WebSocket}, request, extract) {
@@ -27,7 +28,7 @@ async function readDemo({token, accountId, accounts, appId, fetchImpl, Socket = 
           const reply = JSON.parse(data);
           if (reply.req_id !== 1) return;
           if (reply.error?.code === 'RateLimit') return finish('BROKER_RATE_LIMIT');
-          if (reply.error || reply.msg_type !== (request.ticks ? 'tick' : Object.keys(request)[0])) throw Error();
+          if (reply.error || reply.msg_type !== (request.ticks_history ? 'candles' : request.ticks ? 'tick' : Object.keys(request)[0])) throw Error();
           finish(null, extract(reply));
         } catch { finish('INVALID_BROKER_RESPONSE'); }
       };
@@ -107,4 +108,12 @@ export async function readMarketQuote(context, intent) {
     ask:money(reply.proposal.ask_price),payout:money(reply.proposal.payout)
   }));
   return {symbol:intent.symbol,currency:account.currency,tick,proposal,execution:false};
+}
+
+export function readDemoSignal(context,params) {
+  const fast=Number(params.get('fast')), slow=Number(params.get('slow'));
+  if(!validPeriods(fast,slow)) throw Error('INVALID_STRATEGY');
+  const minute=Math.floor(Date.now()/60000)*60;
+  return readDemo(context,{ticks_history:'frxEURUSD',style:'candles',granularity:60,count:slow+1,end:String(minute-1)},
+    reply=>crossover(reply.candles,fast,slow,minute));
 }

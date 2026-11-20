@@ -1,3 +1,4 @@
+import Strategy from './components/Strategy';
 import DemoPortfolio from './components/DemoPortfolio';
 import React,{useEffect,useState} from 'react';
 import {Activity,LogOut,RefreshCw,ShieldCheck,LayoutDashboard,Wallet,ChartCandlestick,Bot,ChartNoAxesCombined,Settings,Menu,X} from 'lucide-react';
@@ -47,7 +48,7 @@ export default function App(){
  {!loading&&page==='Overview'&&<><section className="panel"><h2>Welcome to PlayGo</h2><p>Your Deriv session is authenticated. Account information is available below; MT5 and automated execution are not connected.</p></section><section className="panel account-panel"><h2>Connection summary</h2><div className="setting-line"><span>Deriv</span><strong>Connected</strong></div><div className="setting-line"><span>MT5</span><strong>{mt5?.status||'Not paired'}</strong></div><div className="setting-line"><span>Live execution</span><strong>Disabled</strong></div><button className="outline" onClick={()=>navigate('Accounts')}>Manage accounts</button></section></>}
  {!loading&&page==='Accounts'&&accountsView}
  {!loading&&page==='Trading Terminal'&&<React.Suspense fallback={<p>Loading paper terminal…</p>}><PaperTerminal/></React.Suspense>}
- {!loading&&page==='Trading Bots'&&<section className="panel"><h2>Trading bots</h2><p>Automated strategies and broker execution are not implemented in this deployment. No bots are running.</p><button className="outline" onClick={()=>setDemo(true)}>Explore simulated bot designs</button></section>}
+ {!loading&&page==='Trading Bots'&&<>{accounts?.some(a=>a.account_type==='demo') ? accounts.filter(a=>a.account_type==='demo').map(a=><Strategy key={a.account_id} accountId={a.account_id}/>) : <p>A connected demo account is required.</p>}</>}
  {!loading&&page==='Analytics'&&<section className="panel"><h2>Trading analytics</h2><p>Real performance analytics are not available until trade history is synchronized. Paper trading history is stored only in this browser.</p><button className="outline" onClick={()=>navigate('Trading Terminal')}>View paper trades</button></section>}
  {!loading&&page==='Settings'&&<><section className="panel"><h2>Connections</h2><div className="setting-line"><span>Deriv</span><strong>Authenticated</strong></div><div className="setting-line"><span>MetaTrader 5</span><strong>{mt5?.status||'Not linked'}</strong></div><div className="setting-line"><span>Live trading</span><strong>Disabled</strong></div></section><section className="panel account-panel"><h2>Session</h2><button className="outline" onClick={load}><RefreshCw size={16}/> Refresh account connection</button></section></>}
  <div className="account-foot"><ShieldCheck size={18}/> Live trading and automated execution are not implemented.</div>

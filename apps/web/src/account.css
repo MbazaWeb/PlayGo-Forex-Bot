@@ -14,3 +14,5 @@
 .signin-error button{background:none;border:0;color:inherit;text-decoration:underline}
 
 .account-menu-backdrop{display:none}@media(max-width:700px){.account-menu-backdrop{display:block;position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.65);border:0}.top-right .outline{padding:8px 10px}.content>.panel{margin-bottom:18px}}
+
+.signin-mt5{width:100%;margin-top:12px;background:#1c2c3b;color:#e5f3f8;border:1px solid #3b5366;text-align:left}.signin-mt5:hover{background:#243b4c}.mt5-guide{margin:16px 0;padding:18px;border:1px solid #385063;border-radius:10px;background:#172330}.mt5-guide h2{margin-bottom:10px}.mt5-guide p{margin:10px 0;line-height:1.6;overflow-wrap:anywhere}.mt5-guide a{color:#6de2d1}.mt5-guide code{overflow-wrap:anywhere}

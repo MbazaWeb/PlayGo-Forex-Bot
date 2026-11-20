@@ -43,6 +43,31 @@ function cookie(name, value, seconds) {
 }
 function respond(res, status, body) { res.status(status).json(body); }
 function redirect(res, url) { res.writeHead(302, { Location: url }); res.end(); }
+
+const dbConfig = () => {
+  const url = process.env.SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  return /^https:\/\/[^/]+\.supabase\.co\/?$/.test(url) && key.length > 20 ? { url: url.replace(/\/$/, ''), key } : null;
+};
+async function dbRequest(db, endpoint, options = {}) {
+  return fetch(db.url + '/rest/v1/' + endpoint, {
+    ...options,
+    headers: { apikey: db.key, Authorization: 'Bearer ' + db.key, ...options.headers },
+    signal: AbortSignal.timeout(12000)
+  });
+}
+function safeSnapshot(data) {
+  if (!data || data.status !== 'connected' || data.terminal?.connected !== true ||
+      !Number.isFinite(Date.parse(data.timestamp)) || Math.abs(Date.now() - Date.parse(data.timestamp)) > 120000 ||
+      !data.account || !Number.isSafeInteger(data.account.login) ||
+      typeof data.account.server !== 'string' || data.account.server.length > 120 ||
+      !Array.isArray(data.positions) || data.positions.length > 500) return false;
+  const a = data.account;
+  if (!['balance','equity','margin','margin_free','profit'].every(k => typeof a[k] === 'number' && Number.isFinite(a[k]))) return false;
+  return data.positions.every(p => Number.isSafeInteger(p.ticket) && typeof p.symbol === 'string' && p.symbol.length <= 32 &&
+    ['buy','sell'].includes(p.type) && ['volume','price_open','price_current','profit'].every(k => typeof p[k] === 'number' && Number.isFinite(p[k])));
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -51,6 +76,32 @@ export default async function handler(req, res) {
   const configured = validConfig();
   const cs = cookies(req);
   const session = configured ? open(cs['__Host-playgo_session']) : null;
+
+  if (path === 'mt5/ingest' && req.method === 'POST') {
+    const secret = process.env.PLAYGO_MT5_SYNC_TOKEN || '';
+    const auth = String(req.headers.authorization || '');
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (secret.length < 32 || token.length !== secret.length ||
+        !timingSafeEqual(Buffer.from(token), Buffer.from(secret))) return respond(res, 401, { error: 'Unauthorized' });
+    const db = dbConfig();
+    const expectedLogin = Number(process.env.MT5_EXPECTED_LOGIN);
+    const expectedServer = process.env.MT5_EXPECTED_SERVER || '';
+    if (!db || !Number.isSafeInteger(expectedLogin) || !expectedServer) return respond(res, 503, { error: 'MT5 ingest not configured' });
+    const data = typeof req.body === 'string' ? (() => { try { return JSON.parse(req.body); } catch { return null; } })() : req.body;
+    if (!safeSnapshot(data) || data.account.login !== expectedLogin || data.account.server !== expectedServer)
+      return respond(res, 400, { error: 'Invalid account or stale snapshot' });
+    if (Buffer.byteLength(JSON.stringify(data)) > 100000) return respond(res, 413, { error: 'Snapshot too large' });
+    try {
+      const result = await dbRequest(db, 'playgo_mt5_snapshots?on_conflict=id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify([{ id: 'primary', account_login: expectedLogin, account_server: expectedServer,
+          observed_at: data.timestamp, received_at: new Date().toISOString(), snapshot: data }])
+      });
+      if (!result.ok) throw Error('Database rejected snapshot');
+      return respond(res, 200, { ok: true, execution: false });
+    } catch { return respond(res, 503, { error: 'Snapshot storage unavailable' }); }
+  }
   if (path === 'health' && req.method === 'GET') return respond(res, 200, { status: 'ok', execution: false });
   if (path === 'session' && req.method === 'GET') return respond(res, 200, { authenticated: !!session, configured, execution: false, mt5: 'not_linked' });
   if (path === 'auth/deriv/start' && req.method === 'GET') {
@@ -109,7 +160,27 @@ export default async function handler(req, res) {
       })) });
     } catch { return respond(res, 502, { error: 'Could not retrieve Deriv accounts.' }); }
   }
-  if (path === 'mt5/status' && req.method === 'GET') return respond(res, 200, { status: 'not_linked', execution: false });
+
+  if (path === 'mt5/status' && req.method === 'GET') {
+    const db = dbConfig(), owner = process.env.MT5_OWNER_DERIV_ACCOUNT_ID || '';
+    if (!db || !owner) return respond(res, 200, { status: 'not_linked', execution: false });
+    try {
+      const identity = await fetch(ACCOUNTS_URL, { headers: { Authorization: 'Bearer ' + session.token }, signal: AbortSignal.timeout(12000) });
+      if (!identity.ok) return respond(res, 403, { error: 'Cannot verify account owner' });
+      const body = await identity.json();
+      const rows = Array.isArray(body.data) ? body.data : body.data?.accounts ?? body.accounts;
+      if (!Array.isArray(rows) || !rows.some(a => String(a.account_id ?? a.id ?? a.loginid ?? '') === owner))
+        return respond(res, 403, { error: 'MT5 is not paired with this user' });
+      const result = await dbRequest(db, 'playgo_mt5_snapshots?id=eq.primary&select=observed_at,snapshot&limit=1');
+      if (!result.ok) throw Error('Database unavailable');
+      const [row] = await result.json();
+      if (!row) return respond(res, 200, { status: 'awaiting_sync', execution: false });
+      const age = Date.now() - Date.parse(row.observed_at);
+      return respond(res, 200, { status: age >= 0 && age <= 90000 ? 'connected' : 'stale',
+        observed_at: row.observed_at, account: row.snapshot.account, positions: row.snapshot.positions, execution: false });
+    } catch { return respond(res, 503, { error: 'MT5 status unavailable' }); }
+  }
+
   if (path.startsWith('orders') || path.startsWith('bots')) return respond(res, 501, { error: 'Order execution and automated trading are not implemented.' });
   return respond(res, 404, { error: 'Route not found' });
 }

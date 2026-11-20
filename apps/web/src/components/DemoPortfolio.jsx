@@ -3,7 +3,7 @@ import React, {useState} from 'react';
 export default function DemoPortfolio({accountId}) {
   const [view,setView] = useState(null);
   const [direction,setDirection]=useState('CALL');
-  const [minutes,setMinutes]=useState(5);
+  const [minutes,setMinutes]=useState(15);
   const [stake,setStake]=useState(1);
   async function refresh(kind) {
     setView({loading:true});

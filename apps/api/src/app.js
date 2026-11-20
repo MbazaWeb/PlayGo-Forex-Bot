@@ -57,12 +57,13 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
       const accounts = await listAccounts(session.token, fetcher, config.clientId);
       const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
       const context = {token:session.token, accountId, accounts, appId:config.clientId, fetchImpl:fetcher};
+      const params = new URL(req.url,'http://localhost').searchParams;
       const result = path.endsWith('/quote') ? await readMarketQuote(context, {
-        symbol:'frxEURUSD',contractType:'CALL',duration:5,durationUnit:'m',stake:1
+        symbol:'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 5),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
       }) : await read(context);
       return json(res, 200, result);
     } catch (err) {
-      return json(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.status || 502, {error:'Demo portfolio unavailable'});
+      return json(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : err.message === 'INVALID_QUOTE' ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
     }
   }
    if(path==='/api/accounts'&&req.method==='GET'){

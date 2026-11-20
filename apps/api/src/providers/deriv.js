@@ -9,7 +9,7 @@ export async function exchangeCode({code,verifier,config,fetcher=fetch}){
 }
 export async function listAccounts(token,fetcher=fetch,appId){
  const r=await fetcher(ACCOUNTS_URL,{redirect:'error',headers:{...(appId ? {'Deriv-App-ID':appId} : {}),Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});
- if(!r.ok){const e=Error('Deriv account service returned an error');e.status=r.status===401?401:502;throw e;}
+ if(!r.ok){const e=Error('Deriv account service returned an error');e.status=[401,429].includes(r.status)?r.status:502;throw e;}
  const body=await r.json();
  const rows=Array.isArray(body.data)?body.data:body.data?.accounts??body.accounts;
  if(!Array.isArray(rows))throw Error('Unsupported account response schema');

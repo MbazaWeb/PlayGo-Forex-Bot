@@ -151,12 +151,13 @@ export default async function handler(req, res) {
       const accounts = await listAccounts(session.token, fetch, CLIENT);
       const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
       const context = {token:session.token, accountId, accounts, appId:CLIENT, fetchImpl:fetch};
+      const params = new URLSearchParams(req.query);
       const result = path.endsWith('/quote') ? await readMarketQuote(context, {
-        symbol:'frxEURUSD',contractType:'CALL',duration:5,durationUnit:'m',stake:1
+        symbol:'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 5),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
       }) : await read(context);
       return respond(res, 200, result);
     } catch (err) {
-      return respond(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.status || 502, {error:'Demo portfolio unavailable'});
+      return respond(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : err.message === 'INVALID_QUOTE' ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
     }
   }
   if (path === 'accounts' && req.method === 'GET') {

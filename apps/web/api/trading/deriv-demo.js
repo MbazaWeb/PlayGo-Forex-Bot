@@ -8,6 +8,7 @@ export async function getDemoWebSocketUrl({ token, accountId, appId, fetchImpl =
     headers: { Authorization: 'Bearer ' + token, ...(appId ? { 'Deriv-App-ID': String(appId) } : {}) },
     signal: AbortSignal.timeout(10000)
   });
+  if (response.status===429) throw Error('BROKER_RATE_LIMIT');
   if (!response.ok) throw Error('DERIV_OTP_FAILED');
   const body = await response.json();
   const url = body?.data?.url;

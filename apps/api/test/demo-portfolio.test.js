@@ -59,7 +59,7 @@ test('mock history rejects missing proceeds',async()=>{
   await assert.rejects(readDemoHistory(context),/INVALID_BROKER_RESPONSE/);
 });
 test('recovery requires durable association and broker-confirmed contract details',async()=>{
-  const {context}=broker({proposal_open_contract:{contract_id:123,contract_type:'CALL',underlying_symbol:'R_100',is_sold:1,status:'won',sell_price:'1.8'}});
+  const {context}=broker({proposal_open_contract:{contract_id:123,contract_type:'CALL',underlying_symbol:'R_100',is_sold:1,status:'won',buy_price:'1',sell_time:123,sell_price:'1.8'}});
   const intent={id:'fixture',status:'unknown',account_id:accountId,account_mode:'demo',symbol:'R_100',contract_type:'CALL',broker_contract_id:'123'};
   const atomicTransition=async command=>command;
   assert.equal((await recoverBoundContract({context,intent,atomicTransition})).event,'reconcile_closed');
@@ -79,12 +79,13 @@ test('restart scan holds unknown intent lacking a broker contract; makes no tran
   const calls=[];
   const fetchImpl=async url=>{
     calls.push(String(url));
+    if(String(url).includes('playgo_demo_worker_health')) return new Response(null,{status:204});
     if(calls.length===1)return Response.json({data:base.accounts});
     assert.equal(new URL(url).searchParams.get('account_id'),'eq.'+accountId);
     return Response.json([{account_id:accountId,account_mode:'demo',status:'unknown',broker_contract_id:null}]);
   };
   assert.deepEqual(await recoverDemo({env,fetchImpl}),{observed:1,held:1,transitioned:0});
-  assert.equal(calls.length,2);
+  assert.equal(calls.length,3);
 });
 
 import {qualifyDemoExecution} from '../../web/api/trading/execute-demo.js';

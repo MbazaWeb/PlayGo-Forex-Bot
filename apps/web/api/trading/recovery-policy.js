@@ -33,9 +33,11 @@ export async function recoverBoundContract({intent,context,atomicTransition}) {
   if (!['confirmed','submitted','unknown'].includes(intent.status))
     return recoveryDecision(intent,null);
   const evidence = await readContractEvidence(context,intent);
-  if (intent.status === 'submitted' && evidence.settlement_verified) {
-    await atomicTransition({intentId:intent.id,event:'confirm',brokerContractId:evidence.contract_id});
-    return atomicTransition({intentId:intent.id,event:'settle',brokerContractId:evidence.contract_id});
+  if (evidence.settlement_verified) {
+    if (intent.status === 'submitted')
+      await atomicTransition({intentId:intent.id,event:'confirm',brokerContractId:evidence.contract_id});
+    return atomicTransition({intentId:intent.id,event:intent.status==='unknown'?'reconcile_closed':'settle',
+      brokerContractId:evidence.contract_id,settlement:evidence.settlement});
   }
   return reconcileRecoveredIntent({intent,evidence,atomicTransition});
 }

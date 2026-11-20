@@ -15,6 +15,7 @@ export default function DemoPortfolio({accountId}) {
     <button className="outline" disabled={view?.loading} onClick={()=>refresh('history')}>Read closed trades</button>
     <button className="outline" disabled={view?.loading} onClick={()=>refresh('quote')}>Quote EUR/USD · 5 min Call · stake 1</button>
     <button className="outline" disabled={view?.loading} onClick={()=>refresh('operations')}>Execution and risk</button>
+    {view?.status && <p>Account switch {view.status.paused?'paused':'armed'} · Realized P&L today (UTC) {view.status.dailyRealizedPnl ?? 'unverified'} · Last completed recovery {view.status.lastRecoveryAt ? new Date(view.status.lastRecoveryAt).toLocaleString() : 'never recorded'}</p>}
     {view?.limits && <><p>{view.worker} · Max stake {view.limits.maxStake} · Daily loss limit {view.limits.maxDailyLoss} · Open limit {view.limits.maxOpenContracts} · Cooldown {view.limits.minSecondsBetweenTrades}s</p>
     {view.intents.length ? view.intents.map((r,i)=><p key={i}>{r.strategy_id} · {r.symbol} · {r.status} · {r.updated_at}</p>) : <p>No recorded execution intents.</p>}</>}
     {view?.proposal && <p>EUR/USD {view.tick.price} · Ask {view.proposal.ask} · Payout {view.proposal.payout} {view.currency} · {new Date(view.tick.epoch*1000).toLocaleTimeString()}</p>}

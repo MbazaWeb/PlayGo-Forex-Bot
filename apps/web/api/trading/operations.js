@@ -20,6 +20,13 @@ export async function readOperations({accountId,accounts,recovery=false,env=proc
   const rows=await res.json();
   if (!Array.isArray(rows) || rows.some(row=>row.account_id !== accountId)) throw Error('ACCOUNT_MISMATCH');
   if (recovery) return {intents:rows};
-  return {accountId,execution:false,limits:DEFAULT_LIMITS,worker:'Broker submission disabled',
+  const statusResponse=await fetchImpl(new URL('/rest/v1/rpc/playgo_demo_risk_status',url),{
+    method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},
+    body:JSON.stringify({p_account:accountId}),redirect:'error',signal:AbortSignal.timeout(8000)
+  });
+  if (!statusResponse.ok) throw Error('RISK_STATUS_UNAVAILABLE');
+  const status=await statusResponse.json();
+  if (typeof status?.paused !== 'boolean') throw Error('INVALID_RISK_STATUS');
+  return {accountId,status,execution:false,limits:DEFAULT_LIMITS,worker:'Broker submission disabled',
     intents:rows.map(({strategy_id,symbol,status,updated_at})=>({strategy_id,symbol,status,updated_at}))};
 }

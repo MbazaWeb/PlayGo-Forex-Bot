@@ -84,7 +84,8 @@ export function readContractEvidence(context, intent) {
     const open = row.status === 'open' && row.is_sold === 0;
     return {source:'authenticated_deriv_server',account_mode:'demo',account_id:context.accountId,
       verified:true,contract_id:contractId,is_open:open,is_sold:closed,
-      settlement_verified:closed && money(row.sell_price) !== ''};
+      settlement_verified:closed && Number.isSafeInteger(row.sell_time) && row.sell_time>0,
+      settlement:closed ? {cost:money(row.buy_price),proceeds:money(row.sell_price),soldAt:row.sell_time} : null};
   });
 }
 

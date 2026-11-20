@@ -23,6 +23,13 @@ export async function recoverDemo({env=process.env,fetchImpl=fetch,Socket=WebSoc
     if (result.audited === true) counts.transitioned++;
     else counts.held++;
   }
+  const heartbeat=await fetchImpl(new URL('/rest/v1/playgo_demo_worker_health?on_conflict=account_id',env.SUPABASE_URL),{
+    method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,
+      'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
+    body:JSON.stringify({account_id:accountId,completed_at:new Date().toISOString()}),
+    redirect:'error',signal:AbortSignal.timeout(8000)
+  });
+  if (!heartbeat.ok) throw Error('WORKER_HEARTBEAT_FAILED');
   return counts;
 }
 

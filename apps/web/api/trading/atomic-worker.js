@@ -11,7 +11,7 @@ const FROM = Object.freeze({
   submit:'reserved',cancel:'reserved',confirm:'submitted',reject:'submitted',
   settle:'confirmed',reconcile_open:'unknown',reconcile_closed:'unknown',reconcile_rejected:'unknown'
 });
-export async function atomicDemoTransition({intentId,event,brokerContractId,env=process.env,fetchImpl=fetch}) {
+export async function atomicDemoTransition({intentId,event,brokerContractId,settlement,env=process.env,fetchImpl=fetch}) {
   if (!UUID.test(intentId || '')) throw Error('INVALID_INTENT_ID');
   if (!Object.hasOwn(FROM,event) && event !== 'uncertainty') throw Error('INVALID_EVENT');
   if (['confirm','reconcile_open','reconcile_closed'].includes(event) && !/^[0-9]{1,30}$/.test(String(brokerContractId || '')))
@@ -19,10 +19,10 @@ export async function atomicDemoTransition({intentId,event,brokerContractId,env=
   if (brokerContractId !== undefined && !/^[0-9]{1,30}$/.test(String(brokerContractId)))
     throw Error('INVALID_BROKER_CONTRACT_ID');
   const db = requireWorkerConfig(env);
-  const response = await fetchImpl(db.url+'/rest/v1/rpc/playgo_atomic_demo_transition', {
+  const response = await fetchImpl(db.url+'/rest/v1/rpc/'+(settlement?'playgo_settle_bound_demo':'playgo_atomic_demo_transition'), {
     method:'POST',
     headers:{apikey:db.key,Authorization:'Bearer '+db.key,'Content-Type':'application/json'},
-    body:JSON.stringify({p_intent_id:intentId,p_event:event,p_contract_id:brokerContractId===undefined?null:String(brokerContractId)}),
+    body:JSON.stringify(settlement ? {p_intent_id:intentId,p_contract_id:String(brokerContractId),p_cost:settlement.cost,p_proceeds:settlement.proceeds,p_sold_at:settlement.soldAt} : {p_intent_id:intentId,p_event:event,p_contract_id:brokerContractId===undefined?null:String(brokerContractId)}),
     signal:AbortSignal.timeout(10000)
   });
   if (!response.ok) throw Error('ATOMIC_TRANSITION_FAILED_'+response.status);

@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {Activity,LogOut,RefreshCw,ShieldCheck} from 'lucide-react';
+const PaperTerminal=React.lazy(()=>import('./PaperTerminal'));
 const DemoApp=React.lazy(()=>import('./demo/DemoApp'));
 export default function App(){
  const [session,setSession]=useState(null),[accounts,setAccounts]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
@@ -34,6 +35,7 @@ export default function App(){
  <main className="account-content"><h1>Accounts</h1> {error&&<div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
  {new URLSearchParams(location.search).has('auth_error')&&<div role="alert" className="notice">Deriv sign-in could not be completed. Check the registered callback URL and try again.</div>}
 {loading?<p role="status">Refreshing accounts…</p>:<><section className="panel account-panel"><div className="panelhead"><div><h2>Deriv accounts</h2><p>Accounts returned by Deriv · execution unavailable in this build</p></div><button className="outline" onClick={load}><RefreshCw size={16}/> Refresh</button></div>{accounts?.length?accounts.map(a=><div className="setting-line" key={a.account_id}><div><b>{a.account_id}</b><p>{a.account_type||'Type unavailable'} · {a.currency||'Currency unavailable'}</p></div><strong>{a.balance==null?'Balance unavailable':String(a.balance)+' '+(a.currency||'')}</strong></div>):<p>No account records loaded.</p>}</section>
+ <React.Suspense fallback={<p>Loading paper terminal…</p>}><PaperTerminal/></React.Suspense>
  <section className="panel account-panel"><h2>MetaTrader 5</h2><span className="status">Not linked</span><p>MT5 requires its own account number, broker server, and a Windows terminal bridge. Signing in with Deriv does not authorize access to an MT5 terminal.</p><p className="muted">The isolated bridge scaffold is included under services/mt5. No MT5 account is connected.</p></section></>}
  <div className="account-foot"><ShieldCheck size={18}/> Account connections are separate from order execution. Live trading is not implemented.</div></main></div>;
 }

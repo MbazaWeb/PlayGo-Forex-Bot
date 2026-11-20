@@ -9,5 +9,10 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "development/phase7-atomic-execution": false
+    }
+  }
 }

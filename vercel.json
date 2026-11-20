@@ -1,0 +1,7 @@
+{
+  "git": {
+    "deploymentEnabled": {
+      "development/phase7-atomic-execution": false
+    }
+  }
+}

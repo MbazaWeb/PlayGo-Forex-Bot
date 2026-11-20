@@ -1,0 +1,5 @@
+{
+  "name": "@playgo/api",
+  "private": true,
+  "type": "module"
+}

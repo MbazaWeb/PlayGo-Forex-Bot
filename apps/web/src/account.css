@@ -1,0 +1,14 @@
+.account-shell{min-height:100vh;background:#0b1019;color:#eff5ff}.account-header{display:flex;justify-content:space-between;align-items:center;padding:28px 5vw;border-bottom:1px solid #253040}.account-header .brand{padding:0}.account-content{max-width:1000px;margin:auto;padding:70px 24px}.account-content h1{font-size:clamp(30px,5vw,48px);margin:14px 0}.login-panel{margin:35px 0;padding:36px;max-width:620px;display:flex;flex-direction:column;gap:20px;align-items:flex-start}.login-panel p{line-height:1.7}.login-panel a{text-decoration:none}.account-panel{padding:28px;margin-top:28px}.account-panel p{line-height:1.7}.account-foot{display:flex;gap:12px;color:#8fa0b5;line-height:1.7;margin-top:30px}.preview-banner{position:sticky;top:0;z-index:1000;background:#22433d;color:white;display:flex;justify-content:center;align-items:center;gap:20px;padding:12px;font-size:12px}.preview-banner button{background:transparent;color:white;border:1px solid #7eb7aa;padding:6px 12px;border-radius:5px}.outline{display:inline-flex;align-items:center;gap:8px}.account-content .setting-line{gap:20px;overflow-wrap:anywhere}@media(max-width:600px){.account-header{padding:20px}.account-content{padding-top:35px}.login-panel{padding:25px}.preview-banner{flex-wrap:wrap;gap:8px}.account-panel{padding:20px}.account-panel .panelhead{flex-wrap:wrap}}
+.signin{min-height:100svh;background:#101720;color:#f3f6fb}
+.signin>header{padding:24px clamp(22px,5vw,72px);border-bottom:1px solid #283341}
+.signin .brand{padding:0}
+.signin .brandicon{background:#60d8ce;color:#101720;box-shadow:none}
+.signin-main{width:min(100% - 44px,400px);margin:0 auto;padding:clamp(50px,15vh,154px) 0 48px}
+.signin-main h1{font-size:clamp(29px,6vw,36px);font-weight:650;letter-spacing:-.035em;margin:0 0 12px}
+.signin-main p{font-size:15px;line-height:1.55;color:#aab8c9;margin:0 0 26px}
+.signin-action{display:flex;align-items:center;justify-content:space-between;min-height:48px;padding:0 16px;background:#60d8ce;color:#101720;border-radius:7px;text-decoration:none;font-weight:650}
+.signin-action:hover{background:#83e6dd}
+.signin-demo{display:block;margin:24px 0 0;padding:4px 0;background:none;border:0;color:#b6c5d6;text-decoration:underline;text-underline-offset:4px}
+.signin-main :focus-visible{outline:2px solid #f3f6fb;outline-offset:4px}
+.signin-main .signin-error{padding:12px 14px;border:1px solid #644943;border-radius:7px;color:#f6ccbf}
+.signin-error button{background:none;border:0;color:inherit;text-decoration:underline}

@@ -1,0 +1,19 @@
+{
+  "name": "playgo-trading",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @playgo/web",
+    "server": "node --env-file-if-exists=.env apps/api/src/index.js",
+    "build": "npm run build --workspace @playgo/web",
+    "start": "node --env-file-if-exists=.env apps/api/src/index.js",
+    "test": "node --test apps/api/test/*.test.js"
+  }
+}

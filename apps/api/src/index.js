@@ -1,0 +1,22 @@
+import {createServer} from 'node:http';
+import {readFile} from 'node:fs/promises';
+import {resolve,extname,sep} from 'node:path';
+import {createApp} from './app.js';
+const origin=process.env.APP_ORIGIN||'http://localhost:5173';
+const api=createApp({origin,clientId:process.env.DERIV_CLIENT_ID||'',redirectUri:process.env.DERIV_REDIRECT_URI||origin+'/api/auth/deriv/callback',scopes:process.env.DERIV_SCOPES||'trade'});
+const web=resolve('apps/web/dist');
+const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
+const server=createServer(async(req,res)=>{
+ if(req.url.startsWith('/api/'))return api(req,res);
+ if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);return res.end();}
+ try{
+  const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
+  let file=resolve(web,'.'+path);
+  if(file!==web&&!file.startsWith(web+sep)){res.writeHead(403);return res.end();}
+  if(path==='/'||!extname(path))file=resolve(web,'index.html');
+  const body=await readFile(file);
+  res.writeHead(200,{'Content-Type':mime[extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"});
+  res.end(req.method==='HEAD'?undefined:body);
+ }catch{res.writeHead(404);res.end('Build the frontend with npm run build first.');}
+});
+server.listen(Number(process.env.PORT||3001),'127.0.0.1',()=>console.log('PlayGo listening on http://127.0.0.1:'+(process.env.PORT||3001)));

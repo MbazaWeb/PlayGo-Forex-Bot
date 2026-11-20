@@ -1,3 +1,4 @@
+import {databaseRoot,databaseKey} from '../../web/api/trading/database-url.js';
 // One recovery pass. Schedule only on an isolated demo worker after qualification.
 import {listAccounts} from './providers/deriv.js';
 import {readOperations} from '../../web/api/trading/operations.js';
@@ -23,8 +24,8 @@ export async function recoverDemo({env=process.env,fetchImpl=fetch,Socket=WebSoc
     if (result.audited === true) counts.transitioned++;
     else counts.held++;
   }
-  const heartbeat=await fetchImpl(new URL('/rest/v1/playgo_demo_worker_health?on_conflict=account_id',env.SUPABASE_URL),{
-    method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,
+  const heartbeat=await fetchImpl(new URL(databaseRoot(env)+'/playgo_demo_worker_health?on_conflict=account_id'),{
+    method:'POST',headers:{apikey:databaseKey(env),Authorization:'Bearer '+databaseKey(env),
       'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
     body:JSON.stringify({account_id:accountId,completed_at:new Date().toISOString()}),
     redirect:'error',signal:AbortSignal.timeout(8000)

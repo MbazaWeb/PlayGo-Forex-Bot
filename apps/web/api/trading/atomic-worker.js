@@ -1,10 +1,11 @@
+import {databaseRoot,databaseKey} from './database-url.js';
 import {nextExecutionState} from './execution-state.js';
 // Internal-only demo worker. No broker submission and no public route.
 function requireWorkerConfig(env) {
   if (env.PLAYGO_DEMO_EXECUTION_ENABLED !== 'true') throw Error('DEMO_EXECUTION_DISABLED');
   if (env.LIVE_TRADING_ENABLED === 'true') throw Error('LIVE_TRADING_MUST_BE_DISABLED');
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(env.SUPABASE_URL || '') || (env.SUPABASE_SERVICE_ROLE_KEY || '').length < 24) throw Error('WORKER_DATABASE_NOT_CONFIGURED');
-  return {url:env.SUPABASE_URL.replace(/\/$/,''),key:env.SUPABASE_SERVICE_ROLE_KEY};
+  if (!databaseRoot(env) || (databaseKey(env) || '').length < 24) throw Error('WORKER_DATABASE_NOT_CONFIGURED');
+  return {url:databaseRoot(env),key:databaseKey(env)};
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FROM = Object.freeze({
@@ -19,8 +20,8 @@ export async function atomicDemoTransition({intentId,event,brokerContractId,sett
   if (brokerContractId !== undefined && !/^[0-9]{1,30}$/.test(String(brokerContractId)))
     throw Error('INVALID_BROKER_CONTRACT_ID');
   const db = requireWorkerConfig(env);
-  const response = await fetchImpl(db.url+'/rest/v1/rpc/'+(settlement?'playgo_settle_bound_demo':'playgo_atomic_demo_transition'), {
-    method:'POST',
+  const response = await fetchImpl(db.url+'/rpc/'+(settlement?'playgo_settle_bound_demo':'playgo_atomic_demo_transition'), {
+    method:'POST', redirect:'error',
     headers:{apikey:db.key,Authorization:'Bearer '+db.key,'Content-Type':'application/json'},
     body:JSON.stringify(settlement ? {p_intent_id:intentId,p_contract_id:String(brokerContractId),p_cost:settlement.cost,p_proceeds:settlement.proceeds,p_sold_at:settlement.soldAt} : {p_intent_id:intentId,p_event:event,p_contract_id:brokerContractId===undefined?null:String(brokerContractId)}),
     signal:AbortSignal.timeout(10000)

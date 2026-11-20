@@ -1,12 +1,13 @@
+import {databaseRoot,databaseKey} from './database-url.js';
 import {DEFAULT_LIMITS} from './risk.js';
 
 export async function readOperations({accountId,accounts,recovery=false,env=process.env,fetchImpl=fetch}) {
   if (!accounts.some(a=>a.account_type === 'demo' && a.account_id === accountId))
     throw Error('DEMO_ACCOUNT_REQUIRED');
-  const key=env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(env.SUPABASE_URL) || !key)
+  const key=databaseKey(env);
+  if (!databaseRoot(env) || !key)
     throw Error('DATABASE_UNAVAILABLE');
-  const url=new URL('/rest/v1/playgo_execution_intents',env.SUPABASE_URL);
+  const url=new URL(databaseRoot(env)+'/playgo_execution_intents');
   if (!/^[a-zA-Z0-9_-]{3,80}$/.test(accountId)) throw Error('DEMO_ACCOUNT_REQUIRED');
   url.search=new URLSearchParams({account_id:'eq.'+accountId,account_mode:'eq.demo',
     select:'account_id,strategy_id,symbol,status,updated_at',order:'updated_at.desc',limit:'50'});
@@ -20,7 +21,7 @@ export async function readOperations({accountId,accounts,recovery=false,env=proc
   const rows=await res.json();
   if (!Array.isArray(rows) || rows.some(row=>row.account_id !== accountId)) throw Error('ACCOUNT_MISMATCH');
   if (recovery) return {intents:rows};
-  const statusResponse=await fetchImpl(new URL('/rest/v1/rpc/playgo_demo_risk_status',url),{
+  const statusResponse=await fetchImpl(new URL(databaseRoot(env)+'/rpc/playgo_demo_risk_status'),{
     method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},
     body:JSON.stringify({p_account:accountId}),redirect:'error',signal:AbortSignal.timeout(8000)
   });

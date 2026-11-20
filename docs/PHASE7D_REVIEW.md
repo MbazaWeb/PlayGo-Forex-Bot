@@ -35,3 +35,7 @@ The recovery command reads server-owned account-scoped intents and fetches evide
 ## Repeatable local PostgreSQL staging check
 
 From the repository root run `npm ci` followed by `npm run verify:postgres` on Node 22 or later. This starts a disposable, loopback-only native PostgreSQL cluster, applies all six execution and strategy SQL files, models the worker permissions, exercises competing sessions and checks the settled balance and audit history after restart. The runner removes its temporary cluster on completion. Use `npm test` for the separate app regression suite. The application still uses its Supabase REST endpoints during normal operation.
+
+To exercise the application's REST calls as well, install PostgREST (verified with 16.6) and run `npm run verify:postgres -- --rest`. Set POSTGREST_BIN if the executable is outside PATH. The runner starts both services on loopback, generates temporary credentials, checks strategy settings, worker heartbeat and fixture settlement through HTTP, and stops both services on completion. Deriv identity and trade outcomes in this check are fixtures.
+
+To connect the demo trading modules to an independently managed local PostgREST instance, set PLAYGO_ENV=local, PLAYGO_LOCAL_REST_URL to its http://127.0.0.1:PORT origin and PLAYGO_LOCAL_WORKER_JWT to its server-side worker JWT. Local mode requires its own token and URL. Hosted mode retains the Supabase REST prefix.

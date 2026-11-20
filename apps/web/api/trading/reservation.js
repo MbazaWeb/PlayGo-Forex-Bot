@@ -1,17 +1,18 @@
+import {databaseRoot,databaseKey} from './database-url.js';
 // Durable demo-only reservation. Internal worker module, NOT a public API route.
 // Never place a broker order from this module.
 import { assessTrade } from './risk.js';
 
 function requireServerConfig(env) {
-  const url = env.SUPABASE_URL || '';
-  const key = env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(url) || key.length < 24)
+  const url = databaseRoot(env);
+  const key = databaseKey(env) || '';
+  if (!url || key.length < 24)
     throw Error('DATABASE_NOT_CONFIGURED');
   return { url: url.replace(/\/$/, ''), key };
 }
 async function request(db, path, init = {}, fetchImpl = fetch) {
-  const res = await fetchImpl(db.url + '/rest/v1/' + path, {
-    ...init,
+  const res = await fetchImpl(db.url + '/' + path, {
+    ...init, redirect:'error',
     headers: { apikey: db.key, Authorization: 'Bearer ' + db.key,
       'Content-Type': 'application/json', ...init.headers },
     signal: AbortSignal.timeout(12000)

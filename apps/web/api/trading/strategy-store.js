@@ -1,3 +1,4 @@
+import {databaseRoot,databaseKey} from './database-url.js';
 import {randomUUID} from 'node:crypto';
 import {validPeriods} from './crossover.js';
 
@@ -5,9 +6,9 @@ export async function strategyStore(context, action='read', value={}) {
   const {accountId,accounts,env=process.env,fetchImpl=fetch}=context;
   if(!/^[a-zA-Z0-9_-]{3,80}$/.test(accountId??'') ||
      !accounts.some(row=>row.account_id===accountId && row.account_type==='demo')) throw Error('DEMO_ACCOUNT_REQUIRED');
-  const key=env.SUPABASE_SERVICE_ROLE_KEY;
-  if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(env.SUPABASE_URL) || !key) throw Error('DATABASE_UNAVAILABLE');
-  const url=new URL('/rest/v1/playgo_demo_strategies',env.SUPABASE_URL);
+  const key=databaseKey(env);
+  if(!databaseRoot(env) || !key) throw Error('DATABASE_UNAVAILABLE');
+  const url=new URL(databaseRoot(env)+'/playgo_demo_strategies');
   const headers={apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'};
   let method='GET',body;
   if(action==='save'){

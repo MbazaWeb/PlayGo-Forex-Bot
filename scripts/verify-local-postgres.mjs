@@ -5,9 +5,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 
+const pgPort=randomInt(30000,50000);
 const directory=await mkdtemp(join(tmpdir(),'playgo-local-'));
 const pg=new EmbeddedPostgres({
-  databaseDir:directory,port:randomInt(30000,50000),user:'postgres',
+  databaseDir:directory,port:pgPort,user:'postgres',
   password:randomBytes(24).toString('hex'),persistent:true,autoRehydrateSymlinks:true,
   postgresFlags:['-c','listen_addresses=127.0.0.1','-c','unix_socket_directories='],
   onLog:()=>{},onError:()=>{}
@@ -33,6 +34,10 @@ try {
     await admin.query('commit');
   }
   await admin.query('grant select,insert,update on playgo_execution_intents to service_role; grant select,insert on playgo_execution_audit to service_role; grant usage on all sequences in schema public to service_role');
+  if(process.argv.includes('--rest')) {
+    const {verifyLocalRest}=await import('./verify-local-rest.mjs');
+    await verifyLocalRest(admin,pgPort);
+  }
   const a=await connect('worker'),b=await connect('worker');
   const record={account_id:'local-demo',account_mode:'demo',status:'reserved',idempotency_key:'local-demo-000001',strategy_id:'crossover',symbol:'frxEURUSD',contract_type:'CALL',stake:1};
   const reserve=c=>c.query('select playgo_reserve_demo($1) as r',[record]);

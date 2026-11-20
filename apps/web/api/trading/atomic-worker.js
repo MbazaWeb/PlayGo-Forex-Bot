@@ -1,3 +1,4 @@
+import {nextExecutionState} from './execution-state.js';
 // Internal-only demo worker. No broker submission and no public route.
 function requireWorkerConfig(env) {
   if (env.PLAYGO_DEMO_EXECUTION_ENABLED !== 'true') throw Error('DEMO_EXECUTION_DISABLED');
@@ -26,7 +27,9 @@ export async function atomicDemoTransition({intentId,event,brokerContractId,env=
   });
   if (!response.ok) throw Error('ATOMIC_TRANSITION_FAILED_'+response.status);
   const result = await response.json();
-  if (result?.audited !== true || !['reserved','submitted','confirmed','rejected','unknown','settled'].includes(result.status))
+  if (result?.audited !== true || result.intentId !== intentId ||
+      (event !== 'uncertainty' && result.previous !== FROM[event]) ||
+      nextExecutionState(result.previous,event) !== result.status)
     throw Error('INVALID_ATOMIC_TRANSITION_RESPONSE');
   return result;
 }

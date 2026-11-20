@@ -16,12 +16,12 @@ export function assessTrade({ intent, account, state, limits = DEFAULT_LIMITS, n
   if (!finite(intent.stake) || intent.stake <= 0 || intent.stake > limits.maxStake) return reject('STAKE_LIMIT');
   if (!finite(account.balance) || account.balance < intent.stake) return reject('INSUFFICIENT_BALANCE');
   if (!finite(state.dailyRealizedPnl) || state.dailyRealizedPnl <= -limits.maxDailyLoss) return reject('DAILY_LOSS_LIMIT');
-  if (!Number.isSafeInteger(state.openContracts) || state.openContracts >= limits.maxOpenContracts) return reject('OPEN_CONTRACT_LIMIT');
-  if (!Number.isSafeInteger(state.tradesToday) || state.tradesToday >= limits.maxTradesPerDay) return reject('DAILY_TRADE_LIMIT');
-  if (!Number.isSafeInteger(state.consecutiveLosses) || state.consecutiveLosses >= limits.maxConsecutiveLosses) return reject('LOSS_STREAK_LIMIT');
+  if (!Number.isSafeInteger(state.openContracts) || state.openContracts < 0 || state.openContracts >= limits.maxOpenContracts) return reject('OPEN_CONTRACT_LIMIT');
+  if (!Number.isSafeInteger(state.tradesToday) || state.tradesToday < 0 || state.tradesToday >= limits.maxTradesPerDay) return reject('DAILY_TRADE_LIMIT');
+  if (!Number.isSafeInteger(state.consecutiveLosses) || state.consecutiveLosses < 0 || state.consecutiveLosses >= limits.maxConsecutiveLosses) return reject('LOSS_STREAK_LIMIT');
   if (!finite(state.lastTradeAt) || now - state.lastTradeAt < limits.minSecondsBetweenTrades * 1000) return reject('COOLDOWN');
   if (!['CALL','PUT'].includes(intent.contractType)) return reject('UNSUPPORTED_CONTRACT');
-  if (typeof intent.symbol !== 'string' || !/^[A-Z0-9_]{2,30}$/.test(intent.symbol)) return reject('INVALID_SYMBOL');
+  if (typeof intent.symbol !== 'string' || !/^[A-Za-z0-9_]{2,30}$/.test(intent.symbol)) return reject('INVALID_SYMBOL');
   if (!Number.isSafeInteger(intent.duration) || intent.duration < 1 || intent.duration > 60 || intent.durationUnit !== 'm') return reject('INVALID_DURATION');
   if (typeof account.currency !== 'string' || !/^[A-Z]{3}$/.test(account.currency)) return reject('INVALID_CURRENCY');
   return { allowed: true, reason: 'DEMO_POLICY_PASSED' };

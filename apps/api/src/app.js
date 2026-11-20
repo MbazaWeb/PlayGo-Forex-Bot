@@ -1,3 +1,5 @@
+import {readOperations} from '../../web/api/trading/operations.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote} from '../../web/api/trading/demo-portfolio.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 const random=()=>randomBytes(32).toString('base64url');
@@ -49,8 +51,22 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     sessions.delete(sid);setCookie(res,cookieName,'',0);return json(res,200,{ok:true});
    }
    if(!session)return json(res,401,{error:'Sign in with Deriv first.'});
+  if (['/api/demo/portfolio','/api/demo/history','/api/demo/quote','/api/demo/operations'].includes(path) && req.method === 'GET') {
+    try {
+      const accountId = new URL(req.url,'http://localhost').searchParams.get('account');
+      const accounts = await listAccounts(session.token, fetcher, config.clientId);
+      const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
+      const context = {token:session.token, accountId, accounts, appId:config.clientId, fetchImpl:fetcher};
+      const result = path.endsWith('/quote') ? await readMarketQuote(context, {
+        symbol:'frxEURUSD',contractType:'CALL',duration:5,durationUnit:'m',stake:1
+      }) : await read(context);
+      return json(res, 200, result);
+    } catch (err) {
+      return json(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.status || 502, {error:'Demo portfolio unavailable'});
+    }
+  }
    if(path==='/api/accounts'&&req.method==='GET'){
-    try{return json(res,200,{accounts:await listAccounts(session.token,fetcher)});}
+    try{return json(res,200,{accounts:await listAccounts(session.token,fetcher,config.clientId)});}
     catch(e){if(e.status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}return json(res,e.status||502,{error:e.status===401?'Your Deriv session expired. Sign in again.':'Could not retrieve Deriv accounts.'});}
    }
    if(path==='/api/mt5/status'&&req.method==='GET')return json(res,200,{status:'not_linked',execution:false});

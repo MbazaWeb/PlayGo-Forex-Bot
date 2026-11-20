@@ -14,6 +14,10 @@
     "server": "node --env-file-if-exists=.env apps/api/src/index.js",
     "build": "npm run build --workspace @playgo/web",
     "start": "node --env-file-if-exists=.env apps/api/src/index.js",
-    "test": "node --test apps/api/test/*.test.js"
+    "test": "node --test",
+    "recover:demo": "node --env-file-if-exists=.env apps/api/src/recover-demo.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.17"
   }
 }

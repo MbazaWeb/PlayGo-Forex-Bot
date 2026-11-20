@@ -21,6 +21,7 @@ async function request(db, path, init = {}, fetchImpl = fetch) {
 }
 export async function reserveDemoIntent({ intent, account, state, strategyId, env = process.env, fetchImpl = fetch }) {
   if (env.PLAYGO_DEMO_EXECUTION_ENABLED !== 'true') throw Error('DEMO_EXECUTION_DISABLED');
+  if (env.LIVE_TRADING_ENABLED === 'true') throw Error('LIVE_TRADING_MUST_BE_DISABLED');
   const decision = assessTrade({ intent, account, state });
   if (!decision.allowed) return { accepted: false, reason: decision.reason };
   if (!/^[a-zA-Z0-9_-]{3,80}$/.test(strategyId || '')) throw Error('INVALID_STRATEGY');
@@ -33,28 +34,16 @@ export async function reserveDemoIntent({ intent, account, state, strategyId, en
     stake: intent.stake, status: 'reserved'
   };
   // DB unique indexes are the concurrency gate. Never retry a failed insert as a new order.
-  let rows;
   try {
-    rows = await request(db, 'playgo_execution_intents?select=id,idempotency_key,status', {
-      method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(record)
+    const reservation = await request(db, 'rpc/playgo_reserve_demo', {
+      method: 'POST', body: JSON.stringify({p_record: record})
     }, fetchImpl);
-  } catch (error) {
-    // Including uniqueness conflicts: caller must reconcile, not resubmit.
-    return { accepted: false, reason: 'RESERVATION_NOT_CONFIRMED' };
-  }
-  if (!Array.isArray(rows) || rows.length !== 1 || rows[0].status !== 'reserved') {
-    return { accepted: false, reason: 'RESERVATION_NOT_CONFIRMED' };
-  }
-  const reservation = rows[0];
-  try {
-    await request(db, 'playgo_execution_audit', {
-      method: 'POST', headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify({ intent_id: reservation.id, event_type: 'DEMO_INTENT_RESERVED',
-        event_data: { strategy_id: strategyId, symbol: intent.symbol, contract_type: intent.contractType } })
-    }, fetchImpl);
+    if (reservation?.audited === true && reservation.status === 'reserved' &&
+        /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(reservation.id)) {
+      return { accepted: true, reservationId: reservation.id, status: 'reserved', brokerExecution: false };
+    }
   } catch {
-    // An unaudited reservation must remain unresolved. No broker execution permitted.
-    return { accepted: false, reason: 'AUDIT_WRITE_FAILED', reservationId: reservation.id };
+    // A lost response may follow a committed reservation. Keep the key blocked.
   }
-  return { accepted: true, reservationId: reservation.id, status: 'reserved', brokerExecution: false };
+  return { accepted: false, reason: 'RESERVATION_NOT_CONFIRMED' };
 }

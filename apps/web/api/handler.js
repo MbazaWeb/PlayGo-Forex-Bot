@@ -1,3 +1,6 @@
+import {readOperations} from './trading/operations.js';
+import {listAccounts} from '../../api/src/providers/deriv.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote} from './trading/demo-portfolio.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
@@ -75,13 +78,14 @@ export default async function handler(req, res) {
   const path = String(req.query.route || '').replace(/^\/+/, '');
   const configured = validConfig();
   const cs = cookies(req);
-  const session = configured ? open(cs['__Host-playgo_session']) : null;
+  const candidate = configured ? open(cs['__Host-playgo_session']) : null;
+  const session = typeof candidate?.token === 'string' && candidate.token.length ? candidate : null;
 
   if (path === 'mt5/ingest' && req.method === 'POST') {
     const secret = process.env.PLAYGO_MT5_SYNC_TOKEN || '';
     const auth = String(req.headers.authorization || '');
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-    if (secret.length < 32 || token.length !== secret.length ||
+    if (secret.length < 32 || Buffer.byteLength(token) !== Buffer.byteLength(secret) ||
         !timingSafeEqual(Buffer.from(token), Buffer.from(secret))) return respond(res, 401, { error: 'Unauthorized' });
     const db = dbConfig();
     const expectedLogin = Number(process.env.MT5_EXPECTED_LOGIN);
@@ -119,7 +123,7 @@ export default async function handler(req, res) {
     const flow = open(cs['__Host-playgo_oauth']);
     const state = String(req.query.state || '');
     const code = typeof req.query.code === 'string' ? req.query.code : '';
-    if (!flow || !state || !code || req.query.error ||
+    if (typeof flow?.state !== 'string' || typeof flow.verifier !== 'string' || !state || !code || req.query.error ||
       Buffer.byteLength(state) !== Buffer.byteLength(flow.state) ||
       !timingSafeEqual(Buffer.from(state), Buffer.from(flow.state))) return redirect(res, ORIGIN + '/?auth_error=invalid_callback');
     try {
@@ -141,9 +145,23 @@ export default async function handler(req, res) {
     return respond(res, 200, { ok: true });
   }
   if (!session) return respond(res, 401, { error: 'Sign in with Deriv first.' });
+  if (['demo/portfolio','demo/history','demo/quote','demo/operations'].includes(path) && req.method === 'GET') {
+    try {
+      const accountId = req.query.account;
+      const accounts = await listAccounts(session.token, fetch, CLIENT);
+      const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
+      const context = {token:session.token, accountId, accounts, appId:CLIENT, fetchImpl:fetch};
+      const result = path.endsWith('/quote') ? await readMarketQuote(context, {
+        symbol:'frxEURUSD',contractType:'CALL',duration:5,durationUnit:'m',stake:1
+      }) : await read(context);
+      return respond(res, 200, result);
+    } catch (err) {
+      return respond(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.status || 502, {error:'Demo portfolio unavailable'});
+    }
+  }
   if (path === 'accounts' && req.method === 'GET') {
     try {
-      const response = await fetch(ACCOUNTS_URL, { headers: { Authorization: 'Bearer ' + session.token }, signal: AbortSignal.timeout(15000) });
+      const response = await fetch(ACCOUNTS_URL, { headers: { 'Deriv-App-ID': CLIENT, Authorization: 'Bearer ' + session.token }, signal: AbortSignal.timeout(15000) });
       if (response.status === 401) {
         res.setHeader('Set-Cookie', cookie('__Host-playgo_session', '', 0));
         return respond(res, 401, { error: 'Your Deriv session expired. Sign in again.' });
@@ -165,7 +183,7 @@ export default async function handler(req, res) {
     const db = dbConfig(), owner = process.env.MT5_OWNER_DERIV_ACCOUNT_ID || '';
     if (!db || !owner) return respond(res, 200, { status: 'not_linked', execution: false });
     try {
-      const identity = await fetch(ACCOUNTS_URL, { headers: { Authorization: 'Bearer ' + session.token }, signal: AbortSignal.timeout(12000) });
+      const identity = await fetch(ACCOUNTS_URL, { headers: { 'Deriv-App-ID': CLIENT, Authorization: 'Bearer ' + session.token }, signal: AbortSignal.timeout(12000) });
       if (!identity.ok) return respond(res, 403, { error: 'Cannot verify account owner' });
       const body = await identity.json();
       const rows = Array.isArray(body.data) ? body.data : body.data?.accounts ?? body.accounts;

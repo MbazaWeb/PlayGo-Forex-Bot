@@ -12,7 +12,7 @@ const transitions = Object.freeze({
 export function nextExecutionState(current, event) {
   if (!EXECUTION_STATES.includes(current)) throw Error('INVALID_EXECUTION_STATE');
   const next = transitions[current][event];
-  if (!next) throw Error('INVALID_EXECUTION_TRANSITION');
+  if (!Object.hasOwn(transitions[current], event) || !next) throw Error('INVALID_EXECUTION_TRANSITION');
   return next;
 }
 export function classifyBrokerOutcome({ phase, response, error }) {

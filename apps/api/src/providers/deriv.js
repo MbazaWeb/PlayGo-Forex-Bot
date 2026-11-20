@@ -7,8 +7,8 @@ export async function exchangeCode({code,verifier,config,fetcher=fetch}){
  if(typeof body.access_token!=='string'||!Number.isFinite(body.expires_in)||body.expires_in<=0)throw Error('Invalid token response');
  return {token:body.access_token,expires:Date.now()+Math.min(body.expires_in,28800)*1000};
 }
-export async function listAccounts(token,fetcher=fetch){
- const r=await fetcher(ACCOUNTS_URL,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});
+export async function listAccounts(token,fetcher=fetch,appId){
+ const r=await fetcher(ACCOUNTS_URL,{redirect:'error',headers:{...(appId ? {'Deriv-App-ID':appId} : {}),Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});
  if(!r.ok){const e=Error('Deriv account service returned an error');e.status=r.status===401?401:502;throw e;}
  const body=await r.json();
  const rows=Array.isArray(body.data)?body.data:body.data?.accounts??body.accounts;

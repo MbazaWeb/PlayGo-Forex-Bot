@@ -16,9 +16,11 @@
     "start": "node --env-file-if-exists=.env apps/api/src/index.js",
     "test": "node --test",
     "recover:demo": "node --env-file-if-exists=.env apps/api/src/recover-demo.js",
-    "strategy:demo": "node --env-file-if-exists=.env apps/api/src/strategy-worker.js"
+    "strategy:demo": "node --env-file-if-exists=.env apps/api/src/strategy-worker.js",
+    "verify:postgres": "node scripts/verify-local-postgres.mjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.17"
+    "@electric-sql/pglite": "^0.5.17",
+    "embedded-postgres": "^18.7.0-beta.19"
   }
 }

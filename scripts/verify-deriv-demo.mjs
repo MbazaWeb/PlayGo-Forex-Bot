@@ -1,18 +1,20 @@
 import {listAccounts} from '../apps/api/src/providers/deriv.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote} from '../apps/web/api/trading/demo-portfolio.js';
 
-const required=['DERIV_CLIENT_ID','DERIV_DEMO_TOKEN','DERIV_DEMO_ACCOUNT_ID'];
+const required=['DERIV_CLIENT_ID','DERIV_DEMO_TOKEN'];
 const missing=required.filter(name=>!process.env[name]?.trim());
 if(missing.length){
   console.error('Missing server environment variables: '+missing.join(', '));
   process.exitCode=1;
 } else {
-  const {DERIV_CLIENT_ID:appId,DERIV_DEMO_TOKEN:token,DERIV_DEMO_ACCOUNT_ID:accountId}=process.env;
+  const {DERIV_CLIENT_ID:appId,DERIV_DEMO_TOKEN:token,DERIV_DEMO_ACCOUNT_ID:requestedId}=process.env;
   let stage='authenticated account lookup';
   try {
     const accounts=await listAccounts(token,fetch,appId);
-    const matches=accounts.filter(row=>row.account_id===accountId);
+    const matches=accounts.filter(row=>row.account_type==='demo' && (!requestedId || row.account_id===requestedId));
+    if(!requestedId && matches.length>1) stage='account selection: set DERIV_DEMO_ACCOUNT_ID for one of your demo accounts';
     if(matches.length!==1 || matches[0].account_type!=='demo')throw Error();
+    const accountId=matches[0].account_id;
     console.log('PASS authenticated demo identity');
     const context={accounts,accountId,appId,token};
     stage='demo portfolio';

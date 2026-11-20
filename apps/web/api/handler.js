@@ -1,3 +1,4 @@
+import {strategyStore} from './trading/strategy-store.js';
 import {readOperations} from './trading/operations.js';
 import {listAccounts} from '../../api/src/providers/deriv.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from './trading/demo-portfolio.js';
@@ -145,6 +146,22 @@ export default async function handler(req, res) {
     return respond(res, 200, { ok: true });
   }
   if (!session) return respond(res, 401, { error: 'Sign in with Deriv first.' });
+  if (path === 'demo/strategy' && ['GET','POST'].includes(req.method)) {
+    const write=req.method==='POST';
+    if(write && (req.headers.origin!==ORIGIN || req.headers['x-playgo-request']!=='1'))
+      return respond(res,403,{error:'Request origin rejected'});
+    try {
+      const params=new URLSearchParams(req.query);
+      const accounts=await listAccounts(session.token,fetch,CLIENT);
+      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetch},write?'save':'read',{
+        fast:Number(params.get('fast')),slow:Number(params.get('slow')),
+        enabled:params.get('enabled')==='true'?true:params.get('enabled')==='false'?false:null
+      });
+      return respond(res,200,{strategy:row});
+    } catch(err) {
+      return respond(res,err.message==='DEMO_ACCOUNT_REQUIRED'?403:err.message==='INVALID_STRATEGY'?400:err.status||503,{error:'Strategy unavailable'});
+    }
+  }
   if (['demo/portfolio','demo/history','demo/quote','demo/operations','demo/signal'].includes(path) && req.method === 'GET') {
     try {
       const accountId = req.query.account;

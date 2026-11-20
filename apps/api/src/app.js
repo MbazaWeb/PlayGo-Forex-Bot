@@ -1,3 +1,4 @@
+import {strategyStore} from '../../web/api/trading/strategy-store.js';
 import {readOperations} from '../../web/api/trading/operations.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../web/api/trading/demo-portfolio.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
@@ -51,6 +52,22 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     sessions.delete(sid);setCookie(res,cookieName,'',0);return json(res,200,{ok:true});
    }
    if(!session)return json(res,401,{error:'Sign in with Deriv first.'});
+  if (path === '/api/demo/strategy' && ['GET','POST'].includes(req.method)) {
+    const write=req.method==='POST';
+    if(write && (req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1'))
+      return json(res,403,{error:'Request origin rejected'});
+    try {
+      const params=new URL(req.url,'http://localhost').searchParams;
+      const accounts=await listAccounts(session.token,fetcher,config.clientId);
+      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetcher},write?'save':'read',{
+        fast:Number(params.get('fast')),slow:Number(params.get('slow')),
+        enabled:params.get('enabled')==='true'?true:params.get('enabled')==='false'?false:null
+      });
+      return json(res,200,{strategy:row});
+    } catch(err) {
+      return json(res,err.message==='DEMO_ACCOUNT_REQUIRED'?403:err.message==='INVALID_STRATEGY'?400:err.status||503,{error:'Strategy unavailable'});
+    }
+  }
   if (['/api/demo/portfolio','/api/demo/history','/api/demo/quote','/api/demo/operations','/api/demo/signal'].includes(path) && req.method === 'GET') {
     try {
       const accountId = new URL(req.url,'http://localhost').searchParams.get('account');

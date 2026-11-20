@@ -29,6 +29,22 @@ export default function Strategy({accountId}) {
     setOutput('Reading candles…');check();
     return ()=>{ctrl.abort();clearTimeout(timer);};
   },[accountId,saved]);
+  const [worker,setWorker]=useState(null),[workerMessage,setWorkerMessage]=useState(''),[busy,setBusy]=useState(false);
+  async function workerSettings(enabled) {
+    setBusy(true);
+    try {
+      const params=new URLSearchParams({account:accountId});
+      const write=typeof enabled==='boolean';
+      if(write){
+        params.set('fast',saved.fast);params.set('slow',saved.slow);params.set('enabled',enabled);
+      }
+      const res=await fetch('/api/demo/strategy?'+params,write?{method:'POST',headers:{'X-PlayGo-Request':'1'}}:{});
+      if(!res.ok) throw Error();
+      const row=(await res.json()).strategy;
+      setWorker(row);setWorkerMessage(row?'':'No background configuration saved.');
+    } catch {setWorkerMessage('Background settings unavailable.');}
+    finally {setBusy(false);}
+  }
   function save(e){
     e.preventDefault();
     const config={fast:Number(fast),slow:Number(slow)};
@@ -41,5 +57,11 @@ export default function Strategy({accountId}) {
     <form onSubmit={save}><label>Fast period <input type="number" min="2" max="99" value={fast} onChange={e=>setFast(e.target.value)}/></label>
     <label> Slow period <input type="number" min="3" max="100" value={slow} onChange={e=>setSlow(e.target.value)}/></label>
     <button className="outline">Save periods</button></form>{error && <p role="alert">{error}</p>}
-    <p role="status">{saved.fast}/{saved.slow} · {output}</p><p>Signals update while this screen is open. Order submission is disabled.</p></section>;
+    <p role="status">{saved.fast}/{saved.slow} · {output}</p><p>Preview updates while this screen is open.</p>
+    <h3>Background signals</h3><p>The server worker uses the periods saved below. Order submission is disabled.</p>
+    <button className="outline" disabled={busy} onClick={()=>workerSettings(true)}>Enable {saved.fast}/{saved.slow} on worker</button>
+    <button className="outline" disabled={busy} onClick={()=>workerSettings(false)}>Pause worker signals</button>
+    <button className="outline" disabled={busy} onClick={()=>workerSettings()}>Read worker status</button>
+    {worker && <p>Configuration {worker.enabled?'enabled':'paused'} · {worker.fast}/{worker.slow} · Last signal {worker.signal??'pending'} {worker.observed_minute?new Date(worker.observed_minute*1000).toLocaleString():''}</p>}
+    <p role="status">{workerMessage}</p></section>;
 }

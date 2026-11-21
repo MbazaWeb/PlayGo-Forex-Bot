@@ -64,6 +64,12 @@ export async function verifyLocalRest(admin,pgPort) {
     const trades=await strategyStore(ctx,'history');
     assert.equal(trades.length,1);assert.equal(Number(trades[0].pnl),1);
     assert.equal(await run(),'current');
+    const auto=await strategyStore(ctx,'save',{packId:'system-auto',fast:8,slow:50,enabled:true});
+    assert.equal(auto.fast,5);assert.equal(auto.slow,20);
+    assert.equal(await run(),'updated');
+    const observation=await strategyStore(ctx);
+    assert.equal(observation.pack_id,'system-auto');assert.equal(observation.signal,'none');
+    assert.equal(observation.selected_rule,null);
     console.log('PASS demo worker through local PostgREST to PostgreSQL paper settlement; broker data mocked.');
     assert.equal((await readOperations(ctx)).status.paused,true);
     const fetchImpl=(url,init)=>{

@@ -19,7 +19,7 @@ export async function strategyPass({env=process.env,fetchImpl=fetch,Socket=WebSo
   const minute=Math.floor(Date.now()/60000)*60;
   if(saved.observed_minute>=minute) return 'current';
   const result=saved.pack_id ? await readPackSignal(ctx,saved) : await readDemoSignal(ctx,new URLSearchParams({fast:saved.fast,slow:saved.slow}));
-  const row=await strategyStore(ctx,'publish',{version:saved.version,minute:result.closedAt??minute,signal:result.signal,open:result.open,close:result.close});
+  const row=await strategyStore(ctx,'publish',{version:saved.version,minute:result.closedAt??minute,signal:result.signal,open:result.open,close:result.close,rule:result.rule??null});
   if(row && saved.pack_id && brokerMode && result.closedAt===minute && ['up','down'].includes(result.signal)){
     const outcome=await executeDemoOrder({env,strategyId:'deriv-'+saved.pack_id,intent:{
       idempotencyKey:saved.version+'_'+minute,symbol:'frxEURUSD',contractType:result.signal==='up'?'CALL':'PUT',

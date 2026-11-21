@@ -1,3 +1,4 @@
+import {AUTOMATIC,AUTO_PERIODS} from './pack/automatic.js';
 import {catalog} from './pack/catalog.js';
 import {databaseRoot,databaseKey} from './database-url.js';
 import {randomUUID} from 'node:crypto';
@@ -13,11 +14,12 @@ export async function strategyStore(context, action='read', value={}) {
   const headers={apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'};
   let method='GET',body;
   if(action==='save'){
-    if(value.packId && !catalog.some(s=>s.available && s.id===value.packId)) throw Error('INVALID_STRATEGY');
+    if(value.packId===AUTOMATIC)value={...value,...AUTO_PERIODS};
+    if(value.packId && value.packId!==AUTOMATIC && !catalog.some(s=>s.available && s.id===value.packId)) throw Error('INVALID_STRATEGY');
     if(!validPeriods(value.fast,value.slow) || typeof value.enabled!=='boolean') throw Error('INVALID_STRATEGY');
     method='POST';url.searchParams.set('on_conflict','account_id');
     headers.Prefer='resolution=merge-duplicates,return=representation';
-    body={pack_id:value.packId||null,bar_open:null,bar_close:null,account_id:accountId,fast:value.fast,slow:value.slow,enabled:value.enabled,version:randomUUID(),signal:null,observed_minute:null};
+    body={selected_rule:null,pack_id:value.packId||null,bar_open:null,bar_close:null,account_id:accountId,fast:value.fast,slow:value.slow,enabled:value.enabled,version:randomUUID(),signal:null,observed_minute:null};
   } else {
     url.searchParams.set('account_id','eq.'+accountId);
     if(action==='history'){
@@ -28,6 +30,7 @@ export async function strategyStore(context, action='read', value={}) {
       url.searchParams.set('enabled','eq.true');
       url.searchParams.set('or','(observed_minute.is.null,observed_minute.lt.'+value.minute+')');
       body={signal:value.signal,observed_minute:value.minute};
+      if(value.rule!==undefined)body.selected_rule=value.rule;
       if(value.open!==undefined){body.bar_open=value.open;body.bar_close=value.close;}
     } else if(action!=='read') throw Error('INVALID_ACTION');
   }

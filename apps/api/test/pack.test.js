@@ -15,3 +15,11 @@ test('pack rejects missing minutes, stale bars, and malformed OHLC',()=>{
  for(const bars of [rows.slice(0,-1),rows.slice(10,20),rows.map((r,i)=>i===3?{...r,low:10}:r)])
    assert.deepEqual(packSignal(bars,config,minute),{signal:'unavailable'});
 });
+test('system automation selects trend or range rules and holds on flat or incomplete data',()=>{
+ const config={pack_id:'system-auto',fast:5,slow:20};
+ assert.equal(packSignal(rows,config,minute).rule,'rsi-momentum');
+ const sample=rows.map((r,i)=>({...r,open:1,high:1.02,low:1,close:1+(i%2)*.01}));
+ assert.equal(packSignal(sample,config,minute).rule,'bollinger-bands-reversion');
+ assert.equal(packSignal(sample.map(r=>({...r,close:1})),config,minute).signal,'none');
+ assert.equal(packSignal(sample.slice(0,-1),config,minute).signal,'unavailable');
+});

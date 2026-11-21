@@ -4,3 +4,23 @@
 .market-controls label { display:grid; gap:5px; flex:1 1 120px; min-width:0; }
 .market-controls label:first-child { flex:2 1 210px; }
 .market-controls select { width:100%; min-width:0; }
+
+.bot-setup { max-width:1060px; margin-bottom:20px; }
+.bot-state {border:1px solid #39525b;border-radius:16px;padding:5px 12px;color:#9eeade;font-size:.85rem}
+.mode-field {border:0;padding:0;margin:24px 0 12px;min-width:0}
+.mode-field legend {font-weight:650;margin-bottom:10px}
+.mode-options,.bot-status {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mode-option {display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:8px;padding:16px;border:1px solid #364653;border-radius:10px;cursor:pointer;background:#182331}
+.mode-option input {grid-column:3;grid-row:1;width:18px;height:18px;accent-color:#45d5c5}
+.mode-option svg {grid-column:1;grid-row:1;color:#77cfc4}
+.mode-option strong {grid-column:2;grid-row:1}
+.mode-option small {grid-column:1/-1;color:#b3c4d4}
+.mode-option.chosen {border-color:#45d5c5;background:#183334}
+.mode-detail {line-height:1.55}
+.bot-actions {display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:20px 0 8px}
+.bot-status {grid-template-columns:repeat(3,minmax(0,1fr));margin:20px 0}
+.bot-status div {display:grid;align-content:start;gap:6px;border-top:1px solid #364653;padding:14px 0}
+.bot-status small {color:#a8bbcb}
+.bot-setup details {padding:14px 0;border-top:1px solid #364653}
+.bot-setup summary {cursor:pointer;font-weight:600}
+@media(max-width:640px){.mode-options,.bot-status{grid-template-columns:1fr}.bot-status{gap:0}.bot-setup .panelhead{flex-wrap:wrap}}

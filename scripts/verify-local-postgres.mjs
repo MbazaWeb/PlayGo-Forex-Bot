@@ -27,7 +27,7 @@ try {
   await pg.initialise();await pg.start();running=true;
   const admin=await connect();
   await admin.query('create role anon;create role authenticated;create role service_role bypassrls');
-  for(const name of ['schema','hardening','atomic_transition','reserve','risk_controls','strategy','paper_pack','broker_demo']){
+  for(const name of ['schema','hardening','atomic_transition','reserve','risk_controls','strategy','paper_pack','broker_demo','automation_mode']){
     const sql=await readFile(new URL('../backend/deriv_execution/'+name+'.sql',import.meta.url),'utf8');
     await admin.query('begin');
     await admin.query(sql);

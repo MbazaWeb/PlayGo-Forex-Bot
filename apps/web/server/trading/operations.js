@@ -21,13 +21,13 @@ export async function readOperations({accountId,accounts,recovery=false,env=proc
   const rows=await res.json();
   if (!Array.isArray(rows) || rows.some(row=>row.account_id !== accountId)) throw Error('ACCOUNT_MISMATCH');
   if (recovery) return {intents:rows};
-  const statusResponse=await fetchImpl(new URL(databaseRoot(env)+'/rpc/playgo_demo_risk_status'),{
+  const statusResponse=await fetchImpl(new URL(databaseRoot(env)+'/rpc/playgo_broker_demo_state'),{
     method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},
     body:JSON.stringify({p_account:accountId}),redirect:'error',signal:AbortSignal.timeout(8000)
   });
   if (!statusResponse.ok) throw Error('RISK_STATUS_UNAVAILABLE');
   const status=await statusResponse.json();
   if (typeof status?.paused !== 'boolean') throw Error('INVALID_RISK_STATUS');
-  return {accountId,status,execution:false,limits:DEFAULT_LIMITS,worker:'Broker submission disabled',
+  return {accountId,status,execution:false,limits:DEFAULT_LIMITS,worker:status.qualified===true && !status.paused?'Demo broker account qualified · see audited intents for submissions':'Demo broker execution OFF',
     intents:rows.map(({strategy_id,symbol,status,updated_at})=>({strategy_id,symbol,status,updated_at}))};
 }

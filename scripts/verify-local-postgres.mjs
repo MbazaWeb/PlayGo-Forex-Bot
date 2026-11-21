@@ -27,7 +27,7 @@ try {
   await pg.initialise();await pg.start();running=true;
   const admin=await connect();
   await admin.query('create role anon;create role authenticated;create role service_role bypassrls');
-  for(const name of ['schema','hardening','atomic_transition','reserve','risk_controls','strategy','paper_pack']){
+  for(const name of ['schema','hardening','atomic_transition','reserve','risk_controls','strategy','paper_pack','broker_demo']){
     const sql=await readFile(new URL('../backend/deriv_execution/'+name+'.sql',import.meta.url),'utf8');
     await admin.query('begin');
     await admin.query(sql);
@@ -55,6 +55,18 @@ try {
   assert.deepEqual(await paper(),{n:1,pnl:1});
   await assert.rejects(a.query('delete from playgo_pack_trades'),/permission denied/);
   console.log('PASS automated paper fill, duplicate prevention, rollback, missed-bar and pause handling.');
+  const nowMinute=Math.floor(Date.now()/60000)*60;
+  const configuration=await a.query("update playgo_demo_strategies set enabled=true,observed_minute=$1,signal='up' where account_id='pack-demo' returning version",[nowMinute]);
+  const demoRecord={account_id:'pack-demo',account_mode:'demo',strategy_id:'deriv-rsi-momentum',symbol:'frxEURUSD',status:'reserved',contract_type:'CALL',stake:1,
+    idempotency_key:configuration.rows[0].version+'_'+nowMinute};
+  await admin.query("insert into playgo_demo_controls(account_id,paused) values ('pack-demo',false)");
+  const claimDemo=()=>a.query('select playgo_reserve_demo($1) as r',[demoRecord]);
+  await assert.rejects(claimDemo(),/DEMO_NOT_QUALIFIED/);
+  await admin.query("update playgo_demo_controls set broker_demo_qualified=true where account_id='pack-demo'");
+  const acceptedDemo=await claimDemo();
+  await a.query("update playgo_demo_strategies set enabled=false where account_id='pack-demo'");
+  await assert.rejects(a.query("select playgo_atomic_demo_transition($1,'submit',null)",[acceptedDemo.rows[0].r.id]),/STALE_DEMO_SIGNAL/);
+  console.log('PASS demo qualification and signal recheck at submission.');
   const record={account_id:'local-demo',account_mode:'demo',status:'reserved',idempotency_key:'local-demo-000001',strategy_id:'crossover',symbol:'frxEURUSD',contract_type:'CALL',stake:1};
   const reserve=c=>c.query('select playgo_reserve_demo($1) as r',[record]);
   await assert.rejects(reserve(a),/ACCOUNT_PAUSED/);

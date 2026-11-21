@@ -3,8 +3,8 @@ import {getDemoWebSocketUrl,demoProposal} from '../../web/server/trading/deriv-d
 import {atomicDemoTransition} from '../../web/server/trading/atomic-worker.js';
 import {reserveDemoIntent} from '../../web/server/trading/reservation.js';
 
-// Unlock only in a reviewed release after staging qualification.
-const brokerQualified = false;
+import {brokerDemoState} from './broker-demo-state.js';
+import {readDemoPortfolio} from '../../web/server/trading/demo-portfolio.js';
 
 function waitFor(socket, event, action, accept) {
   return new Promise((resolve,reject)=>{
@@ -45,7 +45,7 @@ export async function executeDemoOrder(input, fixture) {
     throw Error('DEMO_SUBMISSION_DISABLED');
   const test=env.PLAYGO_ENV==='test' && fixture?.Socket && fixture.Socket!==globalThis.WebSocket &&
     typeof fixture.fetchImpl==='function' && fixture.fetchImpl!==globalThis.fetch;
-  if(!test && !brokerQualified) throw Error('DEMO_SUBMISSION_DISABLED');
+  if(!test && (env.PLAYGO_ENV==='test' || !env.PLAYGO_BROKER_DEMO_ACCOUNT || env.PLAYGO_BROKER_DEMO_ACCOUNT!==env.DERIV_DEMO_ACCOUNT_ID)) throw Error('DEMO_SUBMISSION_DISABLED');
   const {Socket=WebSocket,fetchImpl=fetch}=test?fixture:{};
   const {DERIV_DEMO_ACCOUNT_ID:id,DERIV_DEMO_TOKEN:token,DERIV_CLIENT_ID:appId}=env;
   if(!id || !token || !appId) throw Error('DEMO_AUTH_REQUIRED');
@@ -55,7 +55,14 @@ export async function executeDemoOrder(input, fixture) {
   const intent=Object.freeze({...input.intent});
   const reserve=test && fixture.reserve || reserveDemoIntent;
   const transition=test && fixture.transition || atomicDemoTransition;
-  const reservation=await reserve({...input,intent,env,account,fetchImpl});
+  let state=input.state;
+  if(!test){
+    if(!input.strategyId?.startsWith('deriv-'))throw Error('DEMO_STRATEGY_REQUIRED');
+    const risk=await brokerDemoState(env,id,fetchImpl);
+    const portfolio=await readDemoPortfolio({accounts:rows,accountId:id,token,appId,fetchImpl,Socket});
+    state={...risk,openContracts:portfolio.contracts.length};
+  }
+  const reservation=await reserve({...input,intent,state,env,account,fetchImpl});
   if(!reservation.accepted) return reservation;
   const change=(event,brokerContractId)=>transition({intentId:reservation.reservationId,event,brokerContractId,env,fetchImpl});
   let socket,claimStarted=false,claimed=false,contractId;

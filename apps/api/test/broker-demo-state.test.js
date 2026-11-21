@@ -19,3 +19,14 @@ for(const [field,value] of [['qualified',false],['paused',true],['unresolved',tr
     await assert.rejects(read({...current(),[field]:value}),/PREFLIGHT_BLOCKED/);
   });
 }
+
+import {manualTicket} from '../src/manual-demo.js';
+test('manual ticket requires execution enablement and verified demo ownership before any submission',async()=>{
+ const input={method:'POST',params:new URLSearchParams({account:'demo123'}),env:{},fetchImpl:assert.fail};
+ assert.equal((await manualTicket(input)).status,409);
+ input.env={LIVE_TRADING_ENABLED:'false',PLAYGO_DEMO_EXECUTION_ENABLED:'true',DERIV_DEMO_ACCOUNT_ID:'demo123',PLAYGO_BROKER_DEMO_ACCOUNT:'demo123'};
+ input.fetchImpl=async()=>Response.json({data:[{account_id:'demo123',account_type:'real'}]});
+ assert.equal((await manualTicket(input)).status,403);
+ input.fetchImpl=async()=>Response.json({data:[{account_id:'demo123',account_type:'demo'}]});
+ assert.equal((await manualTicket(input)).status,400);
+});

@@ -1,3 +1,4 @@
+import {manualTicket} from './manual-demo.js';
 import {strategyStore} from '../../web/server/trading/strategy-store.js';
 import {readOperations} from '../../web/server/trading/operations.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../web/server/trading/demo-portfolio.js';
@@ -52,6 +53,13 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     sessions.delete(sid);setCookie(res,cookieName,'',0);return json(res,200,{ok:true});
    }
    if(!session)return json(res,401,{error:'Sign in with Deriv first.'});
+  if(path==='/api/demo/ticket' && ['GET','POST'].includes(req.method)){
+    if(req.method==='POST' && (req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1'))
+      return json(res,403,{message:'Request origin rejected.'});
+    const result=await manualTicket({method:req.method,params:new URL(req.url,'http://localhost').searchParams,token:session.token,
+      appId:config.clientId,fetchImpl:fetcher});
+    return json(res,result.status,result.body);
+  }
   if (path === '/api/demo/strategy' && ['GET','POST'].includes(req.method)) {
     const write=req.method==='POST';
     if(write && (req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1'))

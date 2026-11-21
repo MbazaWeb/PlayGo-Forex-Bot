@@ -47,7 +47,7 @@ export default function App(){
  {loading&&<p role="status">Refreshing accounts…</p>}
  {!loading&&page==='Overview'&&<AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate}/>}
  {!loading&&page==='Portfolio'&&accountsView}
- {!loading&&page==='Trading Terminal'&&<React.Suspense fallback={<p>Loading paper terminal…</p>}><MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} changePage={navigate}/><details className="panel"><summary>Paper trading ledger</summary><PaperTerminal/></details></React.Suspense>}
+ {!loading&&page==='Trading Terminal'&&<React.Suspense fallback={<p>Loading paper terminal…</p>}><MarketWorkspace page="Trading Terminal" accounts={accounts} initialSymbol={terminalSymbol} changePage={navigate}/><details className="panel"><summary>Paper trading ledger</summary><PaperTerminal/></details></React.Suspense>}
  {!loading&&page==='Trading Bots'&&<>{accounts?.some(a=>a.account_type==='demo') ? accounts.filter(a=>a.account_type==='demo').map(a=><Strategy key={a.account_id} accountId={a.account_id}/>) : <p>A connected demo account is required.</p>}</>}
  {!loading&&page==='Analytics'&&<AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate} analytics/>}
  {!loading&&page==='Settings'&&<><section className="panel"><h2>Connections</h2><div className="setting-line"><span>Deriv</span><strong>Authenticated</strong></div><div className="setting-line"><span>MetaTrader 5</span><strong>{mt5?.status||'Not linked'}</strong></div><div className="setting-line"><span>Real-money execution</span><strong>Disabled</strong></div></section><section className="panel account-panel"><h2>Session</h2><button className="outline" onClick={load}><RefreshCw size={16}/> Refresh account connection</button></section></>}

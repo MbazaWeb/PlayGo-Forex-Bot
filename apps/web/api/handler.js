@@ -1,3 +1,4 @@
+import {manualTicket} from '../../api/src/manual-demo.js';
 import {strategyStore} from '../server/trading/strategy-store.js';
 import {readOperations} from '../server/trading/operations.js';
 import {listAccounts} from '../../api/src/providers/deriv.js';
@@ -146,6 +147,13 @@ export default async function handler(req, res) {
     return respond(res, 200, { ok: true });
   }
   if (!session) return respond(res, 401, { error: 'Sign in with Deriv first.' });
+  if(path==='demo/ticket' && ['GET','POST'].includes(req.method)){
+    if(req.method==='POST' && (req.headers.origin!==ORIGIN || req.headers['x-playgo-request']!=='1'))
+      return respond(res,403,{message:'Request origin rejected.'});
+    const result=await manualTicket({method:req.method,params:new URLSearchParams(req.query),token:session.token,
+      appId:CLIENT,fetchImpl:fetch});
+    return respond(res,result.status,result.body);
+  }
   if (path === 'demo/strategy' && ['GET','POST'].includes(req.method)) {
     const write=req.method==='POST';
     if(write && (req.headers.origin!==ORIGIN || req.headers['x-playgo-request']!=='1'))

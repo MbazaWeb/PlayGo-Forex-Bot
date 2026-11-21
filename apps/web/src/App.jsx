@@ -1,12 +1,12 @@
+import AccountDashboard from './components/AccountDashboard';
 import Strategy from './components/Strategy';
 import DemoPortfolio from './components/DemoPortfolio';
 import React,{useEffect,useState} from 'react';
 import {Activity,LogOut,RefreshCw,ShieldCheck,LayoutDashboard,Wallet,ChartCandlestick,Bot,ChartNoAxesCombined,Settings,Menu,X} from 'lucide-react';
 const PaperTerminal=React.lazy(()=>import('./PaperTerminal'));
-const DemoApp=React.lazy(()=>import('./demo/DemoApp'));
 export default function App(){
  const [session,setSession]=useState(null),[accounts,setAccounts]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
- const [mt5,setMt5]=useState(null),[demo,setDemo]=useState(false),[page,setPage]=useState('Overview'),[mobile,setMobile]=useState(false),[mt5Guide,setMt5Guide]=useState(false);
+ const [mt5,setMt5]=useState(null),[page,setPage]=useState('Overview'),[mobile,setMobile]=useState(false),[mt5Guide,setMt5Guide]=useState(false);
  async function load(){
   setLoading(true);setError('');setAccounts(null);setMt5(null);
   try {
@@ -17,7 +17,6 @@ export default function App(){
  }
  useEffect(()=>{load();},[]);
  async function logout(){await fetch('/api/auth/logout',{method:'POST',headers:{'X-PlayGo-Request':'1'}});setAccounts(null);load();}
- if(demo)return <><div className="preview-banner">DESIGN PREVIEW · All figures and bot results are simulated <button onClick={()=>setDemo(false)}>Return to accounts</button></div><React.Suspense fallback={<p>Loading preview…</p>}><DemoApp/></React.Suspense></>;
  if(!session?.authenticated) return (
   <div className="signin">
    <header><div className="brand"><span className="brandicon"><Activity size={21}/></span><div><b>PLAYGO</b><small>TRADING TERMINAL</small></div></div></header>
@@ -31,7 +30,6 @@ export default function App(){
       : !error && <p role="status" className="signin-error">Deriv sign-in is unavailable until the server is configured.</p>}
     <button className="signin-action signin-mt5" onClick={()=>setMt5Guide(v=>!v)}>Connect MetaTrader 5 <span aria-hidden="true">→</span></button>
     {mt5Guide&&<section className="mt5-guide"><h2>MetaTrader 5 connection</h2><p>MT5 does not offer a universal browser OAuth redirect. Open the Windows MT5 terminal, sign in to your broker account there, then start the PlayGo local bridge.</p><p>Local bridge: <code>http://127.0.0.1:8765/status</code></p><p>The bridge is not yet synchronized with this website. MT5-only PlayGo authentication requires a separate secure pairing flow and is not active.</p><a href="https://www.metatrader5.com/en/download" target="_blank" rel="noopener noreferrer">Get MetaTrader 5 desktop</a></section>}
-    <button className="signin-demo" onClick={()=>setDemo(true)}>Open demo workspace</button>
    </main>
   </div>
  );
@@ -45,11 +43,11 @@ export default function App(){
  <main className="content"><div className="heading"><div><div className="eyebrow">PLAYGO TRADING WORKSPACE</div><h1>{page}</h1><p>Connected Deriv session · broker execution is disabled</p></div></div>
  {error&&<div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
  {loading&&<p role="status">Refreshing accounts…</p>}
- {!loading&&page==='Overview'&&<><section className="panel"><h2>Welcome to PlayGo</h2><p>Your Deriv session is authenticated. Account information is available below; MT5 and automated execution are not connected.</p></section><section className="panel account-panel"><h2>Connection summary</h2><div className="setting-line"><span>Deriv</span><strong>Connected</strong></div><div className="setting-line"><span>MT5</span><strong>{mt5?.status||'Not paired'}</strong></div><div className="setting-line"><span>Live execution</span><strong>Disabled</strong></div><button className="outline" onClick={()=>navigate('Accounts')}>Manage accounts</button></section></>}
+ {!loading&&page==='Overview'&&<AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate}/>}
  {!loading&&page==='Accounts'&&accountsView}
  {!loading&&page==='Trading Terminal'&&<React.Suspense fallback={<p>Loading paper terminal…</p>}><PaperTerminal/></React.Suspense>}
  {!loading&&page==='Trading Bots'&&<>{accounts?.some(a=>a.account_type==='demo') ? accounts.filter(a=>a.account_type==='demo').map(a=><Strategy key={a.account_id} accountId={a.account_id}/>) : <p>A connected demo account is required.</p>}</>}
- {!loading&&page==='Analytics'&&<section className="panel"><h2>Trading analytics</h2><p>Real performance analytics are not available until trade history is synchronized. Paper trading history is stored only in this browser.</p><button className="outline" onClick={()=>navigate('Trading Terminal')}>View paper trades</button></section>}
+ {!loading&&page==='Analytics'&&<AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate} analytics/>}
  {!loading&&page==='Settings'&&<><section className="panel"><h2>Connections</h2><div className="setting-line"><span>Deriv</span><strong>Authenticated</strong></div><div className="setting-line"><span>MetaTrader 5</span><strong>{mt5?.status||'Not linked'}</strong></div><div className="setting-line"><span>Live trading</span><strong>Disabled</strong></div></section><section className="panel account-panel"><h2>Session</h2><button className="outline" onClick={load}><RefreshCw size={16}/> Refresh account connection</button></section></>}
  <div className="account-foot"><ShieldCheck size={18}/> Live trading and automated execution are not implemented.</div>
  </main></div></div>;

@@ -15,7 +15,7 @@ const server=createServer(async(req,res)=>{
   if(file!==web&&!file.startsWith(web+sep)){res.writeHead(403);return res.end();}
   if(path==='/'||!extname(path))file=resolve(web,'index.html');
   const body=await readFile(file);
-  res.writeHead(200,{'Content-Type':mime[extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"});
+  res.writeHead(200,{'Content-Type':mime[extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss://api.derivws.com; frame-ancestors 'none'"});
   res.end(req.method==='HEAD'?undefined:body);
  }catch{res.writeHead(404);res.end('Build the frontend with npm run build first.');}
 });

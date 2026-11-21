@@ -37,7 +37,7 @@ export default function AccountDashboard({accounts,mt5,navigate,analytics=false}
     <div className="metrics">
       <Metric title="Total Portfolio Balance" value={account?.balance==null?'Unavailable':account.balance+' '+currency} change={id?'Selected demo account · '+id:'No demo account'} icon={Wallet}/>
       <Metric title="Total Bot P&L" value="$184.55" change="Simulated strategy results" icon={Activity} positive/>
-      <Metric title="Active Trading Bots" value="2 / 3" change="Illustrative bot scenarios" icon={Bot}/>
+      <Metric title="Simulated bots" value="2 / 3" change="Running in the example scenario" icon={Bot}/>
       <Metric title="Win Rate" value={points?.length?(100*points.filter(t=>t.value>0).length/points.length).toFixed(1)+'%':'—'} change="Recent closed demo trades" icon={ShieldCheck}/>
     </div>
     {!analytics && <React.Suspense fallback={<p>Loading markets…</p>}><MarketWorkspace page="Overview" changePage={navigate}/></React.Suspense>}

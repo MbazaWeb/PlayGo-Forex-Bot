@@ -51,6 +51,6 @@ export default function App(){
  {!loading&&page==='Trading Bots'&&<>{accounts?.some(a=>a.account_type==='demo') ? accounts.filter(a=>a.account_type==='demo').map(a=><Strategy key={a.account_id} accountId={a.account_id}/>) : <p>A connected demo account is required.</p>}</>}
  {!loading&&page==='Analytics'&&<AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate} analytics/>}
  {!loading&&page==='Settings'&&<><section className="panel"><h2>Connections</h2><div className="setting-line"><span>Deriv</span><strong>Authenticated</strong></div><div className="setting-line"><span>MetaTrader 5</span><strong>{mt5?.status||'Not linked'}</strong></div><div className="setting-line"><span>Live trading</span><strong>Disabled</strong></div></section><section className="panel account-panel"><h2>Session</h2><button className="outline" onClick={load}><RefreshCw size={16}/> Refresh account connection</button></section></>}
- <div className="account-foot"><ShieldCheck size={18}/> Live trading and automated execution are not implemented.</div>
+ <div className="account-foot"><ShieldCheck size={18}/> Demo strategies can generate signals. Broker order submission is disabled.</div>
  </main></div></div>;
 }

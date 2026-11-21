@@ -88,7 +88,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     catch(e){if(e.status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}return json(res,e.status||502,{error:e.status===401?'Your Deriv session expired. Sign in again.':'Could not retrieve Deriv accounts.'});}
    }
    if(path==='/api/mt5/status'&&req.method==='GET')return json(res,200,{status:'not_linked',execution:false});
-   if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Order execution and automated trading are not implemented.'});
+   if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Broker order submission is disabled.'});
    return json(res,404,{error:'Route not found'});
   }catch{return json(res,500,{error:'Request failed'});}
  };

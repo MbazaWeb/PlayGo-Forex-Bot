@@ -217,6 +217,6 @@ export default async function handler(req, res) {
     } catch { return respond(res, 503, { error: 'MT5 status unavailable' }); }
   }
 
-  if (path.startsWith('orders') || path.startsWith('bots')) return respond(res, 501, { error: 'Order execution and automated trading are not implemented.' });
+  if (path.startsWith('orders') || path.startsWith('bots')) return respond(res, 501, { error: 'Broker order submission is disabled.' });
   return respond(res, 404, { error: 'Route not found' });
 }

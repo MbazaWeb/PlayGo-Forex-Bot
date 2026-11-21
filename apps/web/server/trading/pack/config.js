@@ -1,0 +1,16 @@
+const DEFAULT_CONFIG = { timeframe: "15m", fastPeriod: 9, slowPeriod: 21, rsiPeriod: 14, rsiOversold: 30, rsiOverbought: 70, bandPeriod: 20, bandStdDev: 2, atrPeriod: 14, atrMultiplier: 2, breakoutPeriod: 20, stopLossMethod: "atr", riskPct: 0.5, stopLossPct: 1, rewardRisk: 2, paperOnly: true };
+function validateConfig(c) {
+  const errors = [];
+  for (const [key, value] of Object.entries(c)) if (typeof value === "number" && !Number.isFinite(value)) errors.push(`${key} must be finite`);
+  if (c.fastPeriod < 2 || c.slowPeriod <= c.fastPeriod) errors.push("slowPeriod must exceed fastPeriod >= 2");
+  if (c.rsiPeriod < 2 || c.atrPeriod < 2 || c.bandPeriod < 2 || c.breakoutPeriod < 2) errors.push("periods must be >= 2");
+  if (c.riskPct <= 0 || c.riskPct > 2) errors.push("riskPct must be > 0 and <= 2");
+  if (c.rewardRisk <= 0 || c.stopLossPct <= 0 || c.atrMultiplier <= 0 || c.bandStdDev <= 0) errors.push("stop, multiplier, reward/risk must be positive");
+  if (c.rsiOversold >= c.rsiOverbought) errors.push("RSI thresholds reversed");
+  if (c.paperOnly !== true) errors.push("LIVE execution is disabled");
+  return errors;
+}
+export {
+  DEFAULT_CONFIG,
+  validateConfig
+};

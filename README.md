@@ -10,7 +10,7 @@ PlayGo Trading is a React/Vite trading workspace with a Node API for Deriv OAuth
 - Windows MT5 read-only snapshot adapter (not connected to the API)
 - API authentication regression tests
 
-The optional demo signal worker evaluates the saved EUR/USD crossover strategy and records signals. It runs separately from the web app. The order ticket previews hypothetical trades. Broker submission is locked pending demo qualification, and real-money execution is disabled. Market charts use historical Deriv prices. The example bot results and watchlist are simulated.
+The optional demo worker evaluates the selected EUR/USD strategy, records signals, and settles simulated trades in PostgreSQL. Trading Bots includes historical replay and an account-scoped paper trade history. See [worker setup](docs/SIGNAL_WORKER.md). It runs separately from the web app. The order ticket previews hypothetical trades. Broker submission is locked pending demo qualification, and real-money execution is disabled. Market charts use historical Deriv prices. The example bot results and watchlist are simulated.
 
 ## Local setup
 

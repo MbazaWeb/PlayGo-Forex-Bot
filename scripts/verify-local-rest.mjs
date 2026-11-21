@@ -1,3 +1,4 @@
+import {strategyPass} from '../apps/api/src/strategy-worker.js';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createHmac,randomBytes,randomInt} from 'node:crypto';
@@ -40,6 +41,30 @@ export async function verifyLocalRest(admin,pgPort) {
     const ctx={accounts,accountId,env};
     assert.equal((await strategyStore(ctx,'save',{fast:3,slow:12,enabled:true})).slow,12);
     assert.equal((await strategyStore(ctx)).fast,3);
+    // Normal worker entry point, native PostgreSQL and PostgREST, fixture broker candles.
+    const pack=await strategyStore(ctx,'save',{fast:5,slow:20,enabled:true,packId:'rsi-momentum'});
+    const minute=Math.floor(Date.now()/60000)*60;
+    await strategyStore(ctx,'publish',{version:pack.version,minute:minute-60,signal:'up',open:1,close:1});
+    class CandleSocket {
+      constructor(){queueMicrotask(()=>this.onopen());}
+      close(){}
+      send(raw){
+        const q=JSON.parse(raw),end=Number(q.end)+1;
+        const candles=Array.from({length:q.count},(_,i)=>({epoch:end-(q.count-i)*60,open:1,high:1.02,low:.98,close:1.01}));
+        this.onmessage({data:JSON.stringify({req_id:q.req_id,msg_type:'candles',candles})});
+      }
+    }
+    const transport=(url,init)=>{
+      if(String(url).endsWith('/accounts'))return Response.json({data:accounts});
+      if(String(url).endsWith('/otp'))return Response.json({data:{url:'wss://api.derivws.com/trading/v1/options/ws/demo?otp=fixture'}});
+      assert.equal(new URL(url).origin,origin); return fetch(url,init);
+    };
+    const run=()=>strategyPass({env:{...env,PLAYGO_SIGNAL_WORKER_ENABLED:'true'},Socket:CandleSocket,fetchImpl:transport});
+    await Promise.all([run(),run()]);
+    const trades=await strategyStore(ctx,'history');
+    assert.equal(trades.length,1);assert.equal(Number(trades[0].pnl),1);
+    assert.equal(await run(),'current');
+    console.log('PASS demo worker through local PostgREST to PostgreSQL paper settlement; broker data mocked.');
     assert.equal((await readOperations(ctx)).status.paused,true);
     const fetchImpl=(url,init)=>{
       if(String(url)==='https://api.derivws.com/trading/v1/options/accounts')return Response.json({data:accounts});

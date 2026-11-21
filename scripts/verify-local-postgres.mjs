@@ -27,7 +27,7 @@ try {
   await pg.initialise();await pg.start();running=true;
   const admin=await connect();
   await admin.query('create role anon;create role authenticated;create role service_role bypassrls');
-  for(const name of ['schema','hardening','atomic_transition','reserve','risk_controls','strategy']){
+  for(const name of ['schema','hardening','atomic_transition','reserve','risk_controls','strategy','paper_pack']){
     const sql=await readFile(new URL('../backend/deriv_execution/'+name+'.sql',import.meta.url),'utf8');
     await admin.query('begin');
     await admin.query(sql);
@@ -39,6 +39,22 @@ try {
     await verifyLocalRest(admin,pgPort);
   }
   const a=await connect('worker'),b=await connect('worker');
+  // A previous-bar signal settles once even when two workers publish concurrently.
+  await a.query("insert into playgo_demo_strategies(account_id,fast,slow,enabled,pack_id,observed_minute,signal) values ('pack-demo',5,20,true,'rsi-momentum',6000,'up')");
+  const fill=c=>c.query("update playgo_demo_strategies set observed_minute=6060,signal='down',bar_open=1.10,bar_close=1.11 where account_id='pack-demo' and observed_minute<6060");
+  const fills=await Promise.all([fill(a),fill(b)]);
+  assert.equal(fills.reduce((n,r)=>n+r.rowCount,0),1);
+  const paper=async()=> (await b.query("select count(*)::int as n,sum(pnl)::float as pnl from playgo_pack_trades where account_id='pack-demo'")).rows[0];
+  assert.deepEqual(await paper(),{n:1,pnl:1});
+  await a.query('begin');
+  await a.query("update playgo_demo_strategies set observed_minute=6120 where account_id='pack-demo'");
+  await a.query('rollback');
+  assert.deepEqual(await paper(),{n:1,pnl:1});
+  await a.query("update playgo_demo_strategies set observed_minute=6300 where account_id='pack-demo'");
+  await a.query("update playgo_demo_strategies set enabled=false,observed_minute=6360 where account_id='pack-demo'");
+  assert.deepEqual(await paper(),{n:1,pnl:1});
+  await assert.rejects(a.query('delete from playgo_pack_trades'),/permission denied/);
+  console.log('PASS automated paper fill, duplicate prevention, rollback, missed-bar and pause handling.');
   const record={account_id:'local-demo',account_mode:'demo',status:'reserved',idempotency_key:'local-demo-000001',strategy_id:'crossover',symbol:'frxEURUSD',contract_type:'CALL',stake:1};
   const reserve=c=>c.query('select playgo_reserve_demo($1) as r',[record]);
   await assert.rejects(reserve(a),/ACCOUNT_PAUSED/);

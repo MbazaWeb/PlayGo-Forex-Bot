@@ -153,8 +153,8 @@ export default async function handler(req, res) {
     try {
       const params=new URLSearchParams(req.query);
       const accounts=await listAccounts(session.token,fetch,CLIENT);
-      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetch},write?'save':'read',{
-        fast:Number(params.get('fast')),slow:Number(params.get('slow')),
+      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetch},write?'save':params.get('view')==='history'?'history':'read',{
+        packId:params.get('pack'),fast:Number(params.get('fast')),slow:Number(params.get('slow')),
         enabled:params.get('enabled')==='true'?true:params.get('enabled')==='false'?false:null
       });
       return respond(res,200,{strategy:row});

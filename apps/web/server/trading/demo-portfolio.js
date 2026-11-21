@@ -120,3 +120,10 @@ export function readDemoSignal(context,params) {
   return readDemo(context,{ticks_history:'frxEURUSD',style:'candles',granularity:60,count:slow+1,end:String(minute-1)},
     reply=>crossover(reply.candles,fast,slow,minute));
 }
+
+export async function readPackSignal(context, settings) {
+  const {packSignal}=await import('./pack/signal.js');
+  const minute=Math.floor(Date.now()/60000)*60;
+  return readDemo(context,{ticks_history:'frxEURUSD',style:'candles',granularity:60,count:Math.max(settings.slow*2,40)+5,end:String(minute-1)},
+    reply=>packSignal(reply.candles,settings,minute));
+}

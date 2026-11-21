@@ -1,4 +1,6 @@
+import StrategyReplay from './StrategyReplay';
 import React,{useEffect,useState} from 'react';
+import {catalog} from '../../server/trading/pack/catalog.js';
 import {validPeriods} from '../../server/trading/crossover.js';
 
 export default function Strategy({accountId}) {
@@ -29,6 +31,7 @@ export default function Strategy({accountId}) {
     setOutput('Reading candles…');check();
     return ()=>{ctrl.abort();clearTimeout(timer);};
   },[accountId,saved]);
+  const [pack,setPack]=useState('moving-average-crossover'),[history,setHistory]=useState([]);
   const [worker,setWorker]=useState(null),[workerMessage,setWorkerMessage]=useState(''),[busy,setBusy]=useState(false);
   async function workerSettings(enabled) {
     setBusy(true);
@@ -36,12 +39,17 @@ export default function Strategy({accountId}) {
       const params=new URLSearchParams({account:accountId});
       const write=typeof enabled==='boolean';
       if(write){
-        params.set('fast',saved.fast);params.set('slow',saved.slow);params.set('enabled',enabled);
+        params.set('pack',pack);params.set('fast',saved.fast);params.set('slow',saved.slow);params.set('enabled',enabled);
       }
       const res=await fetch('/api/demo/strategy?'+params,write?{method:'POST',headers:{'X-PlayGo-Request':'1'}}:{});
       if(!res.ok) throw Error();
       const row=(await res.json()).strategy;
-      setWorker(row);setWorkerMessage(row?'':'No background configuration saved.');
+      setWorker(row);
+      if(row?.pack_id)setPack(row.pack_id);
+      const list=await fetch('/api/demo/strategy?'+new URLSearchParams({account:accountId,view:'history'}));
+      if(!list.ok)throw Error();
+      setHistory((await list.json()).strategy || []);
+      setWorkerMessage(row?'':'No background configuration saved.');
     } catch {setWorkerMessage('Background settings unavailable.');}
     finally {setBusy(false);}
   }
@@ -58,10 +66,14 @@ export default function Strategy({accountId}) {
     <label> Slow period <input type="number" min="3" max="100" value={slow} onChange={e=>setSlow(e.target.value)}/></label>
     <button className="outline">Save periods</button></form>{error && <p role="alert">{error}</p>}
     <p role="status">{saved.fast}/{saved.slow} · {output}</p><p>Preview updates while this screen is open.</p>
-    <h3>Background signals</h3><p>The server worker uses the periods saved below. Order submission is disabled.</p>
-    <button className="outline" disabled={busy} onClick={()=>workerSettings(true)}>Enable {saved.fast}/{saved.slow} on worker</button>
-    <button className="outline" disabled={busy} onClick={()=>workerSettings(false)}>Pause worker signals</button>
-    <button className="outline" disabled={busy} onClick={()=>workerSettings()}>Read worker status</button>
+    <h3>Automated paper strategies</h3><p>EUR/USD · 100 simulated units per trade · 1-minute bars. A signal enters at the following bar’s open and settles at its close. Fills exclude spread and fees.</p>
+    <label>Worker strategy <select value={pack} onChange={e=>setPack(e.target.value)}>{catalog.map(s=><option key={s.id} value={s.id} disabled={!s.available}>{s.name}{s.available?'':' · Research only'}</option>)}</select></label>
+    <StrategyReplay strategy={pack} fast={saved.fast} slow={saved.slow}/>
+    <button className="outline" disabled={busy} onClick={()=>workerSettings(true)}>Enable paper strategy ({saved.fast}/{saved.slow})</button>
+    <button className="outline" disabled={busy} onClick={()=>workerSettings(false)}>Pause paper strategy</button>
+    <button className="outline" disabled={busy} onClick={()=>workerSettings()}>Refresh status and trades</button>
     {worker && <p>Configuration {worker.enabled?'enabled':'paused'} · {worker.fast}/{worker.slow} · Last signal {worker.signal??'pending'} {worker.observed_minute?new Date(worker.observed_minute*1000).toLocaleString():''}</p>}
+    {worker && <p>Settled paper trades {worker.paper_trades??0} · Realized paper P&amp;L {worker.paper_pnl??0} USD</p>}
+    {history.length>0 && <div className="tablewrap"><table><caption>Recent automated paper trades · EUR/USD</caption><thead><tr>{['Settled','Strategy','Side','Entry','Exit','P/L (USD)'].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{history.map(t=><tr key={t.bar_end}><td>{new Date(t.bar_end*1000).toLocaleString()}</td><td>{t.strategy_id}</td><td>{t.direction==='up'?'Buy':'Sell'}</td><td>{t.entry}</td><td>{t.exit}</td><td>{t.pnl}</td></tr>)}</tbody></table></div>}
     <p role="status">{workerMessage}</p></section>;
 }

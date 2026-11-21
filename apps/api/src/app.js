@@ -59,8 +59,8 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     try {
       const params=new URL(req.url,'http://localhost').searchParams;
       const accounts=await listAccounts(session.token,fetcher,config.clientId);
-      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetcher},write?'save':'read',{
-        fast:Number(params.get('fast')),slow:Number(params.get('slow')),
+      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetcher},write?'save':params.get('view')==='history'?'history':'read',{
+        packId:params.get('pack'),fast:Number(params.get('fast')),slow:Number(params.get('slow')),
         enabled:params.get('enabled')==='true'?true:params.get('enabled')==='false'?false:null
       });
       return json(res,200,{strategy:row});

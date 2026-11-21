@@ -1,7 +1,7 @@
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {listAccounts} from './providers/deriv.js';
-import {readDemoSignal} from '../../web/server/trading/demo-portfolio.js';
+import {readDemoSignal,readPackSignal} from '../../web/server/trading/demo-portfolio.js';
 import {strategyStore} from '../../web/server/trading/strategy-store.js';
 
 export async function strategyPass({env=process.env,fetchImpl=fetch,Socket=WebSocket}={}) {
@@ -14,8 +14,8 @@ export async function strategyPass({env=process.env,fetchImpl=fetch,Socket=WebSo
   if(!saved?.enabled) return 'paused';
   const minute=Math.floor(Date.now()/60000)*60;
   if(saved.observed_minute>=minute) return 'current';
-  const result=await readDemoSignal(ctx,new URLSearchParams({fast:saved.fast,slow:saved.slow}));
-  const row=await strategyStore(ctx,'publish',{version:saved.version,minute:result.closedAt??minute,signal:result.signal});
+  const result=saved.pack_id ? await readPackSignal(ctx,saved) : await readDemoSignal(ctx,new URLSearchParams({fast:saved.fast,slow:saved.slow}));
+  const row=await strategyStore(ctx,'publish',{version:saved.version,minute:result.closedAt??minute,signal:result.signal,open:result.open,close:result.close});
   return row?'updated':'superseded';
 }
 

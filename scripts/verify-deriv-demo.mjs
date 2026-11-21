@@ -1,5 +1,5 @@
 import {listAccounts} from '../apps/api/src/providers/deriv.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote} from '../apps/web/api/trading/demo-portfolio.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote} from '../apps/web/server/trading/demo-portfolio.js';
 
 const required=['DERIV_CLIENT_ID','DERIV_DEMO_TOKEN'];
 const missing=required.filter(name=>!process.env[name]?.trim());

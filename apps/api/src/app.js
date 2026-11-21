@@ -1,6 +1,6 @@
-import {strategyStore} from '../../web/api/trading/strategy-store.js';
-import {readOperations} from '../../web/api/trading/operations.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../web/api/trading/demo-portfolio.js';
+import {strategyStore} from '../../web/server/trading/strategy-store.js';
+import {readOperations} from '../../web/server/trading/operations.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../web/server/trading/demo-portfolio.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 const random=()=>randomBytes(32).toString('base64url');

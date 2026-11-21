@@ -1,7 +1,7 @@
 import {listAccounts} from './providers/deriv.js';
-import {getDemoWebSocketUrl,demoProposal} from '../../web/api/trading/deriv-demo.js';
-import {atomicDemoTransition} from '../../web/api/trading/atomic-worker.js';
-import {reserveDemoIntent} from '../../web/api/trading/reservation.js';
+import {getDemoWebSocketUrl,demoProposal} from '../../web/server/trading/deriv-demo.js';
+import {atomicDemoTransition} from '../../web/server/trading/atomic-worker.js';
+import {reserveDemoIntent} from '../../web/server/trading/reservation.js';
 
 // Unlock only in a reviewed release after staging qualification.
 const brokerQualified = false;

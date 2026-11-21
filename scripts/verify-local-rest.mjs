@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createHmac,randomBytes,randomInt} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
-import {strategyStore} from '../apps/web/api/trading/strategy-store.js';
-import {readOperations} from '../apps/web/api/trading/operations.js';
-import {reserveDemoIntent} from '../apps/web/api/trading/reservation.js';
-import {atomicDemoTransition} from '../apps/web/api/trading/atomic-worker.js';
+import {strategyStore} from '../apps/web/server/trading/strategy-store.js';
+import {readOperations} from '../apps/web/server/trading/operations.js';
+import {reserveDemoIntent} from '../apps/web/server/trading/reservation.js';
+import {atomicDemoTransition} from '../apps/web/server/trading/atomic-worker.js';
 import {recoverDemo} from '../apps/api/src/recover-demo.js';
 
 export async function verifyLocalRest(admin,pgPort) {

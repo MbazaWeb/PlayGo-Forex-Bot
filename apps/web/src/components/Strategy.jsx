@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {validPeriods} from '../../api/trading/crossover.js';
+import {validPeriods} from '../../server/trading/crossover.js';
 
 export default function Strategy({accountId}) {
   const key='playgo.crossover.v1.'+accountId;

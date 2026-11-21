@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readDemoPortfolio} from '../../web/api/trading/demo-portfolio.js';
+import {readDemoPortfolio} from '../../web/server/trading/demo-portfolio.js';
 const accountId='DOT123';
 const base={token:'test',accountId,accounts:[{account_id:accountId,account_type:'demo'}]};
 for (const accounts of [[],[{account_id:accountId,account_type:'real'}], [...base.accounts,...base.accounts]]) {
@@ -28,9 +28,9 @@ test('OTP real endpoint rejected before connection',async()=>{
   await assert.rejects(readDemoPortfolio({...base,fetchImpl}),/NOT_A_DEMO_ENDPOINT/);
 });
 
-import {readDemoHistory,readMarketQuote} from '../../web/api/trading/demo-portfolio.js';
-import {recoverBoundContract} from '../../web/api/trading/recovery-policy.js';
-import {readOperations} from '../../web/api/trading/operations.js';
+import {readDemoHistory,readMarketQuote} from '../../web/server/trading/demo-portfolio.js';
+import {recoverBoundContract} from '../../web/server/trading/recovery-policy.js';
+import {readOperations} from '../../web/server/trading/operations.js';
 function broker(replies) {
   const requests=[];
   class Socket {
@@ -88,7 +88,7 @@ test('restart scan holds unknown intent lacking a broker contract; makes no tran
   assert.equal(calls.length,3);
 });
 
-import {qualifyDemoExecution} from '../../web/api/trading/execute-demo.js';
+import {qualifyDemoExecution} from '../../web/server/trading/execute-demo.js';
 test('ambiguous purchase enters unknown exactly once',async()=>{
   const events=[];
   const result=await qualifyDemoExecution({env:{PLAYGO_ENV:'test',LIVE_TRADING_ENABLED:'false'}},{

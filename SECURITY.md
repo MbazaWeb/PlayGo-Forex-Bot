@@ -25,11 +25,13 @@ The following are in scope:
 The following are **out of scope** as they are intentionally disabled by design:
 
 - Broker order submission routes (`/api/orders`, `/api/bots`) — these return `501` by design
-- Real-money execution — disabled by default; requires two explicit env flags
+- Real-money routes (`/api/live/ticket`, `/api/live/strategy`, `/api/live/portfolio`) — these always return `403`
 
 ## Security Posture
 
-- Live trading is **disabled by default**. Enabling demo broker execution requires `LIVE_TRADING_ENABLED=false` **and** `PLAYGO_DEMO_EXECUTION_ENABLED=true`.
+- Real-money execution is **hard-disabled** in both API handlers; environment flags cannot enable it.
+- Demo broker submission is a separate, explicitly gated path. It requires verified demo account ownership and passing risk/recovery preflight checks.
+- The local Paper Simulator stores virtual data in browser `localStorage` and does not send broker orders.
 - Tokens are stored server-side in memory only; only an opaque session ID is placed in an HttpOnly cookie.
 - Production cookies are `__Host-` prefixed, `Secure`, `SameSite=Lax`.
 - CSRF protection requires both `Origin` header match and a custom `X-PlayGo-Request: 1` header on state-changing requests.

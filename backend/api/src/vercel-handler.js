@@ -3,6 +3,9 @@ import {strategyStore} from '../../trading/strategy-store.js';
 import {readOperations} from '../../trading/operations.js';
 import {listAccounts} from './providers/deriv.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../trading/demo-portfolio.js';
+import {executeRealOrder} from './ticket/real.js';
+import {strategyPassReal} from './strategy/real.js';
+import {readRealPortfolio} from './portfolio/real.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
@@ -111,6 +114,16 @@ export default async function handler(req, res) {
   }
   if (path === 'health' && req.method === 'GET') return respond(res, 200, { status: 'ok', execution: false });
   if (path === 'session' && req.method === 'GET') return respond(res, 200, { authenticated: !!session, configured, execution: false, mt5: 'not_linked' });
+  const liveRoute={
+    'live/ticket':executeRealOrder,
+    'live/strategy':strategyPassReal,
+    'live/portfolio':readRealPortfolio,
+  }[path];
+  if(path.startsWith('live/')){
+    if(!liveRoute)return respond(res,403,{error:'Real-money trading is unavailable.'});
+    const result=await liveRoute();
+    return respond(res,result.status,result.body);
+  }
   if (path === 'auth/deriv/start' && req.method === 'GET') {
     if (!configured) return respond(res, 503, { error: 'Configure DERIV_CLIENT_ID, PLAYGO_COOKIE_SECRET, APP_ORIGIN and DERIV_REDIRECT_URI in Vercel.' });
     const state = random(), verifier = random();

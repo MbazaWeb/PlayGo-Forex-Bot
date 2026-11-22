@@ -1,10 +1,10 @@
-import {recoverDemo} from './recover-demo.js';
-import {executeDemoOrder} from './demo-order.js';
+import {recoverDemo} from '../recover-demo.js';
+import {executeDemoOrder} from '../ticket/demo.js';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
-import {listAccounts} from './providers/deriv.js';
-import {readDemoSignal,readPackSignal} from '../../trading/demo-portfolio.js';
-import {strategyStore} from '../../trading/strategy-store.js';
+import {listAccounts} from '../providers/deriv.js';
+import {readDemoSignal,readPackSignal} from '../../../trading/demo-portfolio.js';
+import {strategyStore} from '../../../trading/strategy-store.js';
 
 export async function strategyPass({env=process.env,fetchImpl=fetch,Socket=WebSocket}={}) {
   if(env.PLAYGO_SIGNAL_WORKER_ENABLED!=='true' || env.LIVE_TRADING_ENABLED!=='false') throw Error('WORKER_DISABLED');

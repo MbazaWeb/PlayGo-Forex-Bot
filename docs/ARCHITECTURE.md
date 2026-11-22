@@ -22,9 +22,10 @@ Deriv OAuth does not establish MT5 account ownership. Implement explicit linking
 MT5 snapshots into any session.
 
 Design-preview data is isolated and labeled. It never populates the signed-in account page.
-There are no order placement, deposit, withdrawal or transfer operations in this build.
+The account-scoped demo order path is guarded by demo risk checks. Real-money routes always
+return 403. There are no deposit, withdrawal or transfer operations in this build.
 
-## Work remaining before live trading
+## Future real-money work (not enabled)
 
 1. Configure and verify Deriv OAuth against your account, including expiry and denied consent.
 2. Validate actual provider account schemas; add broker-backed market data.
@@ -33,7 +34,7 @@ There are no order placement, deposit, withdrawal or transfer operations in this
 5. Implement broker-specific execution adapters, decimal sizing, lot/contract validation,
    server-side exposure/loss limits, stale quote protection and emergency stop.
 6. Add durable idempotency, order state transitions, ledger entries and reconciliation.
-7. Validate broker demo execution and failures before enabling any real-money route.
+7. Keep real-money routes hard-disabled. Any future broker work requires a separate design, review, and explicit approval.
 8. Complete deployment hardening, monitoring, backups and recovery verification.
 
 These items are absent functionality, not features switched off by an environment flag.

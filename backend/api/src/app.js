@@ -4,6 +4,9 @@ import {readOperations} from '../../trading/operations.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../trading/demo-portfolio.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
+import {executeRealOrder} from './ticket/real.js';
+import {strategyPassReal} from './strategy/real.js';
+import {readRealPortfolio} from './portfolio/real.js';
 
 const random=()=>randomBytes(32).toString('base64url');
 const RATE_LIMIT_WINDOW_MS=60000;
@@ -78,6 +81,16 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
    if(path==='/api/auth/logout'&&req.method==='POST'){
     if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')return json(res,403,{error:'Request origin rejected'});
     sessions.delete(sid);setCookie(res,cookieName,'',0);return json(res,200,{ok:true});
+   }
+   const liveRoute={
+    '/api/live/ticket':executeRealOrder,
+    '/api/live/strategy':strategyPassReal,
+    '/api/live/portfolio':readRealPortfolio,
+   }[path];
+   if(path.startsWith('/api/live/')){
+    if(!liveRoute)return json(res,403,{error:'Real-money trading is unavailable.'});
+    const result=await liveRoute();
+    return json(res,result.status,result.body);
    }
    if(!session)return json(res,401,{error:'Sign in with Deriv first.'});
    if(sid&&rateLimit(sid))return json(res,429,{error:'Rate limit exceeded. Slow down.'});

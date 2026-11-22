@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {strategyPass} from '../src/strategy-worker.js';
+import {strategyPass} from '../src/strategy/demo.js';
 const id='DOT123';
 const env={PLAYGO_SIGNAL_WORKER_ENABLED:'true',LIVE_TRADING_ENABLED:'false',DERIV_DEMO_ACCOUNT_ID:id,DERIV_DEMO_TOKEN:'fixture',
  DERIV_CLIENT_ID:'fixture',SUPABASE_URL:'https://example.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'fixture'};

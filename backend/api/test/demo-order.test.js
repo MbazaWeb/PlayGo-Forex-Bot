@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {executeDemoOrder} from '../src/demo-order.js';
+import {executeDemoOrder} from '../src/ticket/demo.js';
 const env={PLAYGO_ENV:'test',LIVE_TRADING_ENABLED:'false',PLAYGO_DEMO_EXECUTION_ENABLED:'true',
  DERIV_DEMO_ACCOUNT_ID:'DOT123',DERIV_DEMO_TOKEN:'fixture',DERIV_CLIENT_ID:'fixture'};
 const input={env,intent:{stake:1,symbol:'frxEURUSD',contractType:'CALL',duration:5,durationUnit:'m'}};

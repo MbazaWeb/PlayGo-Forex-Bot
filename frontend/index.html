@@ -1,1 +1,33 @@
-<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="theme-color" content="#0b1019"/><title>PlayGo Trading</title></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1019" />
+    <meta name="color-scheme" content="dark" />
+    <title>PlayGo Trading</title>
+    <meta name="description" content="PlayGo Trading Terminal - Deriv demo trading, live market data, and paper strategy research." />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <style>
+      html, body { background: #0b1019; color: #eaf1f8; margin: 0; }
+      #root:empty::after {
+        content: "Loading PlayGo…"; display: grid; place-items: center;
+        min-height: 100vh; font-family: system-ui, sans-serif;
+        font-size: 14px; color: #8a99ac;
+      }
+    </style>
+    <link rel="preconnect" href="https://api.derivws.com" crossorigin />
+  </head>
+  <body>
+    <noscript>
+      <div style="padding:24px;font-family:system-ui,sans-serif;color:#f6ccbf;background:#101720;min-height:100vh;">
+        <h1 style="margin:0 0 12px;">JavaScript is required</h1>
+        <p style="line-height:1.6;color:#aab8c9;">PlayGo is a client-side application.</p>
+      </div>
+    </noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

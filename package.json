@@ -20,7 +20,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "recover:demo": "node --env-file-if-exists=.env backend/api/src/recover-demo.js",
-    "strategy:demo": "node --env-file-if-exists=.env backend/api/src/strategy-worker.js",
+    "strategy:demo": "node --env-file-if-exists=.env backend/api/src/strategy/demo.js",
     "verify:postgres": "node scripts/verify-local-postgres.mjs",
     "verify:deriv": "node --env-file-if-exists=.env scripts/verify-deriv-demo.mjs"
   },

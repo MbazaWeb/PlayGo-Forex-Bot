@@ -10,7 +10,16 @@ PlayGo Trading is a React/Vite trading workspace with a Node API for Deriv OAuth
 - Windows MT5 read-only snapshot adapter (not connected to the API)
 - API authentication regression tests
 
-The optional demo worker evaluates the selected EUR/USD strategy, records signals, and settles simulated trades in PostgreSQL. Trading Bots includes historical replay and an account-scoped paper trade history. See [worker setup](docs/SIGNAL_WORKER.md). It runs separately from the web app. The order ticket previews hypothetical trades. Broker submission is locked pending demo qualification, and real-money execution is disabled. Market charts use historical Deriv prices. The example bot results and watchlist are simulated.
+The optional demo worker evaluates the selected EUR/USD strategy and records account-scoped signals. Historical replay and strategy history are paper simulations, not broker orders. See [worker setup](docs/SIGNAL_WORKER.md). Real-money API routes are hard-disabled. The market catalog contains static metadata; chart prices come from Deriv's public historical feed.
+
+## Trading modes and safety
+
+- `/api/live/ticket`, `/api/live/strategy`, and `/api/live/portfolio` always return `403`. Setting an environment variable cannot enable real-money execution.
+- The Trading Bots and Portfolio pages use demo accounts only. Paper replay/history is separate from the Deriv demo account and must not be interpreted as broker P&L.
+- **Paper Simulator (localStorage)** uses a virtual starting balance and manually entered scenario prices. It sends no broker requests.
+- Demo broker submission is a separate, account-scoped path. Its readiness check reports qualification, pause state, unresolved intents, the latest recovery timestamp, and verified daily P&L; any failed or stale check blocks submission.
+- A recovery result with `observed: 0` means the recovery query found no unresolved intents to inspect. Recovery heartbeat does not qualify an account or clear its paused state, and a zero count alone does not make the preflight ready.
+- Public market-data requests close their WebSocket after each response, abort on component cleanup, and retry transient read failures with bounded backoff.
 
 ## Local setup
 

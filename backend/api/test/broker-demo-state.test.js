@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {brokerDemoState} from '../src/broker-demo-state.js';
+import {brokerDemoState} from '../src/portfolio/demo.js';
 
 const env={SUPABASE_URL:'https://example.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'fixture'};
 const current=()=>({qualified:true,paused:false,unresolved:false,lastRecoveryAt:new Date().toISOString(),

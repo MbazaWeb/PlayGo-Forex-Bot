@@ -23,9 +23,11 @@ if(missing.length){
     stage='demo trade history';
     const history=await readDemoHistory(context);
     console.log('PASS history, returned transactions:',history.transactions.length);
-    stage='EUR/USD tick and proposal (requires an available market)';
-    await readMarketQuote(context,{symbol:'frxEURUSD',contractType:'CALL',duration:15,durationUnit:'m',stake:1},step=>{stage=step;});
-    console.log('PASS EUR/USD tick and read-only proposal');
+    const symbol=process.argv[2]||'frxEURUSD';
+    if(!/^[A-Za-z0-9_]{2,30}$/.test(symbol)) throw Error('invalid symbol');
+    stage=symbol+' tick and proposal (requires an available market)';
+    await readMarketQuote(context,{symbol,contractType:'CALL',duration:15,durationUnit:'m',stake:1},step=>{stage=step;});
+    console.log('PASS '+symbol+' tick and read-only proposal');
   } catch {
     console.error('Verification incomplete at '+stage+'.');
     process.exitCode=1;

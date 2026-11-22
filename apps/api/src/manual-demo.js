@@ -6,7 +6,7 @@ export async function manualTicket({method,params,token,appId,env=process.env,fe
   const blocked=(message,status=409)=>({status,body:{ready:false,message}});
   const id=params.get('account');
   if(env.LIVE_TRADING_ENABLED!=='false'||env.PLAYGO_DEMO_EXECUTION_ENABLED!=='true')
-    return blocked('Demo broker execution is switched off on this server.');
+    return blocked('Demo orders are disabled.');
   if(!id || id!==env.PLAYGO_BROKER_DEMO_ACCOUNT || id!==env.DERIV_DEMO_ACCOUNT_ID)
     return blocked('This account is not configured for demo execution.',403);
   try{
@@ -15,7 +15,7 @@ export async function manualTicket({method,params,token,appId,env=process.env,fe
     if(matches.length!==1||matches[0].account_type!=='demo')return blocked('Sign in with the configured Deriv demo account.',403);
     if(method==='GET'){
       await brokerDemoState(env,id,fetchImpl);
-      return {status:200,body:{ready:true,message:'Demo account armed. Each order is checked before purchase.'}};
+      return {status:200,body:{ready:true,message:'Ready'}};
     }
     const key=params.get('key'),stake=Number(params.get('stake')),duration=Number(params.get('minutes'));
     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(key||'')||
@@ -32,7 +32,7 @@ export async function manualTicket({method,params,token,appId,env=process.env,fe
   }catch(error){
     if(error.status===401)return blocked('Deriv session expired. Sign in again.',401);
     if(error.message.startsWith('DEMO_PREFLIGHT_BLOCKED'))return blocked(error.message.split(': ')[1]||'Demo account risk checks blocked submission.');
-    if(['DATABASE_UNAVAILABLE','DEMO_PREFLIGHT_UNAVAILABLE'].includes(error.message))return blocked('Demo risk database unavailable.',503);
+    if(['DATABASE_UNAVAILABLE','DEMO_PREFLIGHT_UNAVAILABLE'].includes(error.message))return blocked('Order service unavailable. Retry the status check.',503);
     return blocked(method==='GET'?'Could not verify demo execution status.':'Could not confirm the order. Check Portfolio before placing another order.',503);
   }
 }

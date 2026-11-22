@@ -14,7 +14,8 @@
     "deploymentEnabled": {
       "development/phase7-atomic-execution": false,
       "main": false,
-      "fix/demo-controls": false
+      "fix/demo-controls": false,
+      "fix/terminal-layout": false
     }
   }
 }

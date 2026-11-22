@@ -59,11 +59,21 @@ export default function MarketExplorer({catalog,overview}) {
   const {market,result}=catalog;
   const [history,reload]=useRequest(market && market.symbol+'/'+interval,JSON.stringify({ticks_history:market?.symbol,style:'candles',end:'latest',adjust_start_time:1,count:72,granularity:interval}),readCandles);
   const data=history.rows;
-  return <section className="panel chart-panel"><div className="panelhead"><div><h2>{overview?'Market Overview':'Market Chart'}</h2><p>Deriv Options · Historical prices</p></div></div>
-    <div className="market-controls"><label>Market<InstrumentSelect catalog={catalog}/></label>
-    <label>Chart type<select value={type} onChange={e=>setType(e.target.value)}>{['Candlestick','OHLC bars','Line','Area'].map(t=><option key={t}>{t}</option>)}</select></label>
-    <label>Interval<select value={interval} onChange={e=>setInterval(Number(e.target.value))}>{[[60,'1 minute'],[300,'5 minutes'],[900,'15 minutes'],[3600,'1 hour'],[14400,'4 hours'],[86400,'1 day']].map(([n,t])=><option key={n} value={n}>{t}</option>)}</select></label></div>
-    {data?.length>0 ? <><div className="market-line"><div><b>{market.name}</b><small>{data.at(-1).time} UTC · Latest returned candle</small></div><strong>{data.at(-1).close}</strong></div>
+  function chartOptions() {
+    return <>
+      <label>Chart type<select value={type} onChange={e=>setType(e.target.value)}>{['Candlestick','OHLC bars','Line','Area'].map(t=><option key={t}>{t}</option>)}</select></label>
+      <label>Interval<select value={interval} onChange={e=>setInterval(Number(e.target.value))}>{[[60,'1 minute'],[300,'5 minutes'],[900,'15 minutes'],[3600,'1 hour'],[14400,'4 hours'],[86400,'1 day']].map(([n,t])=><option key={n} value={n}>{t}</option>)}</select></label>
+    </>;
+  }
+  return <section className="panel chart-panel"><div className="panelhead"><div><h2>{overview?'Market Overview':'Market Chart'}</h2>{overview&&<p>Deriv Options · Historical prices</p>}</div></div>
+    <div className={overview?'market-controls':'terminal-market-controls'}>
+      <label>Market<InstrumentSelect catalog={catalog}/></label>
+      {overview?chartOptions():<details className="terminal-chart-options">
+        <summary>Chart settings</summary>
+        <div className="market-controls">{chartOptions()}</div>
+      </details>}
+    </div>
+    {data?.length>0 ? <><div className="market-line"><div><b>{market.name}</b><small>{data.at(-1).time} UTC · Last candle</small></div><strong>{data.at(-1).close}</strong></div>
     {['Line','Area'].includes(type)?<MarketChart data={data} line={type==='Line'} label="Close" tall={!overview}/>:<PriceBars data={data} type={type}/>}
     <button className="textlink" onClick={reload}>Refresh prices</button></>:
     <p role="status">{!market?(result.error?'Market catalog unavailable.':result.rows?'No markets returned.':'Loading markets…'):(history.error?'Price history unavailable.':data?'No candles returned.':'Loading history…')} {((!market&&(result.error||result.rows))||(market&&(history.error||data)))&&<button onClick={market?reload:catalog.retry}>Retry</button>}</p>}

@@ -22,4 +22,8 @@ const server=createServer(async(req,res)=>{
   res.end(req.method==='HEAD'?undefined:body);
  }catch{res.writeHead(404);res.end('Build the frontend with npm run build first.');}
 });
-server.listen(Number(process.env.PORT||3001),'127.0.0.1',()=>console.log('PlayGo listening on http://127.0.0.1:'+(process.env.PORT||3001)));
+server.listen(Number(process.env.PORT || 3001), '127.0.0.1', () => {
+ const { port } = server.address();
+ console.log('PlayGo listening on http://127.0.0.1:' + port);
+ process.send?.(port);
+});

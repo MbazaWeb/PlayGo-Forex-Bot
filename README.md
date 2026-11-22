@@ -23,11 +23,10 @@ npm test
 npm run build
 ```
 
-Configure `DERIV_CLIENT_ID` and the exact registered callback in `.env`. On Windows PowerShell, replace `cp` with `Copy-Item` if preferred. Start the two services in separate terminals:
+Configure `DERIV_CLIENT_ID` and the exact registered callback in `.env`. On Windows PowerShell, replace `cp` with `Copy-Item` if preferred. Start both services from the repository root.
 
 ```bash
-npm run server   # Node API on http://127.0.0.1:3001 (PORT env overrides)
-npm run dev       # Vite dev server on http://127.0.0.1:5173, proxies /api → 3001
+npm run dev       # Starts the Node API and Vite together
 ```
 
 Open http://localhost:5173.

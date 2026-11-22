@@ -24,3 +24,27 @@
 .bot-setup details {padding:14px 0;border-top:1px solid #364653}
 .bot-setup summary {cursor:pointer;font-weight:600}
 @media(max-width:640px){.mode-options,.bot-status{grid-template-columns:1fr}.bot-status{gap:0}.bot-setup .panelhead{flex-wrap:wrap}}
+
+.terminal-grid { align-items: start; }
+.terminal-grid .panelhead { margin-bottom: 14px; }
+.terminal-market-controls label { margin-bottom: 10px; }
+.terminal-chart-options { margin-bottom: 14px; }
+.terminal-chart-options summary, .terminal-ledger summary {
+  color: #b9d0db;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.terminal-chart-options .market-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+.terminal-grid .trade-toggle { margin-bottom: 12px; }
+.terminal-grid .order-panel > p { margin: 10px 0; }
+.terminal-ticket-market { color: #eaf1f8; font-weight: 700; }
+.terminal-order-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.terminal-order-fields label { margin-bottom: 0; }
+.terminal-ledger { margin-top: 16px; }
+.terminal-ledger[open] > summary { margin-bottom: 14px; }
+
+.paper-panel .paper-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.paper-panel .paper-metrics strong { overflow-wrap: anywhere; }
+.paper-management { margin-top: 16px; }
+.paper-management[open] > summary { margin-bottom: 14px; }

@@ -77,7 +77,8 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  const path = String(req.query.route || '').replace(/^\/+/, '');
+  const routedPath = req.query.route ?? new URL(req.url, 'http://localhost').pathname.replace(/^\/api\/?/, '');
+  const path = String(routedPath).replace(/^\/+/, '');
   const configured = validConfig();
   const cs = cookies(req);
   const candidate = configured ? open(cs['__Host-playgo_session']) : null;

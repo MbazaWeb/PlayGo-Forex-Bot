@@ -1,24 +1,23 @@
 import {manualTicket} from '../../api/src/manual-demo.js';
 import {strategyStore} from '../server/trading/strategy-store.js';
 import {readOperations} from '../server/trading/operations.js';
-import {listAccounts} from '../../api/src/providers/deriv.js';
+import {exchangeCode,listAccounts} from '../../api/src/providers/deriv.js';
 import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../server/trading/demo-portfolio.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
-const REDIRECT = process.env.DERIV_REDIRECT_URI || '';
+const CALLBACK_PATH = '/api/auth/deriv/callback';
+const REDIRECT = process.env.DERIV_REDIRECT_URI || ORIGIN + CALLBACK_PATH;
 const CLIENT = process.env.DERIV_CLIENT_ID || '';
 const SECRET = process.env.PLAYGO_COOKIE_SECRET || '';
 const SCOPES = process.env.DERIV_SCOPES || 'trade';
-const TOKEN_URL = 'https://auth.deriv.com/oauth2/token';
 const ACCOUNTS_URL = 'https://api.derivws.com/trading/v1/options/accounts';
 const random = () => randomBytes(32).toString('base64url');
 const validConfig = () => {
   try {
     const origin = new URL(ORIGIN);
-    const redirect = new URL(REDIRECT);
     return origin.protocol === 'https:' && origin.origin === ORIGIN &&
-      redirect.origin === ORIGIN && redirect.pathname === '/api/auth/deriv/callback' &&
+      REDIRECT === ORIGIN + CALLBACK_PATH &&
       Boolean(CLIENT && SECRET.length >= 32);
   } catch { return false; }
 };
@@ -77,7 +76,7 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  const path = String(req.query.route || '').replace(/^\/+/, '');
+  const path = String(req.query?.route || '').replace(/^\/+/, '');
   const configured = validConfig();
   const cs = cookies(req);
   const candidate = configured ? open(cs['__Host-playgo_session']) : null;
@@ -112,6 +111,10 @@ export default async function handler(req, res) {
   if (path === 'session' && req.method === 'GET') return respond(res, 200, { authenticated: !!session, configured, execution: false, mt5: 'not_linked' });
   if (path === 'auth/deriv/start' && req.method === 'GET') {
     if (!configured) return respond(res, 503, { error: 'Configure DERIV_CLIENT_ID, PLAYGO_COOKIE_SECRET, APP_ORIGIN and DERIV_REDIRECT_URI in Vercel.' });
+    // Store the PKCE cookie on the host that will receive the callback.
+    if (req.headers.host !== new URL(ORIGIN).host) {
+      return redirect(res, ORIGIN + '/api/auth/deriv/start');
+    }
     const state = random(), verifier = random();
     res.setHeader('Set-Cookie', cookie('__Host-playgo_oauth', seal({ state, verifier, exp: Date.now() + 300000 }), 300));
     const url = new URL('https://auth.deriv.com/oauth2/auth');
@@ -122,21 +125,20 @@ export default async function handler(req, res) {
   if (path === 'auth/deriv/callback' && req.method === 'GET') {
     res.setHeader('Set-Cookie', cookie('__Host-playgo_oauth', '', 0));
     if (!configured) return respond(res, 503, { error: 'OAuth server is not configured' });
+    if (req.query.error === 'access_denied') return redirect(res, ORIGIN + '/?auth_error=access_denied');
     const flow = open(cs['__Host-playgo_oauth']);
-    const state = String(req.query.state || '');
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     if (typeof flow?.state !== 'string' || typeof flow.verifier !== 'string' || !state || !code || req.query.error ||
       Buffer.byteLength(state) !== Buffer.byteLength(flow.state) ||
       !timingSafeEqual(Buffer.from(state), Buffer.from(flow.state))) return redirect(res, ORIGIN + '/?auth_error=invalid_callback');
     try {
-      const response = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: 'authorization_code', client_id: CLIENT, code, code_verifier: flow.verifier, redirect_uri: REDIRECT }),
-        signal: AbortSignal.timeout(15000) });
-      if (!response.ok) throw new Error('token exchange failed');
-      const data = await response.json();
-      if (typeof data.access_token !== 'string' || !Number.isFinite(data.expires_in) || data.expires_in <= 0) throw new Error('invalid token');
-      const seconds = Math.min(data.expires_in, 28800);
-      const tokenCookie = cookie('__Host-playgo_session', seal({ token: data.access_token, exp: Date.now() + seconds * 1000 }), seconds);
+      const { token, expires } = await exchangeCode({
+        code, verifier: flow.verifier, config: { clientId: CLIENT, redirectUri: REDIRECT }
+      });
+      const seconds = Math.max(1, Math.floor((expires - Date.now()) / 1000));
+      const tokenCookie = cookie('__Host-playgo_session', seal({ token, exp: expires }), seconds);
+      if (Buffer.byteLength(tokenCookie) > 4096) throw new Error('Deriv session cookie exceeds browser limit');
       res.setHeader('Set-Cookie', [cookie('__Host-playgo_oauth', '', 0), tokenCookie]);
       return redirect(res, ORIGIN + '/');
     } catch { return redirect(res, ORIGIN + '/?auth_error=exchange_failed'); }

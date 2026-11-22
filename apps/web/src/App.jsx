@@ -5,7 +5,13 @@ import React,{useEffect,useState} from 'react';
 import {Activity,LogOut,RefreshCw,ShieldCheck,LayoutDashboard,Wallet,ChartCandlestick,Bot,ChartNoAxesCombined,Settings,Menu,X} from 'lucide-react';
 const MarketWorkspace=React.lazy(()=>import('./components/MarketWorkspace'));
 const PaperTerminal=React.lazy(()=>import('./PaperTerminal'));
+const authMessages={
+ access_denied:'Deriv sign-in was cancelled. You can start again below.',
+ invalid_callback:'The Deriv sign-in session expired or could not be verified. Start again below.',
+ exchange_failed:'PlayGo could not complete sign-in with Deriv. Start again below.'
+};
 export default function App(){
+ const authError=new URLSearchParams(location.search).get('auth_error');
  const [terminalSymbol,setTerminalSymbol]=useState('R_75');
  const [session,setSession]=useState(null),[accounts,setAccounts]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
  const [mt5,setMt5]=useState(null),[page,setPage]=useState('Overview'),[mobile,setMobile]=useState(false),[mt5Guide,setMt5Guide]=useState(false);
@@ -18,15 +24,21 @@ export default function App(){
   }catch(e){setError(e.message);}finally{setLoading(false);}
  }
  useEffect(()=>{load();},[]);
- async function logout(){await fetch('/api/auth/logout',{method:'POST',headers:{'X-PlayGo-Request':'1'}});setAccounts(null);load();}
+ async function logout(){
+  try {
+   const response=await fetch('/api/auth/logout',{method:'POST',headers:{'X-PlayGo-Request':'1'}});
+   if(!response.ok)throw Error();
+   await load();
+  } catch { setError('Could not sign out. Try again.'); }
+ }
  if(!session?.authenticated) return (
   <div className="signin">
    <header><div className="brand"><span className="brandicon"><Activity size={21}/></span><div><b>PLAYGO</b><small>TRADING TERMINAL</small></div></div></header>
    <main className="signin-main">
     <h1>Sign in to PlayGo</h1>
     <p>Choose a trading connection. Deriv uses secure browser sign-in; MT5 uses its Windows desktop terminal.</p>
-    {error && <p role="alert" className="signin-error">Sign-in service unavailable. <button onClick={load}>Try again</button></p>}
-    {!error && new URLSearchParams(location.search).has('auth_error') && <p role="alert" className="signin-error">Deriv sign-in failed. Please try again.</p>}
+    {error && <p role="alert" className="signin-error">{error} <button onClick={load}>Try again</button></p>}
+    {!error && authError && <p role="alert" className="signin-error">{Object.hasOwn(authMessages,authError)?authMessages[authError]:'Deriv sign-in failed. Please try again.'}</p>}
     {loading ? <p role="status">Checking your session…</p> : session?.configured
       ? <a className="signin-action" href="/api/auth/deriv/start">Continue with Deriv <span aria-hidden="true">→</span></a>
       : !error && <p role="status" className="signin-error">Deriv sign-in is unavailable until the server is configured.</p>}

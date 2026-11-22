@@ -69,9 +69,33 @@ test('demo ticket preflight explains pending qualification without enabling orde
     lastRecoveryAt: null,
     dailyRealizedPnl: '0',
   }));
-  assert.equal(result.status, 409);
+  assert.equal(result.status, 200);
   assert.equal(result.body.ready, false);
   assert.equal(result.body.qualified, false);
   assert.equal(result.body.lastRecoveryAt, null);
   assert.equal(result.body.message, 'Demo account qualification is pending.');
+});
+
+test('disabled demo execution returns a readable GET status without broker or database requests', async () => {
+  const result = await manualTicket({
+    method: 'GET',
+    params: new URLSearchParams({ account: accountId }),
+    env: { LIVE_TRADING_ENABLED: 'false', PLAYGO_DEMO_EXECUTION_ENABLED: 'false' },
+    fetchImpl: assert.fail,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.ready, false);
+  assert.equal(result.body.message, 'Demo orders are disabled.');
+  assert.equal(result.body.qualified, null);
+});
+
+test('disabled demo execution still rejects order submissions', async () => {
+  const result = await manualTicket({
+    method: 'POST',
+    params: new URLSearchParams({ account: accountId }),
+    env: { LIVE_TRADING_ENABLED: 'false', PLAYGO_DEMO_EXECUTION_ENABLED: 'false' },
+    fetchImpl: assert.fail,
+  });
+  assert.equal(result.status, 409);
+  assert.equal(result.body.ready, false);
 });

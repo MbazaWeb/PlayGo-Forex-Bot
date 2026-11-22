@@ -6,7 +6,9 @@ export async function manualTicket({method,params,token,appId,env=process.env,fe
   const blocked=(message,status=409,details={})=>({status,body:{ready:false,message,...details}});
   const id=params.get('account');
   if(env.LIVE_TRADING_ENABLED!=='false'||env.PLAYGO_DEMO_EXECUTION_ENABLED!=='true')
-    return blocked('Demo orders are disabled.');
+    return blocked('Demo orders are disabled.',method==='GET'?200:409,{
+      qualified:null,paused:null,unresolved:null,lastRecoveryAt:null,dailyRealizedPnl:null
+    });
   if(!id || id!==env.PLAYGO_BROKER_DEMO_ACCOUNT || id!==env.DERIV_DEMO_ACCOUNT_ID)
     return blocked('This account is not configured for demo execution.',403);
   try{
@@ -16,7 +18,7 @@ export async function manualTicket({method,params,token,appId,env=process.env,fe
     if(method==='GET'){
       const state=await readBrokerDemoState(env,id,fetchImpl);
       const {qualified,paused,unresolved,lastRecoveryAt,dailyRealizedPnl}=state;
-      return {status:state.ready?200:409,body:{ready:state.ready,message:state.message,
+      return {status:200,body:{ready:state.ready,message:state.message,
         qualified,paused,unresolved,lastRecoveryAt,dailyRealizedPnl}};
     }
     const key=params.get('key'),stake=Number(params.get('stake')),duration=Number(params.get('minutes'));

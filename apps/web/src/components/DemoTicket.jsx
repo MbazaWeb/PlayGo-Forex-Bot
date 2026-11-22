@@ -1,5 +1,4 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {InstrumentSelect} from './MarketExplorer';
 
 export default function DemoTicket({accounts,catalog}){
   const demos=(accounts||[]).filter(a=>a.account_type==='demo');
@@ -33,11 +32,13 @@ export default function DemoTicket({accounts,catalog}){
     finally{setBusy(false);setGate(null);setRefresh(n=>n+1);lock.current=false;}
   }
   return <section className="panel order-panel"><h2>Demo order ticket</h2>
-    <label>Demo account<select disabled={busy||!demos.length} value={id||''} onChange={e=>{select(e.target.value);setResult('');setSent(false);}}>{!demos.length&&<option value="">No demo account connected</option>}{demos.map(a=><option key={a.account_id}>{a.account_id}</option>)}</select></label>
+    {demos.length>1?<label>Demo account<select disabled={busy} value={id||''} onChange={e=>{select(e.target.value);setResult('');setSent(false);}}>{demos.map(a=><option key={a.account_id}>{a.account_id}</option>)}</select></label>:id&&<p className="terminal-ticket-account">Account {id}</p>}
     <div className="trade-toggle">{[['CALL','Rise'],['PUT','Fall']].map(([value,label])=><button disabled={busy} key={value} aria-pressed={direction===value} className={direction===value?(value==='CALL'?'buy':'sell'):''} onClick={()=>setDirection(value)}>{label}</button>)}</div>
-    <label>Market<InstrumentSelect catalog={catalog}/></label>
+    <p className="terminal-ticket-market">{catalog.market?.name || 'Select a market in the chart'}</p>
+    <div className="terminal-order-fields">
     <label>Stake ({account?.currency||'account currency'})<input disabled={busy} type="number" min="0.01" max="1" step="0.01" value={stake} onChange={e=>setStake(e.target.value)}/></label>
     <label>Duration<select disabled={busy} value={minutes} onChange={e=>setMinutes(e.target.value)}>{[1,5,15,30,60].map(n=><option key={n} value={n}>{n} min</option>)}</select></label>
+    </div>
     {!ready&&<p role="status">{id?(gate?.id===id?gate.message:'Checking demo execution…'):'Connect a Deriv demo account to place orders.'}</p>}
     {!sent?<button className="primary wide" disabled={busy||!ready||!catalog.market||!(Number(stake)>0&&Number(stake)<=1)} onClick={submit}>Place demo {direction==='CALL'?'Rise':'Fall'} order</button>:
       <button className="outline" disabled={busy||!ready} onClick={()=>{setResult('');setSent(false);}}>Prepare another order</button>}

@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "npm run dev --workspace @playgo/web",
+    "dev": "node scripts/dev.mjs",
     "server": "node --env-file-if-exists=.env apps/api/src/index.js",
     "build": "npm run build --workspace @playgo/web",
     "start": "node --env-file-if-exists=.env apps/api/src/index.js",

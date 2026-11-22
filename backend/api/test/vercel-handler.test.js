@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import handler from '../api/handler.js';
+import handler from '../src/vercel-handler.js';
 
 function responseRecorder() {
   return {

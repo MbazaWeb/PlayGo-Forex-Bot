@@ -1,10 +1,10 @@
 import {listAccounts} from './providers/deriv.js';
-import {getDemoWebSocketUrl,demoProposal} from '../../web/server/trading/deriv-demo.js';
-import {atomicDemoTransition} from '../../web/server/trading/atomic-worker.js';
-import {reserveDemoIntent} from '../../web/server/trading/reservation.js';
+import {getDemoWebSocketUrl,demoProposal} from '../../trading/deriv-demo.js';
+import {atomicDemoTransition} from '../../trading/atomic-worker.js';
+import {reserveDemoIntent} from '../../trading/reservation.js';
 
 import {brokerDemoState} from './broker-demo-state.js';
-import {readDemoPortfolio} from '../../web/server/trading/demo-portfolio.js';
+import {readDemoPortfolio} from '../../trading/demo-portfolio.js';
 
 function waitFor(socket, event, action, accept) {
   return new Promise((resolve,reject)=>{

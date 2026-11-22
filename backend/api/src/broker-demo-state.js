@@ -1,4 +1,4 @@
-import {databaseKey,databaseRoot} from '../../web/server/trading/database-url.js';
+import {databaseKey,databaseRoot} from '../../trading/database-url.js';
 
 export async function brokerDemoState(env,accountId,fetchImpl=fetch){
   const key=databaseKey(env),root=databaseRoot(env);

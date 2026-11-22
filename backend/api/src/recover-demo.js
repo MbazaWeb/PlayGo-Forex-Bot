@@ -1,9 +1,9 @@
-import {databaseRoot,databaseKey} from '../../web/server/trading/database-url.js';
+import {databaseRoot,databaseKey} from '../../trading/database-url.js';
 // One recovery pass. Schedule only on an isolated demo worker after qualification.
 import {listAccounts} from './providers/deriv.js';
-import {readOperations} from '../../web/server/trading/operations.js';
-import {recoverBoundContract} from '../../web/server/trading/recovery-policy.js';
-import {atomicDemoTransition} from '../../web/server/trading/atomic-worker.js';
+import {readOperations} from '../../trading/operations.js';
+import {recoverBoundContract} from '../../trading/recovery-policy.js';
+import {atomicDemoTransition} from '../../trading/atomic-worker.js';
 import {pathToFileURL} from 'node:url';
 
 export async function recoverDemo({env=process.env,fetchImpl=fetch,Socket=WebSocket}={}) {

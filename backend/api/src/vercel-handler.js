@@ -1,8 +1,8 @@
-import {manualTicket} from '../../api/src/manual-demo.js';
-import {strategyStore} from '../server/trading/strategy-store.js';
-import {readOperations} from '../server/trading/operations.js';
-import {listAccounts} from '../../api/src/providers/deriv.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../server/trading/demo-portfolio.js';
+import {manualTicket} from './manual-demo.js';
+import {strategyStore} from '../../trading/strategy-store.js';
+import {readOperations} from '../../trading/operations.js';
+import {listAccounts} from './providers/deriv.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../trading/demo-portfolio.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 
 const ORIGIN = process.env.APP_ORIGIN || '';

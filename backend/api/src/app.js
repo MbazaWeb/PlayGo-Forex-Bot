@@ -1,7 +1,7 @@
 import {manualTicket} from './manual-demo.js';
-import {strategyStore} from '../../web/server/trading/strategy-store.js';
-import {readOperations} from '../../web/server/trading/operations.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../web/server/trading/demo-portfolio.js';
+import {strategyStore} from '../../trading/strategy-store.js';
+import {readOperations} from '../../trading/operations.js';
+import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../trading/demo-portfolio.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 

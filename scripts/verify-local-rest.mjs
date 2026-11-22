@@ -1,13 +1,13 @@
-import {strategyPass} from '../apps/api/src/strategy-worker.js';
+import {strategyPass} from '../backend/api/src/strategy-worker.js';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createHmac,randomBytes,randomInt} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
-import {strategyStore} from '../apps/web/server/trading/strategy-store.js';
-import {readOperations} from '../apps/web/server/trading/operations.js';
-import {reserveDemoIntent} from '../apps/web/server/trading/reservation.js';
-import {atomicDemoTransition} from '../apps/web/server/trading/atomic-worker.js';
-import {recoverDemo} from '../apps/api/src/recover-demo.js';
+import {strategyStore} from '../backend/trading/strategy-store.js';
+import {readOperations} from '../backend/trading/operations.js';
+import {reserveDemoIntent} from '../backend/trading/reservation.js';
+import {atomicDemoTransition} from '../backend/trading/atomic-worker.js';
+import {recoverDemo} from '../backend/api/src/recover-demo.js';
 
 export async function verifyLocalRest(admin,pgPort) {
   const password=randomBytes(24).toString('hex'),secret=randomBytes(32).toString('hex');

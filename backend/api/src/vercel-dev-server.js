@@ -1,5 +1,5 @@
 import {createServer} from 'node:http';
-import handler from '../../web/api/handler.js';
+import handler from './vercel-handler.js';
 
 const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1 MB cap to prevent memory exhaustion
 

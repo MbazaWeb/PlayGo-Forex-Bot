@@ -1,9 +1,9 @@
 import React,{useEffect,useState,useRef} from 'react';
 import {SlidersHorizontal,Sparkles} from 'lucide-react';
 import StrategyReplay from './StrategyReplay';
-import {catalog} from '../../server/trading/pack/catalog.js';
-import {AUTOMATIC,AUTO_PERIODS} from '../../server/trading/pack/automatic.js';
-import {validPeriods} from '../../server/trading/crossover.js';
+import {catalog} from '../../../backend/trading/pack/catalog.js';
+import {AUTOMATIC,AUTO_PERIODS} from '../../../backend/trading/pack/automatic.js';
+import {validPeriods} from '../../../backend/trading/crossover.js';
 
 const rules=catalog.filter(s=>s.available);
 const name=id=>catalog.find(s=>s.id===id)?.name || (id===AUTOMATIC?'Automatic selection':'—');

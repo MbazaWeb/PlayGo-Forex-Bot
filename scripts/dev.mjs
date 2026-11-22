@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const web = join(root, 'apps', 'web');
+const web = join(root, 'frontend');
 const requireWeb = createRequire(join(web, 'package.json'));
 const vite = join(dirname(requireWeb.resolve('vite/package.json')), 'bin', 'vite.js');
 const children = [];
@@ -25,7 +25,7 @@ function start(args, cwd, env = process.env, stdio = 'inherit') {
 process.on('SIGINT', () => stop(0));
 process.on('SIGTERM', () => stop(0));
 const api = start(
-  ['--env-file-if-exists=.env', 'apps/api/src/index.js'],
+  ['--env-file-if-exists=.env', 'backend/api/src/index.js'],
   root,
   { ...process.env, PORT: '0' },
   ['inherit', 'inherit', 'inherit', 'ipc'],

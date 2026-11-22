@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
     "web": {
-      "root": "apps/web",
+      "root": "frontend",
       "framework": "vite",
       "rewrites": [
         {
@@ -13,8 +13,8 @@
     },
     "api": {
       "root": ".",
-      "entrypoint": "apps/web/api/handler.js",
-      "devCommand": "node apps/api/src/vercel-dev-server.js"
+      "entrypoint": "backend/api/src/vercel-handler.js",
+      "devCommand": "node backend/api/src/vercel-dev-server.js"
     }
   },
   "rewrites": [

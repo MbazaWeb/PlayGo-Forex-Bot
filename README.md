@@ -31,7 +31,7 @@ npm run dev       # Starts the Node API and Vite together
 
 Open http://localhost:5173.
 
-For the Vercel multi-service dev path, run `node apps/api/src/vercel-dev-server.js` (defaults to port 3000, binds to `127.0.0.1`; override with `PORT` and `PLAYGO_DEV_HOST`).
+For the Vercel multi-service dev path, run `node backend/api/src/vercel-dev-server.js` (defaults to port 3000, binds to `127.0.0.1`; override with `PORT` and `PLAYGO_DEV_HOST`).
 
 Deriv callback: `http://localhost:5173/api/auth/deriv/callback`. Production uses a same-origin HTTPS callback and a single Node backend because sessions are currently process-local. Review `docs/ARCHITECTURE.md` before deployment. **Never commit `.env`, access tokens, API secrets, or MT5 credentials.**
 
@@ -49,9 +49,11 @@ See `CONTRIBUTING.md` for the contribution workflow and `SECURITY.md` for vulner
 
 ## Project layout
 
-- `apps/web`: web frontend and separate demo preview
-- `apps/api`: Node API with Deriv authentication and tests
-- `services/mt5`: read-only Windows MT5 adapter
+- `frontend`: Vite web app and client code
+- `backend/api`: Node API, Deriv authentication, and API tests
+- `backend/trading`: server-side trading logic
+- `backend/deriv_execution`: database migrations
+- `backend/mt5`: read-only Windows MT5 adapter
 - `docs`: architecture, source audit, validation and import notes
 
 ## References

@@ -4,22 +4,23 @@
   "version": "0.1.0",
   "type": "module",
   "workspaces": [
-    "apps/*"
+    "backend/api",
+    "frontend"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "server": "node --env-file-if-exists=.env apps/api/src/index.js",
+    "server": "node --env-file-if-exists=.env backend/api/src/index.js",
     "build": "npm run build --workspace @playgo/web",
-    "start": "node --env-file-if-exists=.env apps/api/src/index.js",
+    "start": "node --env-file-if-exists=.env backend/api/src/index.js",
     "test": "node --test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "recover:demo": "node --env-file-if-exists=.env apps/api/src/recover-demo.js",
-    "strategy:demo": "node --env-file-if-exists=.env apps/api/src/strategy-worker.js",
+    "recover:demo": "node --env-file-if-exists=.env backend/api/src/recover-demo.js",
+    "strategy:demo": "node --env-file-if-exists=.env backend/api/src/strategy-worker.js",
     "verify:postgres": "node scripts/verify-local-postgres.mjs",
     "verify:deriv": "node --env-file-if-exists=.env scripts/verify-deriv-demo.mjs"
   },

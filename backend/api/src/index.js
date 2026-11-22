@@ -4,7 +4,7 @@ import {resolve,extname,sep} from 'node:path';
 import {createApp} from './app.js';
 const origin=process.env.APP_ORIGIN||'http://localhost:5173';
 const api=createApp({origin,clientId:process.env.DERIV_CLIENT_ID||'',redirectUri:process.env.DERIV_REDIRECT_URI||origin+'/api/auth/deriv/callback',scopes:process.env.DERIV_SCOPES||'trade'});
-const web=resolve('apps/web/dist');
+const web=resolve('frontend/dist');
 const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
 const secure=new URL(origin).protocol==='https:';
 const server=createServer(async(req,res)=>{

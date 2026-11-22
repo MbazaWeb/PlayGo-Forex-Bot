@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {catalog} from '../../web/server/trading/pack/catalog.js';
-import {packSignal} from '../../web/server/trading/pack/signal.js';
+import {catalog} from '../../trading/pack/catalog.js';
+import {packSignal} from '../../trading/pack/signal.js';
 const minute=1800000000;
 const rows=Array.from({length:60},(_,i)=>({epoch:minute-(60-i)*60,open:1+i*.001,high:1.02+i*.001,low:.98+i*.001,close:1.01+i*.001}));
 for(const item of catalog) test('pack: '+item.id,()=>{

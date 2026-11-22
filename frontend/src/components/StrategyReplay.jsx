@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {publicRequest,readCandles} from './derivMarkets';
-import {packSignal} from '../../server/trading/pack/signal';
+import {packSignal} from '../../../backend/trading/pack/signal.js';
 
 export default function StrategyReplay({strategy,fast,slow}) {
   const [run,setRun]=useState(0),[result,setResult]=useState('');

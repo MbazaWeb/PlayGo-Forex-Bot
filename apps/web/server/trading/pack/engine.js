@@ -18,7 +18,7 @@ function evaluateStrategy(id, c, p) {
     return close[i] > hi ? "BUY" : close[i] < lo ? "SELL" : "HOLD";
   };
   const band = () => close[i] < mid[i] - p.bandStdDev * std[i] ? "BUY" : close[i] > mid[i] + p.bandStdDev * std[i] ? "SELL" : "HOLD";
-  let signal = "HOLD", reason = "No qualifying signal";
+  let signal = "HOLD";
   switch (id) {
     case "moving-average-crossover":
       signal = cross(sma(close, p.fastPeriod), ma);

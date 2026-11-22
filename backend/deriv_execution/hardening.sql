@@ -1,4 +1,4 @@
--- Applied to Supabase project mmrkfaqxwmshwrxmligm.
+-- Applied to the staging Supabase project.
 -- Allow only one unresolved execution intent per account.
 create unique index if not exists playgo_one_unresolved_demo_intent_per_account
 on public.playgo_execution_intents(account_id)

@@ -26,15 +26,27 @@ npm run build
 Configure `DERIV_CLIENT_ID` and the exact registered callback in `.env`. On Windows PowerShell, replace `cp` with `Copy-Item` if preferred. Start the two services in separate terminals:
 
 ```bash
-npm run server
-npm run dev
+npm run server   # Node API on http://127.0.0.1:3001 (PORT env overrides)
+npm run dev       # Vite dev server on http://127.0.0.1:5173, proxies /api → 3001
 ```
 
 Open http://localhost:5173.
 
+For the Vercel multi-service dev path, run `node apps/api/src/vercel-dev-server.js` (defaults to port 3000, binds to `127.0.0.1`; override with `PORT` and `PLAYGO_DEV_HOST`).
+
 Deriv callback: `http://localhost:5173/api/auth/deriv/callback`. Production uses a same-origin HTTPS callback and a single Node backend because sessions are currently process-local. Review `docs/ARCHITECTURE.md` before deployment. **Never commit `.env`, access tokens, API secrets, or MT5 credentials.**
 
-The original `package-lock.json` was not transferred during the GitHub import. See `docs/REPOSITORY_STATUS.md` and run `npm install` to regenerate it locally.
+## Code quality
+
+Lint and formatting checks:
+
+```bash
+npm run lint     # ESLint
+npm run format   # Prettier (write)
+npm run format:check
+```
+
+See `CONTRIBUTING.md` for the contribution workflow and `SECURITY.md` for vulnerability reporting.
 
 ## Project layout
 

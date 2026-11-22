@@ -53,8 +53,8 @@ export async function executeDemoOrder(input, fixture) {
   if(rows.length!==1 || rows[0].account_type!=='demo') throw Error('DEMO_ACCOUNT_REQUIRED');
   const account={id,type:'demo',currency:rows[0].currency,balance:Number(rows[0].balance)};
   const intent=Object.freeze({...input.intent});
-  const reserve=test && fixture.reserve || reserveDemoIntent;
-  const transition=test && fixture.transition || atomicDemoTransition;
+  const reserve=test?fixture.reserve:reserveDemoIntent;
+  const transition=test?fixture.transition:atomicDemoTransition;
   let state=input.state;
   if(!test){
     if(!input.strategyId?.startsWith('deriv-'))throw Error('DEMO_STRATEGY_REQUIRED');

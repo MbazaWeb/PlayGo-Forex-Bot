@@ -15,6 +15,9 @@
     "build": "npm run build --workspace @playgo/web",
     "start": "node --env-file-if-exists=.env apps/api/src/index.js",
     "test": "node --test",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "recover:demo": "node --env-file-if-exists=.env apps/api/src/recover-demo.js",
     "strategy:demo": "node --env-file-if-exists=.env apps/api/src/strategy-worker.js",
     "verify:postgres": "node scripts/verify-local-postgres.mjs",
@@ -22,6 +25,9 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.17",
-    "embedded-postgres": "^18.7.0-beta.19"
+    "embedded-postgres": "^18.7.0-beta.19",
+    "eslint": "^9.15.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2"
   }
 }

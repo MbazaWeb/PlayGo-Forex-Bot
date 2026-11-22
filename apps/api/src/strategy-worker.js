@@ -33,11 +33,17 @@ if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
   if(process.env.PLAYGO_SIGNAL_WORKER_ENABLED!=='true' || process.env.LIVE_TRADING_ENABLED!=='false') {
     console.error('Signal worker disabled.');process.exitCode=1;
   } else {
+    let backoff=60000;
+    const backoffCap=1800000;
     do {
-      try { console.log(await strategyPass()); }
-      catch { console.error('Signal check unavailable.');if(process.argv.includes('--once'))process.exitCode=1; }
+      try { console.log(await strategyPass()); backoff=60000; }
+      catch (err) {
+        console.error('Signal check unavailable:',err&&err.message);
+        backoff=Math.min(backoff*2,backoffCap);
+        if(process.argv.includes('--once'))process.exitCode=1;
+      }
       if(process.argv.includes('--once')) break;
-      await delay(60000);
-    } while(true);
+      await delay(backoff);
+    } while(true); // eslint-disable-line no-constant-condition
   }
 }

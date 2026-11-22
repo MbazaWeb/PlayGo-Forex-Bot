@@ -43,3 +43,8 @@
 .terminal-order-fields label { margin-bottom: 0; }
 .terminal-ledger { margin-top: 16px; }
 .terminal-ledger[open] > summary { margin-bottom: 14px; }
+
+.paper-panel .paper-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.paper-panel .paper-metrics strong { overflow-wrap: anywhere; }
+.paper-management { margin-top: 16px; }
+.paper-management[open] > summary { margin-bottom: 14px; }

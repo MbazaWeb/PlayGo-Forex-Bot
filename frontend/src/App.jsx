@@ -8,7 +8,6 @@ import Strategy from './components/strategy';
 import Portfolio from './components/portfolio';
 
 const MarketWorkspace = React.lazy(() => import('./components/MarketWorkspace'));
-const PaperTerminal = React.lazy(() => import('./PaperTerminal'));
 
 const NAV = [
   ['Overview', LayoutDashboard],
@@ -36,7 +35,6 @@ export default function App() {
   const [page, setPage] = useState('Overview');
   const [mobile, setMobile] = useState(false);
   const [mt5Guide, setMt5Guide] = useState(false);
-  const [ledgerLoaded, setLedgerLoaded] = useState(false);
   const [terminalSymbol, setTerminalSymbol] = useState('R_75');
 
   async function load() {
@@ -109,7 +107,6 @@ export default function App() {
   }
 
   function navigate(next, symbol) {
-    if (next !== 'Trading Terminal') setLedgerLoaded(false);
     if (symbol) setTerminalSymbol(symbol);
     setPage(next === 'Accounts' ? 'Portfolio' : next);
     setMobile(false);
@@ -222,10 +219,6 @@ export default function App() {
               <React.Suspense fallback={<p>Loading terminal...</p>}>
                 <MarketWorkspace page="Trading Terminal" accounts={accounts} initialSymbol={terminalSymbol} />
               </React.Suspense>
-              <details className="panel terminal-ledger" onToggle={(event) => { if (event.currentTarget.open) setLedgerLoaded(true); }}>
-                <summary>Paper Simulator (localStorage)</summary>
-                {ledgerLoaded && <React.Suspense fallback={<p>Loading ledger...</p>}><PaperTerminal /></React.Suspense>}
-              </details>
             </>
           )}
           {!loading && page === 'Trading Bots' && (

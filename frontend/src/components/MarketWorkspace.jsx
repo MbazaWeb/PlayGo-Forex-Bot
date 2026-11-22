@@ -4,6 +4,7 @@ import { markets } from './paperMarkets';
 import Ticket from './ticket';
 import MarketExplorer, { useMarketList } from './MarketExplorer';
 
+const DerivDemoActivity = React.lazy(() => import('../DerivDemoActivity'));
 const currency = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 
 function BotPerformance({ accountId, accountType, changePage }) {
@@ -62,11 +63,11 @@ function BotPerformance({ accountId, accountType, changePage }) {
 
 export default function MarketWorkspace({ page, changePage, initialSymbol, accounts }) {
   const catalog = useMarketList(initialSymbol);
-  const usable = (accounts || []).filter((a) =>
-    typeof a.account_id === 'string' && a.account_id
-    && (a.account_type === 'demo' || a.account_type === 'real'),
+  const demoAccounts = (accounts || []).filter((a) =>
+    typeof a.account_id === 'string' && a.account_id && a.account_type === 'demo',
   );
-  const firstAccount = usable.find((a) => a.account_type === 'demo');
+  const [selectedDemoId, setSelectedDemoId] = useState('');
+  const firstAccount = demoAccounts.find((a) => a.account_id === selectedDemoId) || demoAccounts[0];
   const go = (next, symbol) => { if (typeof changePage === 'function') changePage(next, symbol); };
 
   const liveRows = markets.map((m) => {
@@ -126,9 +127,24 @@ export default function MarketWorkspace({ page, changePage, initialSymbol, accou
   }
 
   return (
-    <div className="terminal-grid">
-      <MarketExplorer catalog={catalog} />
-      <Ticket accounts={accounts} catalog={catalog} />
-    </div>
+    <>
+      {demoAccounts.length > 1 && (
+        <label className="terminal-demo-account-select">
+          Deriv demo account
+          <select value={firstAccount?.account_id || ''} onChange={(e) => setSelectedDemoId(e.target.value)}>
+            {demoAccounts.map((account) => (
+              <option key={account.account_id} value={account.account_id}>{account.account_id}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="terminal-grid">
+        <MarketExplorer catalog={catalog} />
+        <Ticket accounts={firstAccount ? [firstAccount] : []} catalog={catalog} />
+      </div>
+      <React.Suspense fallback={<p>Loading Deriv demo account...</p>}>
+        <DerivDemoActivity account={firstAccount} />
+      </React.Suspense>
+    </>
   );
 }

@@ -31,7 +31,8 @@ The following are **out of scope** as they are intentionally disabled by design:
 
 - Real-money execution is **hard-disabled** in both API handlers; environment flags cannot enable it.
 - Demo broker submission is a separate, explicitly gated path. It requires verified demo account ownership and passing risk/recovery preflight checks.
-- The local Paper Simulator stores virtual data in browser `localStorage` and does not send broker orders.
+- The demo account activity panel uses authenticated backend reads. Only the demo order ticket can submit Deriv demo contracts, and it remains blocked unless execution and risk preflight gates pass.
+- Strategy replay/history and `playgo_pack_trades` are paper simulations, not broker-account records.
 - Tokens are stored server-side in memory only; only an opaque session ID is placed in an HttpOnly cookie.
 - Production cookies are `__Host-` prefixed, `Secure`, `SameSite=Lax`.
 - CSRF protection requires both `Origin` header match and a custom `X-PlayGo-Request: 1` header on state-changing requests.

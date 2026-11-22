@@ -6,7 +6,7 @@ PlayGo Trading is a React/Vite trading workspace with a Node API for Deriv OAuth
 
 - Deriv OAuth authorization-code + PKCE login and secure server-side session handling
 - Deriv Options account retrieval (configuration and broker testing required)
-- React/Vite frontend with a separately labeled simulated trading workspace
+- React/Vite frontend with a Deriv demo Options ticket and account activity
 - Windows MT5 read-only snapshot adapter (not connected to the API)
 - API authentication regression tests
 
@@ -16,7 +16,8 @@ The optional demo worker evaluates the selected EUR/USD strategy and records acc
 
 - `/api/live/ticket`, `/api/live/strategy`, and `/api/live/portfolio` always return `403`. Setting an environment variable cannot enable real-money execution.
 - The Trading Bots and Portfolio pages use demo accounts only. Paper replay/history is separate from the Deriv demo account and must not be interpreted as broker P&L.
-- **Paper Simulator (localStorage)** uses a virtual starting balance and manually entered scenario prices. It sends no broker requests.
+- The Trading Terminal reads the selected Deriv demo balance, open contracts, and closed trades through the authenticated backend. The order ticket above that activity panel submits Deriv Options contracts using Deriv virtual funds when the demo execution gates pass.
+- Strategy replay and strategy history remain paper simulations; they do not represent broker-account positions or P&L. `paper_pack.sql` stores worker-generated simulated strategy fills, not manual forex or Deriv Options positions.
 - Demo broker submission is a separate, account-scoped path. Its readiness check reports qualification, pause state, unresolved intents, the latest recovery timestamp, and verified daily P&L; any failed or stale check blocks submission.
 - A recovery result with `observed: 0` means the recovery query found no unresolved intents to inspect. Recovery heartbeat does not qualify an account or clear its paused state, and a zero count alone does not make the preflight ready.
 - Public market-data requests close their WebSocket after each response, abort on component cleanup, and retry transient read failures with bounded backoff.

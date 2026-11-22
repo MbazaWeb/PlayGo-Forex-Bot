@@ -178,7 +178,7 @@ export default async function handler(req, res) {
       const context = {token:session.token, accountId, accounts, appId:CLIENT, fetchImpl:fetch};
       const params = new URLSearchParams(req.query);
       const result = path.endsWith('/signal') ? await readDemoSignal(context,params) : path.endsWith('/quote') ? await readMarketQuote(context, {
-        symbol:'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 15),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
+        symbol:params.get('symbol')||'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 15),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
       }) : await read(context);
       return respond(res, 200, result);
     } catch (err) {

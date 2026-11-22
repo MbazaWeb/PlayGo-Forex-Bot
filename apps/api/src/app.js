@@ -84,7 +84,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
       const context = {token:session.token, accountId, accounts, appId:config.clientId, fetchImpl:fetcher};
       const params = new URL(req.url,'http://localhost').searchParams;
       const result = path.endsWith('/signal') ? await readDemoSignal(context,params) : path.endsWith('/quote') ? await readMarketQuote(context, {
-        symbol:'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 15),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
+        symbol:params.get('symbol')||'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 15),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
       }) : await read(context);
       return json(res, 200, result);
     } catch (err) {

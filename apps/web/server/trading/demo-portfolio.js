@@ -96,17 +96,17 @@ export async function readMarketQuote(context, intent, onStage = () => {}) {
       !['CALL','PUT'].includes(intent.contractType) || !Number.isSafeInteger(intent.duration) ||
       intent.duration < 1 || intent.duration > 60 || intent.durationUnit !== 'm' ||
       !Number.isFinite(intent.stake) || intent.stake <= 0 || intent.stake > 1) throw Error('INVALID_QUOTE');
-  onStage('EUR/USD contract availability');
+  onStage('contract availability');
   await readDemo(context,{contracts_for:intent.symbol},reply=>{
     if (!reply.contracts_for.available.some(c=>c.contract_type === intent.contractType))
       throw Error('CONTRACT_UNAVAILABLE');
   });
-  onStage('EUR/USD tick');
+  onStage('tick');
   const tick = await readDemo(context,{ticks:intent.symbol,subscribe:1},reply=>{
     if (reply.tick.symbol !== intent.symbol || !Number.isSafeInteger(reply.tick.epoch)) throw Error('INVALID_TICK');
     return {epoch:reply.tick.epoch,price:money(reply.tick.quote)};
   });
-  onStage('EUR/USD read-only proposal');
+  onStage('read-only proposal');
   const proposal = await readDemo(context,{...demoProposal(intent,account.currency),subscribe:1},reply=>({
     ask:money(reply.proposal.ask_price),payout:money(reply.proposal.payout)
   }));

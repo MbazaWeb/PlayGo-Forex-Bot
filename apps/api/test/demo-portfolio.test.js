@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readDemoPortfolio} from '../../web/server/trading/demo-portfolio.js';
+import {readDemoPortfolio,readMarketQuote} from '../../web/server/trading/demo-portfolio.js';
 const accountId='DOT123';
 const base={token:'test',accountId,accounts:[{account_id:accountId,account_type:'demo'}]};
 for (const accounts of [[],[{account_id:accountId,account_type:'real'}], [...base.accounts,...base.accounts]]) {
@@ -28,7 +28,7 @@ test('OTP real endpoint rejected before connection',async()=>{
   await assert.rejects(readDemoPortfolio({...base,fetchImpl}),/NOT_A_DEMO_ENDPOINT/);
 });
 
-import {readDemoHistory,readMarketQuote} from '../../web/server/trading/demo-portfolio.js';
+import {readDemoHistory} from '../../web/server/trading/demo-portfolio.js';
 import {recoverBoundContract} from '../../web/server/trading/recovery-policy.js';
 import {readOperations} from '../../web/server/trading/operations.js';
 function broker(replies) {
@@ -107,4 +107,30 @@ test('lost worker claim prevents broker dispatch',async()=>{
     testBroker:async()=>{dispatched=true;}
   }),/claim conflict/);
   assert.equal(dispatched,false);
+});
+
+test('quote reads any validated market symbol, not only EUR/USD',async()=>{
+  const seen=[];
+  class Socket {
+    constructor(){queueMicrotask(()=>this.onopen());}
+    send(data){
+      const req=JSON.parse(data); seen.push(req);
+      const reply=req.contracts_for ? {contracts_for:{available:[{contract_type:'CALL'},{contract_type:'PUT'}]}}
+        : req.ticks ? {tick:{symbol:req.ticks,epoch:1700000000,quote:1234.5}}
+        : {proposal:{ask_price:1,payout:1.9}};
+      const msg_type=req.contracts_for?'contracts_for':req.ticks?'tick':'proposal';
+      this.onmessage({data:JSON.stringify({req_id:req.req_id,msg_type,...reply})});
+    }
+    close(){}
+  }
+  const fetchImpl=async()=>Response.json({data:{url:'wss://api.derivws.com/trading/v1/options/ws/demo?otp=test'}});
+  const usd={...base,accounts:[{account_id:accountId,account_type:'demo',currency:'USD'}]};
+  const result=await readMarketQuote({...usd,fetchImpl,Socket},{symbol:'R_75',contractType:'CALL',duration:15,durationUnit:'m',stake:1});
+  assert.equal(result.symbol,'R_75');
+  assert.equal(result.execution,false);
+  assert.ok(seen.some(r=>r.contracts_for==='R_75'));
+  assert.ok(seen.some(r=>r.ticks==='R_75'));
+});
+test('quote rejects malformed market symbol before connecting',async()=>{
+  await assert.rejects(readMarketQuote({...base,accounts:[{account_id:accountId,account_type:'demo',currency:'USD'}],fetchImpl:assert.fail},{symbol:'R 75;drop',contractType:'CALL',duration:15,durationUnit:'m',stake:1}),/INVALID_QUOTE/);
 });

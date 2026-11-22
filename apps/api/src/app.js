@@ -9,10 +9,15 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
  const pending=new Map(),sessions=new Map();
  const secure=new URL(config.origin).protocol==='https:';
  const callback=new URL(config.redirectUri);
- if(callback.origin!==config.origin||callback.pathname!=='/api/auth/deriv/callback')throw Error('Callback must use the application origin and /api/auth/deriv/callback');
+ if(config.redirectUri!==config.origin+'/api/auth/deriv/callback'||callback.origin!==config.origin)throw Error('Callback must use the application origin and /api/auth/deriv/callback');
  if(!secure&&!['localhost','127.0.0.1'].includes(new URL(config.origin).hostname))throw Error('HTTPS required outside localhost');
+ const oauthCookie=secure?'__Host-playgo_oauth':'playgo_oauth';
  const cookieName=secure?'__Host-playgo_session':'playgo_session';
- const setCookie=(res,name,value,seconds)=>res.setHeader('Set-Cookie',name+'='+value+'; HttpOnly; SameSite=Lax; Path=/; Max-Age='+seconds+(secure?'; Secure':''));
+ const setCookie=(res,name,value,seconds)=>{
+  const cookie=name+'='+value+'; HttpOnly; SameSite=Lax; Path=/; Max-Age='+seconds+(secure?'; Secure':'');
+  const existing=res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie',existing?[].concat(existing,cookie):cookie);
+ };
  const cookies=req=>Object.fromEntries((req.headers.cookie||'').split(';').map(p=>p.trim().split('=')));
  const json=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));};
  const redirect=(res,url)=>{res.writeHead(302,{Location:url});res.end();};
@@ -28,18 +33,20 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
    if(path==='/api/session'&&req.method==='GET')return json(res,200,{authenticated:!!session,configured:!!config.clientId,execution:false,mt5:'not_linked'});
    if(path==='/api/auth/deriv/start'&&req.method==='GET'){
     if(!config.clientId)return json(res,503,{error:'Configure DERIV_CLIENT_ID and DERIV_REDIRECT_URI on the backend.'});
+    if(req.headers.host!==new URL(config.origin).host)return redirect(res,config.origin+'/api/auth/deriv/start');
     if(pending.size>=1000)return json(res,429,{error:'Too many sign-in attempts. Try later.'});
     const nonce=random(),state=random(),verifier=random();
     pending.set(nonce,{state,verifier,expires:now()+300000});
-    setCookie(res,'playgo_oauth',nonce,300);
+    setCookie(res,oauthCookie,nonce,300);
     const url=new URL('https://auth.deriv.com/oauth2/auth');
     url.search=new URLSearchParams({response_type:'code',client_id:config.clientId,redirect_uri:config.redirectUri,scope:config.scopes||'trade',state,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'});
     return redirect(res,url.toString());
    }
    if(path==='/api/auth/deriv/callback'&&req.method==='GET'){
-    const nonce=cookies(req).playgo_oauth,flow=pending.get(nonce);pending.delete(nonce);setCookie(res,'playgo_oauth','',0);
+    const nonce=cookies(req)[oauthCookie],flow=pending.get(nonce);pending.delete(nonce);setCookie(res,oauthCookie,'',0);
     const q=new URL(req.url,'http://localhost').searchParams,state=q.get('state')||'';
-    if(!flow||Buffer.byteLength(state)!==Buffer.byteLength(flow.state)||!timingSafeEqual(Buffer.from(state),Buffer.from(flow.state))||!q.get('code')||q.has('error'))return redirect(res,config.origin+'/?auth_error=invalid_callback');
+    if(q.get('error')==='access_denied')return redirect(res,config.origin+'/?auth_error=access_denied');
+    if(!flow||q.getAll('state').length!==1||q.getAll('code').length!==1||Buffer.byteLength(state)!==Buffer.byteLength(flow.state)||!timingSafeEqual(Buffer.from(state),Buffer.from(flow.state))||!q.get('code')||q.has('error'))return redirect(res,config.origin+'/?auth_error=invalid_callback');
     try{
      const token=await exchangeCode({code:q.get('code'),verifier:flow.verifier,config,fetcher});
      if(sessions.size>=1000)throw Error('Session capacity reached');

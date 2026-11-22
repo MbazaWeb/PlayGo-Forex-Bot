@@ -1,10 +1,10 @@
 const TOKEN_URL='https://auth.deriv.com/oauth2/token';
 const ACCOUNTS_URL='https://api.derivws.com/trading/v1/options/accounts';
 export async function exchangeCode({code,verifier,config,fetcher=fetch}){
- const r=await fetcher(TOKEN_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,code,code_verifier:verifier,redirect_uri:config.redirectUri}),signal:AbortSignal.timeout(15000)});
+ const r=await fetcher(TOKEN_URL,{method:'POST',redirect:'error',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,code,code_verifier:verifier,redirect_uri:config.redirectUri}),signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw Error('Token exchange failed');
  const body=await r.json();
- if(typeof body.access_token!=='string'||!Number.isFinite(body.expires_in)||body.expires_in<=0)throw Error('Invalid token response');
+ if(typeof body.access_token!=='string'||!body.access_token||!Number.isFinite(body.expires_in)||body.expires_in<=0)throw Error('Invalid token response');
  return {token:body.access_token,expires:Date.now()+Math.min(body.expires_in,28800)*1000};
 }
 export async function listAccounts(token,fetcher=fetch,appId){

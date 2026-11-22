@@ -4,10 +4,14 @@ import {createServer} from 'node:http';
 import {createApp} from '../src/app.js';
 const config={origin:'http://localhost:5173',clientId:'test-client',redirectUri:'http://localhost:5173/api/auth/deriv/callback'};
 async function fixture(t,fetcher){
- const server=createServer(createApp(config,{fetcher}));
+ let handler;
+ const server=createServer((req,res)=>handler(req,res));
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  t.after(()=>new Promise(r=>server.close(r)));
- return async(path,options={})=>fetch('http://127.0.0.1:'+server.address().port+path,{redirect:'manual',...options});
+ const origin='http://127.0.0.1:'+server.address().port;
+ handler=createApp({...config,origin,redirectUri:origin+'/api/auth/deriv/callback'},{fetcher});
+ const request=(path,options={})=>fetch(origin+path,{redirect:'manual',...options});
+ return Object.assign(request,{origin});
 }
 test('anonymous access denied and unconfigured login fails clearly',async t=>{
  const request=await fixture(t);
@@ -34,7 +38,7 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  const result=await request(callback,{headers:{Cookie:cookie}});
  const sessionCookie=result.headers.get('set-cookie').match(/playgo_session=([^;]+)/)?.[0];
  assert.ok(sessionCookie);assert.match(result.headers.get('set-cookie'),/HttpOnly/);
- assert.equal((await request(callback,{headers:{Cookie:cookie}})).headers.get('location'),'http://localhost:5173/?auth_error=invalid_callback');
+ assert.equal((await request(callback,{headers:{Cookie:cookie}})).headers.get('location'),request.origin+'/?auth_error=invalid_callback');
  const body=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).text();
  assert.match(body,/CR123/);assert.ok(!body.includes('secret')&&!body.includes('hidden'));
  const verifier=calls[0].options.body.get('code_verifier');
@@ -42,7 +46,7 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  assert.equal(createHash('sha256').update(verifier).digest('base64url'),auth.searchParams.get('code_challenge'));
  assert.equal(calls[1].options.headers.Authorization,'Bearer server-only-secret');
  assert.equal((await request('/api/orders',{method:'POST',headers:{Cookie:sessionCookie}})).status,501);
- await request('/api/auth/logout',{method:'POST',headers:{Cookie:sessionCookie,Origin:config.origin,'X-PlayGo-Request':'1'}});
+ await request('/api/auth/logout',{method:'POST',headers:{Cookie:sessionCookie,Origin:request.origin,'X-PlayGo-Request':'1'}});
  assert.equal((await request('/api/accounts',{headers:{Cookie:sessionCookie}})).status,401);
 });
 test('broker token rejection expires local session',async t=>{
@@ -56,4 +60,5 @@ test('broker token rejection expires local session',async t=>{
 test('reject insecure remote deployments and mismatched callbacks',()=>{
  assert.throws(()=>createApp({...config,origin:'http://example.com'}));
  assert.throws(()=>createApp({...config,redirectUri:'https://evil.test/callback'}));
+ assert.throws(()=>createApp({...config,redirectUri:config.redirectUri+'?route=wrong'}));
 });

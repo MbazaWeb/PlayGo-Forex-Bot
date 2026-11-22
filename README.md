@@ -32,7 +32,7 @@ npm run dev
 
 Open http://localhost:5173.
 
-Deriv callback: `http://localhost:5173/api/auth/deriv/callback`. Production uses a same-origin HTTPS callback and a single Node backend because sessions are currently process-local. Review `docs/ARCHITECTURE.md` before deployment. **Never commit `.env`, access tokens, API secrets, or MT5 credentials.**
+Register `http://localhost:5173/api/auth/deriv/callback` for local development. On Vercel, set `APP_ORIGIN` to the canonical HTTPS site origin, `DERIV_CLIENT_ID` to the registered Deriv OAuth application ID, and `PLAYGO_COOKIE_SECRET` to a secret of at least 32 characters. Register the exact canonical origin followed by `/api/auth/deriv/callback` in Deriv. If you set `DERIV_REDIRECT_URI` explicitly, use that same URL. The standalone Node backend uses process-local sessions. Review `docs/ARCHITECTURE.md` before deployment. **Never commit `.env`, access tokens, API secrets, or MT5 credentials.**
 
 The original `package-lock.json` was not transferred during the GitHub import. See `docs/REPOSITORY_STATUS.md` and run `npm install` to regenerate it locally.
 

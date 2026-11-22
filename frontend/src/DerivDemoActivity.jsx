@@ -79,13 +79,6 @@ export default function PaperTerminal({ account }) {
         )}
       </div>
 
-      {accountId && (
-        <div className="demo-account-notice" role="note">
-          <strong>Deriv demo funds</strong>
-          <p>This panel reads the selected demo account. Place Rise/Fall contracts using the order ticket above; orders use Deriv virtual funds and follow Deriv contract settlement.</p>
-        </div>
-      )}
-
       {details && (
         <div className="demo-account-balance">
           <small>Demo balance from Deriv</small>

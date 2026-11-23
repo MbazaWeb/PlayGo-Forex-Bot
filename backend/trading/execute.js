@@ -242,7 +242,10 @@ export async function readRealHistory({ account, token, appId, fetchImpl = fetch
         if (row.buy_price == null || row.sell_price == null ||
             !Number.isFinite(buy) || buy < 0 || !Number.isFinite(sell) || sell < 0)
           throw codedError('INVALID_HISTORY_RESPONSE');
-        return { id, buy, sell, settledAt };
+        const brokerId = row.contract_id;
+        const contractId = typeof brokerId === 'string' || Number.isSafeInteger(brokerId)
+          ? String(brokerId) : null;
+        return { id, contractId, buy, sell, settledAt };
       });
     }
 

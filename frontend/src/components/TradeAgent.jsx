@@ -62,9 +62,63 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     catch { /* Setup remains available for this session. */ }
   }, [setupKey, manual, manualInterval, symbol]);
 
+  const pendingKey = account ? 'playgo:bot-contracts:' + account.account_id : '';
+  const [pendingContracts, setPendingContracts] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(pendingKey) || '[]');
+      return Array.isArray(stored) ? stored.filter(id => typeof id === 'string') : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    if (!pendingKey) return;
+    try { localStorage.setItem(pendingKey, JSON.stringify(pendingContracts)); } catch {}
+  }, [pendingKey, pendingContracts]);
+
+  const trackContract = useCallback(id => {
+    if (id) setPendingContracts(previous => previous.includes(String(id)) ? previous : [...previous, String(id)]);
+  }, []);
+
   const recordActivity = useCallback((message) => {
     setActivities((previous) => [activityEntry(message), ...previous].slice(0, 8));
   }, []);
+
+  useEffect(() => {
+    if (!account?.account_id || !pendingContracts.length) return;
+    const id = account.account_id;
+    const controller = new AbortController();
+    let timer;
+    async function checkSettlements() {
+      try {
+        const response = await fetch('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
+        if (!response.ok) return;
+        const body = await response.json();
+        if (controller.signal.aborted || body.accountId !== id || !Array.isArray(body.transactions)) return;
+        const settled = new Set();
+        for (const row of body.transactions) {
+          const contractId = row.contractId;
+          if (!pendingContracts.includes(contractId) || settled.has(contractId) ||
+              !Number.isFinite(row.sell) || !Number.isFinite(row.buy)) continue;
+          const pnl = row.sell - row.buy;
+          const amount = new Intl.NumberFormat('en-US', {
+            style: 'currency', currency: account.currency || 'USD', signDisplay: 'exceptZero',
+          }).format(pnl);
+          const outcome = pnl > 0 ? 'Win' : pnl < 0 ? 'Loss' : 'Break-even';
+          recordActivity(`Closed #${contractId} · ${outcome} ${amount}`);
+          settled.add(contractId);
+        }
+        if (settled.size) {
+          setPendingContracts(previous => previous.filter(contractId => !settled.has(contractId)));
+          window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: id }));
+        }
+      } catch {
+        // An unavailable history response leaves contracts pending.
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(checkSettlements, 15_000);
+      }
+    }
+    void checkSettlements();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [account?.account_id, account?.currency, pendingContracts, recordActivity]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -242,7 +296,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       })));
       for (const result of results) {
         if (result.status === 'ordered') {
-          recordActivity(`Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence).`);
+          trackContract(result.contractId);
+          recordActivity(`Open #${result.contractId} · Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence).`);
         } else if (result.status === 'exited') {
           const exits = result.closeResults || [];
           const confirmed = exits.filter(contract => contract.closed).length;
@@ -265,7 +320,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       tickPending.current = false;
       setAgentBusy(false);
     }
-  }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts]);
+  }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts, trackContract]);
 
   const latestRun = useRef(runAgent);
   useEffect(() => { latestRun.current = runAgent; }, [runAgent]);
@@ -338,7 +393,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       })));
       for (const result of results) {
         if (result.status === 'ordered') {
-          recordActivity(`Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence). Bot Agents remain active for monitoring and scheduled checks.`);
+          trackContract(result.contractId);
+          recordActivity(`Open #${result.contractId} · Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence). Bot Agents remain active for monitoring and scheduled checks.`);
         } else if (result.status === 'exited') {
           const exits = result.closeResults || [];
           const confirmed = exits.filter(contract => contract.closed).length;
@@ -389,6 +445,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         <button type="button" className="outline agent-stop" disabled={!agentRunning || stopping}
           onClick={stopAgent}><span aria-hidden="true" className="stop-mark" /> Stop Bot</button>
         {agentFeedback && <p className="agent-command-feedback" role="status">{agentFeedback}</p>}
+        {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
+        {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}
       </section>
       <section className="panel agent-controls">
         <div className="panelhead">

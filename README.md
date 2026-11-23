@@ -28,6 +28,8 @@ npm run verify:execution
 
 Configure Deriv OAuth and a server-only database worker identity in `.env`. Use a local PostgREST/PostgreSQL instance for development. Keep credentials out of browser variables and source control; never commit `.env`.
 
+The account selector lists Options accounts returned by Deriv. If no demo account is returned, the app offers an explicit create action. Demo account creation requires the Deriv OAuth app to allow `account_manage` and `DERIV_SCOPES="trade account_manage"`; sign out and reconnect after changing scopes. Existing demo accounts are not created or modified automatically.
+
 ```bash
 npm run dev
 ```

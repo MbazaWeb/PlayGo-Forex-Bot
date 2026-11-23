@@ -51,6 +51,40 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  await request('/api/auth/logout',{method:'POST',headers:{Cookie:sessionCookie,Origin:config.origin,'X-PlayGo-Request':'1'}});
  assert.equal((await request('/api/accounts',{headers:{Cookie:sessionCookie}})).status,401);
 });
+test('creates a demo Options account only after an explicit same-origin request',async t=>{
+ const accounts=[{account_id:'CR123',currency:'USD',balance:12.5,account_type:'real'}];
+ let createRequest;
+ const request=await fixture(t,async(url,options={})=>{
+  if(url.endsWith('/token'))return Response.json({access_token:'server-only-secret',expires_in:3600});
+  if((options.method||'GET')==='POST'){
+   createRequest={url,options};
+   const demo={account_id:'DOT123',currency:'USD',balance:10000,account_type:'demo'};
+   accounts.push(demo);
+   return new Response(JSON.stringify({data:[demo]}),{status:201});
+  }
+  return Response.json({data:accounts});
+ });
+ const start=await request('/api/auth/deriv/start');
+ const state=new URL(start.headers.get('location')).searchParams.get('state');
+ const callback=await request('/api/auth/deriv/callback?code=test&state='+state,{
+  headers:{Cookie:start.headers.get('set-cookie').split(';')[0]},
+ });
+ const sessionCookie=callback.headers.get('set-cookie').match(/playgo_session=([^;]+)/)[0];
+ const endpoint='/api/accounts/demo';
+ const rejected=await request(endpoint,{method:'POST',headers:{Cookie:sessionCookie,'X-PlayGo-Request':'1',Origin:'http://evil.test'}});
+ assert.equal(rejected.status,403);
+ assert.equal(createRequest,undefined);
+ const response=await request(endpoint,{method:'POST',headers:{Cookie:sessionCookie,'X-PlayGo-Request':'1',Origin:config.origin}});
+ assert.equal(response.status,200);
+ const result=await response.json();
+ assert.equal(result.created,true);
+ assert.deepEqual(result.account,{account_id:'DOT123',account_type:'demo',currency:'USD',balance:10000});
+ assert.equal(createRequest.options.headers.Authorization,'Bearer server-only-secret');
+ assert.equal(createRequest.options.headers['Deriv-App-ID'],'test-client');
+ assert.deepEqual(JSON.parse(createRequest.options.body),{currency:'USD',group:'row',account_type:'demo'});
+ const listed=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).json();
+ assert.deepEqual(listed.accounts.map(account=>account.account_type),['real','demo']);
+});
 test('broker token rejection expires local session',async t=>{
  const request=await fixture(t,async url=>url.endsWith('/token')?new Response(JSON.stringify({access_token:'secret',expires_in:3600})):new Response('{}',{status:401}));
  const start=await request('/api/auth/deriv/start');const state=new URL(start.headers.get('location')).searchParams.get('state');

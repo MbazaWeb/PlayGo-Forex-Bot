@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef } from 'react';
 
-export default function ConfirmDialog({ title, children, confirmLabel, onCancel, onConfirm }) {
+export default function ConfirmDialog({ title, children, confirmLabel, confirmDisabled = false, onCancel, onConfirm }) {
   const dialog = useRef(null);
   const heading = useId();
   useEffect(() => {
@@ -14,7 +14,7 @@ export default function ConfirmDialog({ title, children, confirmLabel, onCancel,
       {children}
       <div className="confirm-actions">
         <button type="button" className="outline" autoFocus onClick={onCancel}>Cancel</button>
-        <button type="button" className="primary" onClick={onConfirm}>{confirmLabel}</button>
+        <button type="button" className="primary" disabled={confirmDisabled} onClick={onConfirm}>{confirmLabel}</button>
       </div>
     </dialog>
   );

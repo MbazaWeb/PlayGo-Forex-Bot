@@ -98,6 +98,11 @@ export default function App() {
   }
 
   const selectedAccount = accounts?.find(account => account.account_id === selectedAccountId);
+  function selectAccount(accountId) {
+    if (accountId === selectedAccountId) return;
+    if (selectedAccount) setPendingAccountId(accountId);
+    else setSelectedAccountId(accountId);
+  }
   const selectedAccounts = selectedAccount ? [selectedAccount] : [];
 
   return (
@@ -130,10 +135,7 @@ export default function App() {
                     <div className="top-right">
             {!!accounts?.length && (
               <select className="outline" aria-label="Deriv trading account" value={selectedAccount?.account_id || ''}
-                onChange={event => {
-                  if (selectedAccount) setPendingAccountId(event.target.value);
-                  else setSelectedAccountId(event.target.value);
-                }}>
+                onChange={event => selectAccount(event.target.value)}>
                 <option value="" disabled>Select Deriv account</option>
                 {accounts.map(account => (
                   <option key={account.account_id} value={account.account_id}>
@@ -159,7 +161,7 @@ export default function App() {
           {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} initialSymbol={botSymbol} realExecutionEnabled={session.execution === true} />}
           {!loading && page === 'Trading Terminal' && (
             <React.Suspense fallback={<p>Loading...</p>}>
-              <MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} account={selectedAccount} executionEnabled={session.execution === true} changePage={navigate} />
+              <MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} account={selectedAccount} accounts={accounts} onSelectAccount={selectAccount} executionEnabled={session.execution === true} changePage={navigate} />
             </React.Suspense>
           )}
           {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}

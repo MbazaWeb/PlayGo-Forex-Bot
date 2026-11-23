@@ -3,7 +3,7 @@ import { ArrowUpRight, ChartCandlestick, ChartNoAxesCombined } from 'lucide-reac
 import TerminalOrder from './TerminalOrder';
 import MarketExplorer, { useMarketList } from './MarketExplorer';
 
-export default function MarketWorkspace({ page, changePage, initialSymbol, account, executionEnabled }) {
+export default function MarketWorkspace({ page, changePage, initialSymbol, account, accounts, onSelectAccount, executionEnabled }) {
   const catalog = useMarketList(initialSymbol);
   const go = (next, symbol) => {
     if (typeof changePage === 'function') changePage(next, symbol);
@@ -52,7 +52,7 @@ export default function MarketWorkspace({ page, changePage, initialSymbol, accou
   return (
     <div className="terminal-workspace">
       <MarketExplorer catalog={catalog} />
-      <TerminalOrder key={account?.account_id} account={account} market={catalog.market}
+      <TerminalOrder key={account?.account_id} account={account} accounts={accounts} onSelectAccount={onSelectAccount} market={catalog.market}
         executionEnabled={executionEnabled} openBot={() => go('Bot Agents', catalog.market?.symbol)} />
     </div>
   );

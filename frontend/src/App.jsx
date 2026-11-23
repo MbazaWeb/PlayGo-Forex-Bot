@@ -30,10 +30,6 @@ export default function App() {
   const [accounts, setAccounts] = useState(null);
   const [pendingAccountId, setPendingAccountId] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [createDemoDialogOpen, setCreateDemoDialogOpen] = useState(false);
-  const [creatingDemo, setCreatingDemo] = useState(false);
-  const [demoAccountError, setDemoAccountError] = useState('');
-  const [demoAccountNotice, setDemoAccountNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [mt5, setMt5] = useState(null);
@@ -67,7 +63,7 @@ export default function App() {
 
   async function logout() {
     try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'X-PlayGo-Request': '1' } }); } catch {}
-    setSelectedAccountId(''); setAccounts(null); setDemoAccountError(''); setDemoAccountNotice(''); load();
+    setSelectedAccountId(''); setAccounts(null); load();
   }
 
   if (!session?.authenticated) {
@@ -98,47 +94,12 @@ export default function App() {
   }
 
   const selectedAccount = accounts?.find(account => account.account_id === selectedAccountId);
-  const hasDemoAccount = accounts?.some(account => account.account_type === 'demo') ?? false;
   function selectAccount(accountId) {
     if (accountId === selectedAccountId) return;
     if (selectedAccount) setPendingAccountId(accountId);
     else setSelectedAccountId(accountId);
   }
   const selectedAccounts = selectedAccount ? [selectedAccount] : [];
-
-  async function createDemoAccount() {
-    if (creatingDemo) return;
-    setCreatingDemo(true);
-    setDemoAccountError('');
-    try {
-      const { res, body } = await fetchJSON('/api/accounts/demo', {
-        method: 'POST',
-        headers: { 'X-PlayGo-Request': '1' },
-      });
-      if (!res.ok) {
-        const message = body?.error === 'DERIV_ACCOUNT_MANAGE_SCOPE_REQUIRED'
-          ? 'Enable account_manage for this Deriv OAuth app, set DERIV_SCOPES to "trade account_manage", then sign out and reconnect.'
-          : body?.error || 'Could not create a Deriv demo account.';
-        throw new Error(message);
-      }
-      const demo = body?.account;
-      if (!demo || demo.account_type !== 'demo' || typeof demo.account_id !== 'string')
-        throw new Error('Deriv returned an invalid demo account.');
-      setAccounts(previous => {
-        const current = Array.isArray(previous) ? previous : [];
-        return current.some(account => account.account_id === demo.account_id)
-          ? current
-          : [...current, demo];
-      });
-      if (!selectedAccount) setSelectedAccountId(demo.account_id);
-      setDemoAccountNotice('Deriv demo account is ready in the account selector.');
-      setCreateDemoDialogOpen(false);
-    } catch (requestError) {
-      setDemoAccountError(requestError?.message || 'Could not create a Deriv demo account.');
-    } finally {
-      setCreatingDemo(false);
-    }
-  }
 
   return (
     <div className="app">
@@ -185,19 +146,6 @@ export default function App() {
             </div>
           </div>
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
-          {demoAccountError && <p className="signin-error" role="alert">{demoAccountError}</p>}
-          {demoAccountNotice && <p role="status">{demoAccountNotice}</p>}
-          {!loading && Array.isArray(accounts) && !hasDemoAccount && (
-            <section className="panel demo-account-prompt">
-              <div>
-                <h2>Deriv demo account</h2>
-                <p>No Options demo account was returned by Deriv. Create one to add a virtual-funds account to this selector.</p>
-              </div>
-              <button type="button" className="outline" onClick={() => { setDemoAccountError(''); setCreateDemoDialogOpen(true); }}>
-                Create demo account
-              </button>
-            </section>
-          )}
           {loading && <p role="status">Loading...</p>}
           {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} />}
           {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} realExecutionEnabled={session.execution === true} />}
@@ -229,14 +177,6 @@ export default function App() {
         onCancel={() => setPendingAccountId('')}
         onConfirm={() => { setSelectedAccountId(pendingAccountId); setPendingAccountId(''); }}>
         <p>Bot Agents will pause monitoring the current account until you select it again.</p>
-      </ConfirmDialog>}
-      {createDemoDialogOpen && <ConfirmDialog title="Create a Deriv demo account"
-        confirmLabel={creatingDemo ? 'Creating...' : 'Create demo account'}
-        confirmDisabled={creatingDemo}
-        onCancel={() => setCreateDemoDialogOpen(false)}
-        onConfirm={() => void createDemoAccount()}>
-        <p>This creates a demo Options account using virtual funds only. Deriv may require the account_manage scope on this OAuth app.</p>
-        {demoAccountError && <p className="signin-error" role="alert">{demoAccountError}</p>}
       </ConfirmDialog>}
     </div>
   );

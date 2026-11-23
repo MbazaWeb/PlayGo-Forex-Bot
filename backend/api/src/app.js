@@ -2,7 +2,7 @@ import { isDerivAccount } from '../../trading/deriv-account.js';
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
 import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
-import {createDemoAccount,exchangeCode,listAccounts} from './providers/deriv.js';
+import {exchangeCode,listAccounts} from './providers/deriv.js';
 
 const random=()=>randomBytes(32).toString('base64url');
 const RATE_LIMIT_WINDOW_MS=60000;
@@ -93,25 +93,6 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
      return json(res,status,{error:status===401?'Deriv session expired. Sign in again.':status===429?'Deriv account service rate limit exceeded.':'Could not verify Deriv accounts.'});
    }
    const account=linkedAccounts.find(a=>a.account_id===accountId && isDerivAccount(a));
-
-   if(path==='/api/accounts/demo'&&req.method==='POST'){
-    if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')
-      return json(res,403,{error:'Request origin rejected.'});
-    const existing=linkedAccounts.find(a=>a.account_type==='demo'&&isDerivAccount(a));
-    if(existing)return json(res,200,{account:existing,created:false});
-    try{
-      const result=await createDemoAccount(session.token,fetcher,config.clientId);
-      return json(res,200,result);
-    }catch(error){
-      const status=error.status||502;
-      if(status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}
-      return json(res,status===403?403:status===429?429:502,{
-        error:status===401?'Deriv session expired. Sign in again.':
-          status===403?'DERIV_ACCOUNT_MANAGE_SCOPE_REQUIRED':
-          status===429?'Deriv account service rate limit exceeded.':'DEMO_ACCOUNT_CREATE_FAILED'
-      });
-    }
-   }
 
    if(path.startsWith('/api/agent/') && !account)
     return json(res,400,{error:'Select a connected Deriv account.'});

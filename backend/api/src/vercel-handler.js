@@ -1,7 +1,7 @@
 import { isDerivAccount } from '../../trading/deriv-account.js';
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
 import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
-import {createDemoAccount,listAccounts} from './providers/deriv.js';
+import {listAccounts} from './providers/deriv.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
@@ -120,24 +120,6 @@ export default async function handler(req, res) {
     return respond(res, status, { error: status === 401 ? 'Deriv session expired. Sign in again.' : status === 429 ? 'Deriv account service rate limit exceeded.' : 'Could not verify Deriv accounts.' });
   }
   const account = accounts.find(a => a.account_id === accountId && isDerivAccount(a));
-
-  if (path === 'accounts/demo' && req.method === 'POST') {
-    if (req.headers.origin !== ORIGIN || req.headers['x-playgo-request'] !== '1')
-      return respond(res, 403, { error: 'Request origin rejected.' });
-    const existing = accounts.find(item => item.account_type === 'demo' && isDerivAccount(item));
-    if (existing) return respond(res, 200, { account: existing, created: false });
-    try {
-      return respond(res, 200, await createDemoAccount(session.token, fetch, CLIENT));
-    } catch (error) {
-      const status = error.status || 502;
-      if (status === 401) res.setHeader('Set-Cookie', cookie('__Host-playgo_session', '', 0));
-      return respond(res, status === 403 ? 403 : status === 429 ? 429 : 502, {
-        error: status === 401 ? 'Deriv session expired. Sign in again.' :
-          status === 403 ? 'DERIV_ACCOUNT_MANAGE_SCOPE_REQUIRED' :
-            status === 429 ? 'Deriv account service rate limit exceeded.' : 'DEMO_ACCOUNT_CREATE_FAILED',
-      });
-    }
-  }
 
   if (path === 'accounts' && req.method === 'GET')
     return respond(res, 200, { accounts: accounts.filter(isDerivAccount) });

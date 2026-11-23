@@ -28,9 +28,10 @@ export function contractsAtExitThresholds(contracts, stopLossPercent, takeProfit
   });
 }
 
-export function calculateStake(balance) {
+export function calculateStake(balance, currency) {
   if (!finitePositive(balance)) throw Error('INVALID_ACCOUNT_BALANCE');
-  return Math.floor(balance * MAX_STAKE_PERCENT * 1e8) / 1e8;
+  const scale = currency === 'USD' ? 100 : 1e8;
+  return Math.floor(balance * MAX_STAKE_PERCENT * scale) / scale;
 }
 
 export function evaluateEmergencyStop({ startingBalance, balance, openProfit }) {

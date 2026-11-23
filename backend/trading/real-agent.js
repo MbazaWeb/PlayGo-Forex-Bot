@@ -167,7 +167,7 @@ export async function placeRealAgentOrders({
         }
       }
     } catch (error) {
-      result = { status: 'error', reason: publicStatus(error) };
+      result = { status: 'error', reason: publicStatus(error), detail: error.proposalDetail };
     }
 
     if (!terminalAction && startedForRequest && result?.status === 'ordered') {
@@ -328,7 +328,7 @@ export async function runRealAgentTick({
     };
   }
 
-  const stake = calculateStake(balance);
+  const stake = calculateStake(balance, account.currency);
   const duration = granularity / 60;
   const idempotencyKey = createHash('sha256')
     .update([account.account_id, symbol, granularity, analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity].join(':'))

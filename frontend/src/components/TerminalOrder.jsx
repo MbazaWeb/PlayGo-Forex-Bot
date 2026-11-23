@@ -10,7 +10,8 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
   const [review, setReview] = useState(null);
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
-  const stake = Math.floor(Number(account?.balance) * 0.01 * 1e8) / 1e8;
+  const scale = account?.currency === 'USD' ? 100 : 1e8;
+  const stake = Math.floor(Number(account?.balance) * 0.01 * scale) / scale;
   const real = account?.account_type === 'real';
   const funds = real ? 'real funds' : 'virtual funds';
   const blocker = !account ? (accounts?.length ? 'Choose an account to trade.' : 'No Deriv accounts available.')
@@ -36,7 +37,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       const databaseError = /^REAL_EXECUTION_DATABASE_/.test(order.reason || '');
       const rejection = /^DERIV_([A-Z_]+?)_REJECTED(?:_([A-Za-z0-9_]+))?$/.exec(order.reason || '');
       const message = rejection
-        ? `Deriv rejected the ${rejection[1].toLowerCase().replaceAll('_', ' ')} request${rejection[2] ? ' (' + rejection[2] + ')' : ''}. No order placed.`
+        ? `Deriv rejected the ${rejection[1].toLowerCase().replaceAll('_', ' ')} request${rejection[2] ? ' (' + rejection[2] + ')' : ''}. ${order.detail || 'No order placed.'}`
         : databaseError
         ? 'The trading database is unavailable. Check Account Activity before retrying.'
         : order.reason === 'ORDER_OUTCOME_UNKNOWN'

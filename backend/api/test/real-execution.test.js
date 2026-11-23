@@ -122,6 +122,7 @@ for (const accountType of ['demo', 'real']) {
 
 test('stake sizing and emergency threshold are measured from the stored starting balance', async () => {
   assert.equal(calculateStake(1000), 10);
+  assert.equal(calculateStake(9623.48, 'USD'), 96.23);
   assert.equal(evaluateEmergencyStop({
     startingBalance: 1000,
     balance: 850,
@@ -659,5 +660,5 @@ test('reports the Deriv proposal rejection code without entering the buy stage',
     account: realAccount, token: 'fixture', fetchImpl: otpFetch, Socket: RejectedProposalSocket,
     intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
     beforeBuy: () => assert.fail('rejected proposal must never submit a buy'),
-  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure' });
+  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure', proposalDetail: 'broker detail' });
 });

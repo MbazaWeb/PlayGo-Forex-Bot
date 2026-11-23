@@ -98,7 +98,10 @@ function sendAndWait(socket, payload, expectedType, reqId) {
         const suffix = typeof brokerCode === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(brokerCode)
           ? '_' + brokerCode
           : '';
-        finish(codedError('DERIV_' + stage + '_REJECTED' + suffix));
+        const error = codedError('DERIV_' + stage + '_REJECTED' + suffix);
+        if (stage === 'PROPOSAL' && typeof response.error.message === 'string')
+          error.proposalDetail = response.error.message.replace(/https?:\/\/\S+/gi, '[link]').replace(/\s+/g, ' ').trim().slice(0, 240);
+        finish(error);
         return;
       }
       if (response.msg_type !== expectedType) {

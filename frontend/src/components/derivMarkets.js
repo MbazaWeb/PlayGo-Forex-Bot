@@ -105,3 +105,24 @@ export function readCandles(response) {
   }
   return [...unique.values()].sort((a, b) => a.epoch - b.epoch);
 }
+const durationUnits = { s: 1, m: 60, h: 3600, d: 86400 };
+
+function durationSeconds(value) {
+  const match = typeof value === 'string' && /^(\d+)([smhd])$/.exec(value);
+  return match ? Number(match[1]) * durationUnits[match[2]] : NaN;
+}
+
+export function supportedTradeDurations(response, candidates) {
+  const rows = response?.contracts_for?.available;
+  if (!Array.isArray(rows)) throw Error('Contract durations unavailable.');
+  return Object.fromEntries(['CALL', 'PUT'].map(type => [
+    type,
+    candidates.filter(minutes => rows.some(row => {
+      if (row?.contract_type !== type || row.expiry_type === 'tick' ||
+          (row.barriers != null && row.barriers !== 0)) return false;
+      const seconds = minutes * 60;
+      return seconds >= durationSeconds(row.min_contract_duration) &&
+        seconds <= durationSeconds(row.max_contract_duration);
+    })),
+  ]));
+}

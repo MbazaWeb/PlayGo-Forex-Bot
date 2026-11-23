@@ -1,12 +1,33 @@
+import { publicRequest, supportedTradeDurations } from './derivMarkets';
 import ConfirmDialog from './ConfirmDialog';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, Bot } from 'lucide-react';
 
 const DURATIONS = [1, 5, 15, 60];
 const ACTIONS = { buy: 'Buy / Rise', sell: 'Sell / Fall', bot: 'Bot Trade' };
 
 export default function TerminalOrder({ account, accounts, onSelectAccount, market, executionEnabled, openBot }) {
-  const [duration, setDuration] = useState(5);
+  const [preferredDuration, setDuration] = useState(5);
+  const [contractOptions, setContractOptions] = useState(null);
+  const [durationAttempt, retryDurations] = useState(0);
+  const symbol = market?.symbol;
+  useEffect(() => {
+    if (!symbol) return;
+    const controller = new AbortController();
+    publicRequest({ contracts_for: symbol }, controller.signal)
+      .then(response => supportedTradeDurations(response, DURATIONS))
+      .then(options => { if (!controller.signal.aborted) setContractOptions({ symbol, durationAttempt, options }); })
+      .catch(() => { if (!controller.signal.aborted) setContractOptions({ symbol, durationAttempt, error: true }); });
+    return () => controller.abort();
+  }, [symbol, durationAttempt]);
+
+  const availability = contractOptions?.symbol === symbol && contractOptions.durationAttempt === durationAttempt ? contractOptions : null;
+  const durations = DURATIONS.filter(minutes =>
+    availability?.options?.CALL.includes(minutes) || availability?.options?.PUT.includes(minutes));
+  const duration = durations.includes(preferredDuration) ? preferredDuration : durations[0];
+  const buyAvailable = availability?.options?.CALL.includes(duration);
+  const sellAvailable = availability?.options?.PUT.includes(duration);
+  const actionAvailable = action => action === 'buy' ? buyAvailable : action === 'sell' ? sellAvailable : buyAvailable && sellAvailable;
   const [review, setReview] = useState(null);
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
@@ -20,7 +41,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
         : market?.status !== 'Open' ? (market?.status === 'Closed' || market?.status === 'Suspended' ? 'Market ' + market.status.toLowerCase() + '.' : 'Waiting for an open market.') : '';
 
   async function submit(action) {
-    if (busy || blocker) return;
+    if (busy || blocker || !actionAvailable(action)) return;
     setBusy(action);
     setResult(null);
     try {
@@ -68,20 +89,27 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
         </select>
       </label>
       <label>Duration
-        <select value={duration} disabled={Boolean(busy)} onChange={event => setDuration(Number(event.target.value))}>
-          {DURATIONS.map(minutes => <option key={minutes} value={minutes}>{minutes} min</option>)}
+        <select value={duration ?? ''} disabled={Boolean(busy || !durations.length)} onChange={event => setDuration(Number(event.target.value))}>
+          {!durations.length && <option value="">Unavailable</option>}
+          {durations.map(minutes => <option key={minutes} value={minutes}>{minutes} min</option>)}
         </select>
       </label>
       </div>
       {blocker && <p className="terminal-order-status" role="status">{blocker}</p>}
+      {!blocker && !durations.length && <p role="status" className="terminal-order-status">
+        {availability?.error ? 'Could not load durations.' : availability ? 'Deriv offers none of the supported durations for this market.' : 'Loading contract durations...'}
+        {availability?.error && <button type="button" className="textlink" onClick={() => retryDurations(value => value + 1)}>Retry</button>}
+      </p>}
+      {!blocker && durations.length > 0 && !(buyAvailable && sellAvailable) &&
+        <p role="status" className="terminal-order-status">Only {buyAvailable ? 'Rise' : 'Fall'} is offered at this duration.</p>}
       <div className="terminal-order-directions">
-        <button type="button" className="primary" disabled={Boolean(busy || blocker)} onClick={() => setReview('buy')}><ArrowUpRight size={16} /> Buy / Rise</button>
-        <button type="button" className="outline terminal-sell" disabled={Boolean(busy || blocker)} onClick={() => setReview('sell')}><ArrowDownRight size={16} /> Sell / Fall</button>
+        <button type="button" className="primary" disabled={Boolean(busy || blocker || !actionAvailable('buy'))} onClick={() => setReview('buy')}><ArrowUpRight size={16} /> Buy / Rise</button>
+        <button type="button" className="outline terminal-sell" disabled={Boolean(busy || blocker || !actionAvailable('sell'))} onClick={() => setReview('sell')}><ArrowDownRight size={16} /> Sell / Fall</button>
       </div>
-      <button type="button" className="outline" disabled={Boolean(busy || blocker)} onClick={() => setReview('bot')}><Bot size={16} /> Bot Trade</button>
+      <button type="button" className="outline" disabled={Boolean(busy || blocker || !actionAvailable('bot'))} onClick={() => setReview('bot')}><Bot size={16} /> Bot Trade</button>
       <button type="button" className="textlink" onClick={openBot}>Bot Agents</button>
       {(busy || result) && <p className="terminal-order-status" role="status">{busy ? 'Checking with Deriv...' : result}</p>}
-      {review && <ConfirmDialog title={ACTIONS[review]} confirmLabel={review === 'bot' ? 'Check and trade' : 'Place order'}
+      {review && actionAvailable(review) && <ConfirmDialog title={ACTIONS[review]} confirmLabel={review === 'bot' ? 'Check and trade' : 'Place order'}
         onCancel={() => setReview(null)} onConfirm={() => { setReview(null); void submit(review); }}>
         <dl className="trade-review">
           <div><dt>Market</dt><dd>{market?.name}</dd></div>

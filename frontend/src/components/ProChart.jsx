@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 // 1. Import series types mpya pamoja na createChart
 import {
   createChart,
@@ -9,9 +9,10 @@ import {
   CandlestickSeries
 } from 'lightweight-charts';
 
-export default function ProChart({ data, type = 'Candlestick', height = 400 }) {
+export default function ProChart({ data, type = 'Candlestick', height = 400, showAverage = false, tools = false }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
+  const [hover, setHover] = useState(null);
 
   useEffect(() => {
     if (!containerRef.current || !data || data.length === 0) return;
@@ -88,6 +89,20 @@ export default function ProChart({ data, type = 'Candlestick', height = 400 }) {
       series.setData(candleData);
     }
 
+    if (showAverage) {
+      const average = chart.addSeries(LineSeries, {
+        color: '#ffcf69', lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+      });
+      average.setData(data.slice(19).map((row, index) => ({
+        time: row.epoch,
+        value: data.slice(index, index + 20).reduce((sum, bar) => sum + bar.close, 0) / 20,
+      })));
+    }
+
+    if (tools) {
+      const bars = new Map(data.map(row => [row.epoch, row]));
+      chart.subscribeCrosshairMove(event => setHover(bars.get(event.time) || null));
+    }
     chart.timeScale().fitContent();
 
     const handleResize = () => {
@@ -95,16 +110,24 @@ export default function ProChart({ data, type = 'Candlestick', height = 400 }) {
         chart.applyOptions({ width: containerRef.current.clientWidth });
       }
     };
-    window.addEventListener('resize', handleResize);
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(containerRef.current);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      observer.disconnect();
+      chartRef.current = null;
       chart.remove();
     };
-  }, [data, type, height]);
+  }, [data, type, height, showAverage, tools]);
+
+  const candle = data?.includes(hover) ? hover : data?.at(-1);
 
   return (
     <div className="pro-chart-container" style={{ position: 'relative', width: '100%' }}>
+      {tools && candle && <div className="terminal-chart-readout">
+        <div><span>O {candle.open}</span><span>H {candle.high}</span><span>L {candle.low}</span><span>C {candle.close}</span></div>
+        <button type="button" className="outline" onClick={() => chartRef.current?.timeScale().fitContent()}>Reset view</button>
+      </div>}
       <div ref={containerRef} />
     </div>
   );

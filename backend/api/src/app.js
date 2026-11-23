@@ -132,6 +132,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
           symbol:params.get('symbol'),
           granularity:Number(params.get('granularity')),
           automatic:params.get('mode')==='automatic',
+          terminalAction: params.get('terminalAction'),
           stopLossPercent:Number(params.get('stopLossPercent')),
           takeProfitPercent:Number(params.get('takeProfitPercent')),
           env:process.env,
@@ -140,7 +141,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
         return json(res,200,{accounts:results});
       }catch(error){
         const code=error.code||'AGENT_PLACE_FAILED';
-        return json(res,code==='LIVE_TRADING_DISABLED'?403:['REAL_ACCOUNT_REQUIRED','INVALID_EXIT_SETTINGS','INVALID_MARKET_REQUEST'].includes(code)?400:503,{error:code});
+        return json(res,code==='LIVE_TRADING_DISABLED'?403:['REAL_ACCOUNT_REQUIRED','INVALID_EXIT_SETTINGS','INVALID_MARKET_REQUEST','INVALID_TERMINAL_ACTION'].includes(code)?400:503,{error:code});
       }
     }
     const symbol=params.get('symbol');

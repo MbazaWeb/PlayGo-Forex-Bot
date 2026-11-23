@@ -245,3 +245,14 @@ option{background:#1b2735}
 .market-status[data-status="Open"] { color: #64e6a9; }
 .market-status[data-status="Closed"] { color: #ff8397; }
 .market-status[data-status="Suspended"] { color: #ffcf69; }
+
+.terminal-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 16px; align-items: start; }
+.terminal-order { display: grid; gap: 12px; }
+.terminal-order h2, .terminal-order p { margin: 0; }
+.terminal-order label { display: grid; gap: 6px; }
+.terminal-order-directions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.terminal-order button { min-height: 40px; }
+.terminal-sell { color: #ff8397; }
+.terminal-chart-readout, .terminal-chart-readout > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.terminal-chart-readout { justify-content: space-between; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+@media (max-width: 950px) { .terminal-workspace { grid-template-columns: minmax(0, 1fr); } }

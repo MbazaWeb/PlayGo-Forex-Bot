@@ -167,7 +167,8 @@ export default async function handler(req, res) {
             symbol: params.get('symbol'),
             granularity: Number(params.get('granularity')),
           automatic: params.get('mode') === 'automatic',
-            stopLossPercent: Number(params.get('stopLossPercent')),
+            terminalAction: params.get('terminalAction'),
+          stopLossPercent: Number(params.get('stopLossPercent')),
             takeProfitPercent: Number(params.get('takeProfitPercent')),
             env: process.env,
             fetchImpl: fetch,
@@ -175,7 +176,7 @@ export default async function handler(req, res) {
         });
       } catch (error) {
         const code = error.code || 'AGENT_PLACE_FAILED';
-        return respond(res, code === 'LIVE_TRADING_DISABLED' ? 403 : ['REAL_ACCOUNT_REQUIRED', 'INVALID_EXIT_SETTINGS', 'INVALID_MARKET_REQUEST'].includes(code) ? 400 : 503, { error: code });
+        return respond(res, code === 'LIVE_TRADING_DISABLED' ? 403 : ['REAL_ACCOUNT_REQUIRED', 'INVALID_EXIT_SETTINGS', 'INVALID_MARKET_REQUEST','INVALID_TERMINAL_ACTION'].includes(code) ? 400 : 503, { error: code });
       }
     }
     const results = [];

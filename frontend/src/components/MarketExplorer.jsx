@@ -80,6 +80,7 @@ export function InstrumentSelect({ catalog }) {
 export default function MarketExplorer({ catalog, overview }) {
   const [type, setType] = useState(overview ? 'Area' : 'Candlestick');
   const [interval, setInterval] = useState(3600);
+  const [showAverage, setShowAverage] = useState(false);
   const { market, result } = catalog;
 
   const symbol = market?.symbol;
@@ -122,10 +123,8 @@ export default function MarketExplorer({ catalog, overview }) {
       <div className={overview ? 'market-controls' : 'terminal-market-controls'}>
         <label>Market<InstrumentSelect catalog={catalog} /></label>
         {overview ? chartOptions() : (
-          <details className="terminal-chart-options">
-            <summary>Chart settings</summary>
-            <div className="market-controls">{chartOptions()}</div>
-          </details>
+          <div className="market-controls">{chartOptions()}<button type="button" className="outline"
+            aria-pressed={showAverage} onClick={() => setShowAverage(value => !value)}>SMA 20</button></div>
         )}
       </div>
 
@@ -137,7 +136,7 @@ export default function MarketExplorer({ catalog, overview }) {
           </div>
 
           <div style={{ marginTop: '16px' }}>
-            <ProChart data={data} type={type} height={overview ? 300 : 500} />
+            <ProChart data={data} type={type} height={overview ? 300 : 460} showAverage={showAverage} tools={!overview} />
           </div>
 
           <button className="textlink" style={{ marginTop: '16px' }} onClick={reload}>Refresh prices</button>

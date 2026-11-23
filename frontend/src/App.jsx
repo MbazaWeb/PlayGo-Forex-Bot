@@ -33,6 +33,7 @@ export default function App() {
   const [mt5, setMt5] = useState(null);
   const [page, setPage] = useState('Overview');
   const [mobile, setMobile] = useState(false);
+  const [botSymbol, setBotSymbol] = useState();
   const [terminalSymbol, setTerminalSymbol] = useState('R_75');
 
   async function load() {
@@ -88,7 +89,8 @@ export default function App() {
   }
 
   function navigate(next, symbol) {
-    if (symbol) setTerminalSymbol(symbol);
+    if (next === 'Bot Agents') setBotSymbol(symbol);
+    else if (symbol) setTerminalSymbol(symbol);
     setPage(next === 'Accounts' || next === 'Portfolio' ? 'Bot Agents' : next);
     setMobile(false);
   }
@@ -152,10 +154,10 @@ export default function App() {
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
           {loading && <p role="status">Loading...</p>}
           {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} />}
-          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} realExecutionEnabled={session.execution === true} />}
+          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} initialSymbol={botSymbol} realExecutionEnabled={session.execution === true} />}
           {!loading && page === 'Trading Terminal' && (
             <React.Suspense fallback={<p>Loading...</p>}>
-              <MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} />
+              <MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} account={selectedAccount} executionEnabled={session.execution === true} changePage={navigate} />
             </React.Suspense>
           )}
           {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}

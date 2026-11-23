@@ -1,4 +1,4 @@
-import { automaticEntryBlock } from '../../shared/agent-analysis.js';
+import { automaticEntryBlock, AUTOMATIC_SETUP } from '../../shared/agent-analysis.js';
 import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 import { createHash } from 'node:crypto';
 import { analyzeCandles } from '../../shared/agent-analysis.js';
@@ -89,6 +89,7 @@ export async function placeRealAgentOrders({
   symbol,
   granularity,
   automatic = false,
+  terminalAction = null,
   stopLossPercent,
   takeProfitPercent,
   env = process.env,
@@ -96,6 +97,12 @@ export async function placeRealAgentOrders({
   Socket,
   now = Date.now,
 }) {
+  if (terminalAction !== null && !['buy', 'sell', 'bot'].includes(terminalAction))
+    throw agentError('INVALID_TERMINAL_ACTION');
+  if (terminalAction) {
+    stopLossPercent = AUTOMATIC_SETUP.stopLossPercent;
+    takeProfitPercent = AUTOMATIC_SETUP.takeProfitPercent;
+  }
   if (!validExitSettings(stopLossPercent, takeProfitPercent))
     throw agentError('INVALID_EXIT_SETTINGS');
   if (!/^[A-Za-z0-9_]{2,30}$/.test(symbol || '') ||
@@ -123,7 +130,7 @@ export async function placeRealAgentOrders({
         const storedStopLoss = Number(current?.stop_loss_percent);
         const storedTakeProfit = Number(current?.take_profit_percent);
         const storedExitSettingsValid = validExitSettings(storedStopLoss, storedTakeProfit);
-        if (wasActive && storedExitSettingsValid &&
+        if (!terminalAction && wasActive && storedExitSettingsValid &&
             (storedStopLoss !== stopLossPercent || storedTakeProfit !== takeProfitPercent)) {
           result = { status: 'blocked', reason: 'EXIT_SETTINGS_MISMATCH' };
         } else if (!wasActive || !storedExitSettingsValid) {
@@ -148,7 +155,8 @@ export async function placeRealAgentOrders({
             appId,
             symbol,
             granularity,
-            automatic,
+            automatic: terminalAction === "bot" || automatic,
+            manualDirection: terminalAction === "buy" ? "CALL" : terminalAction === "sell" ? "PUT" : null,
             stopLossPercent,
             takeProfitPercent,
             env,
@@ -162,7 +170,7 @@ export async function placeRealAgentOrders({
       result = { status: 'error', reason: publicStatus(error) };
     }
 
-    if (startedForRequest && result?.status === 'ordered') {
+    if (!terminalAction && startedForRequest && result?.status === 'ordered') {
       startedForRequest = false;
       keepActive = true;
     }
@@ -211,6 +219,7 @@ export async function runRealAgentTick({
   symbol,
   granularity,
   automatic = false,
+  manualDirection = null,
   env = process.env,
   fetchImpl = fetch,
   Socket,
@@ -300,10 +309,11 @@ export async function runRealAgentTick({
     };
   }
 
-  const candles = await readMarketCandles({ symbol, granularity, Socket, now });
-  const analysis = analyzeCandles(candles, granularity);
-  const contractType = qualifyingDirection(analysis);
-  const automaticBlock = automatic ? automaticEntryBlock(analysis) : null;
+  const analysis = manualDirection ? null : analyzeCandles(
+    await readMarketCandles({ symbol, granularity, Socket, now }), granularity,
+  );
+  const contractType = manualDirection || qualifyingDirection(analysis);
+  const automaticBlock = automatic && analysis ? automaticEntryBlock(analysis) : null;
   if (!contractType || automaticBlock) {
     return {
       status: 'watching',
@@ -318,7 +328,7 @@ export async function runRealAgentTick({
   const stake = calculateStake(balance);
   const duration = granularity / 60;
   const idempotencyKey = createHash('sha256')
-    .update([account.account_id, symbol, granularity, analysis.last.epoch].join(':'))
+    .update([account.account_id, symbol, granularity, analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity].join(':'))
     .digest('hex');
   const reservation = await reserveRealIntent({
     record: {
@@ -388,7 +398,7 @@ export async function runRealAgentTick({
       symbol,
       contractType,
       stake,
-      score: analysis.confluenceScore,
+      score: analysis?.confluenceScore ?? null,
       equity: emergency.equity,
     };
   } catch (error) {

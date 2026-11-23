@@ -26,7 +26,7 @@ function activityEntry(message) {
   return { id: `${Date.now()}-${Math.random()}`, at: new Date().toISOString(), message };
 }
 
-export default function TradeAgent({ account, realExecutionEnabled }) {
+export default function TradeAgent({ account, realExecutionEnabled, initialSymbol }) {
   const [markets, setMarkets] = useState([]);
   const [catalogState, setCatalogState] = useState('loading');
   const [catalogAttempt, setCatalogAttempt] = useState(0);
@@ -34,7 +34,7 @@ export default function TradeAgent({ account, realExecutionEnabled }) {
   const [savedSetup] = useState(() => {
     try { return setupKey && JSON.parse(localStorage.getItem(setupKey)); } catch { return null; }
   });
-  const [symbol, setSymbol] = useState(savedSetup?.symbol || 'R_75');
+  const [symbol, setSymbol] = useState(initialSymbol || savedSetup?.symbol || 'R_75');
   const [manual, setManual] = useState(savedSetup?.manual === true);
   const [manualInterval, setCandleInterval] = useState(
     INTERVALS.some(([seconds]) => seconds === savedSetup?.interval) ? savedSetup.interval : 60,

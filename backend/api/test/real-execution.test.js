@@ -306,6 +306,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
       if (request.portfolio) {
         response = { req_id: request.req_id, msg_type: 'portfolio', portfolio: { contracts: [] } };
       } else if (request.ticks_history) {
+        events.push('read-candles');
         const candles = Array.from({ length: 80 }, (_, index) => {
           const close = 100 + index * 0.12 + Math.sin(index * 1.1) * 0.5;
           return {
@@ -333,7 +334,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
       this.onclose?.();
     }
   }
-  const results = await placeRealAgentOrders({
+  const request = {
     accounts: [realAccount],
     token: 'fixture',
     appId: 'fixture',
@@ -345,12 +346,25 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
     fetchImpl,
     Socket: QualifyingMarketSocket,
     now: () => 1_800_000_000_000,
-  });
+  };
+  const results = await placeRealAgentOrders(request);
   assert.equal(results[0].status, 'ordered');
   assert.equal(results[0].automationActive, true);
   assert.equal(control.active, true);
   assert.ok(events.includes('buy-request'));
   assert.ok(!events.includes('stop-control'));
+
+  for (const [terminalAction, contractType] of [['buy', 'CALL'], ['sell', 'PUT']]) {
+    control = null;
+    events.length = 0;
+    const [order] = await placeRealAgentOrders({ ...request, terminalAction });
+    assert.equal(order.status, 'ordered');
+    assert.equal(order.contractType, contractType);
+    assert.equal(order.automationActive, false);
+    assert.ok(events.includes('buy-request'));
+    assert.ok(events.includes('stop-control'));
+    assert.ok(!events.includes('read-candles'));
+  }
 });
 
 test('active control settings cannot be replaced by a one-time request', async () => {

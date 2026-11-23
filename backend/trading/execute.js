@@ -249,8 +249,12 @@ export async function readRealHistory({ account, token, appId, fetchImpl = fetch
     const transactions = await readPage({ limit: 25 }, 1);
     let today = null;
     try {
-      const daily = new Map();
+      const daily = new Map(transactions
+        .filter(row => row.settledAt >= start && row.settledAt <= epoch)
+        .map(row => [row.id, row]));
       const limit = 500;
+      if (transactions.some(row => !Number.isSafeInteger(row.settledAt) || row.settledAt <= 0))
+        throw codedError('SETTLEMENT_TIME_UNAVAILABLE');
       // Keep the query bounded. Never present a truncated count as a daily total.
       for (let page = 0; page < 8; page++) {
         const rows = await readPage({

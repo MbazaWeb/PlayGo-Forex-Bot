@@ -636,7 +636,7 @@ test('daily analytics counts settled outcomes at Tanzania midnight', async () =>
       if (request.req_id === 2) assert.equal(request.date_from, String(start));
       const transactions = [[1, 20, start], [2, 0, start + 1], [3, 10, start + 2], [4, 20, start - 1]]
         .map(([transaction_id, sell_price, sell_time]) => ({ transaction_id, buy_price: 10, sell_price, sell_time }));
-      const response = { req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions } };
+      const response = { req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions: request.req_id === 2 ? [] : transactions } };
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
     }
   }

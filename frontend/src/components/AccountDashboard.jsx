@@ -3,6 +3,11 @@ import { Wallet, ShieldCheck } from 'lucide-react';
 import Metric from './Metric';
 import AccountActivity from './AccountActivity';
 
+const settlementFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Dar_es_Salaam', day: '2-digit', month: 'short', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+
 const MarketChart = React.lazy(() => import('./MarketChart'));
 const MarketWorkspace = React.lazy(() => import('./MarketWorkspace'));
 
@@ -38,7 +43,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
             const buy = Number(t?.buy);
             if (!Number.isFinite(sell) || !Number.isFinite(buy)) return null;
             const value = Number((sell - buy).toFixed(8));
-            return { time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
+            return { time: String(t.id), settledAt: t.settledAt, value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
           })
           .filter(Boolean);
         if (!controller.signal.aborted) setHistory({ id, points, today: body.today });
@@ -147,14 +152,17 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           </div>
           <div className="tablewrap"><table>
             <thead>
-              <tr><th>Transaction</th><th>Status</th><th>Realized P&L</th></tr>
+              <tr><th>Settled (EAT)</th><th>Transaction</th><th>Status</th><th className="trade-pnl">Realized P&amp;L</th></tr>
             </thead>
             <tbody>
               {points.slice().reverse().map((t) => (
                 <tr key={t.time}>
-                  <td>{t.time}</td>
+                  <td>{Number.isSafeInteger(t.settledAt) && t.settledAt > 0 && t.settledAt < 1e11
+                    ? <time dateTime={new Date(t.settledAt * 1000).toISOString()}>{settlementFormat.format(t.settledAt * 1000)}</time>
+                    : 'Unavailable'}</td>
+                  <td className="muted">{t.time}</td>
                   <td><span className="trade-outcome" data-outcome={t.status}>{t.status}</span></td>
-                  <td data-outcome={t.status}>{t.value > 0 ? '+' : ''}{t.value.toFixed(2)} {currency}</td>
+                  <td className="trade-pnl" data-outcome={t.status}>{t.value > 0 ? '+' : ''}{t.value.toFixed(2)} {currency}</td>
                 </tr>
               ))}
             </tbody>

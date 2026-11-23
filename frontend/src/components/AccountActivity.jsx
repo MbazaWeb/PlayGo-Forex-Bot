@@ -1,6 +1,7 @@
 import { brokerRequest } from './brokerRequest';
 import React, { useRef, useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
+import ClosedTradeDetails from './ClosedTradeDetails';
 
 const settlementTime = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Africa/Dar_es_Salaam',
@@ -14,6 +15,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
   const [review, setReview] = useState(null);
+  const [closedTrade, setClosedTrade] = useState(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -169,7 +171,9 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
               const outcome = profit > 0 ? 'Win' : profit < 0 ? 'Loss' : 'Break-even';
               const hasTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
               return <tr key={'closed-' + trade.id}>
-                <td>{trade.contractId ? 'Contract #' + trade.contractId : 'Transaction #' + trade.id}</td>
+                <td><button type="button" className="textlink" onClick={() => setClosedTrade(trade)}>
+                  {trade.contractId ? 'Contract #' + trade.contractId : 'Transaction #' + trade.id}
+                </button></td>
                 <td><span className="trade-outcome" data-outcome={outcome}>Closed · {outcome}</span></td>
                 <td data-outcome={outcome}><strong className={tone(profit)}>{money(profit)}</strong></td>
                 <td>{hasTime ? <time dateTime={new Date(trade.settledAt * 1000).toISOString()}>{settlementTime.format(trade.settledAt * 1000)}</time> : '—'}</td>
@@ -182,6 +186,8 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
         </table>
       </div>
       {openAnalytics && <button type="button" className="textlink" onClick={openAnalytics}>View Analytics</button>}
+      {closedTrade && <ClosedTradeDetails trade={closedTrade} accountId={accountId} currency={currency}
+        settledTime={settlementTime} onClose={() => setClosedTrade(null)} />}
       {review && <ConfirmDialog title="Close trade" confirmLabel="Close at market"
         onCancel={() => setReview(null)}
         onConfirm={() => { setReview(null); void closeTrade(review); }}>

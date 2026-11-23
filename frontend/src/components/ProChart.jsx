@@ -1,135 +1,80 @@
 import React, { useEffect, useRef, useState } from 'react';
-// 1. Import series types mpya pamoja na createChart
-import {
-  createChart,
-  ColorType,
-  CrosshairMode,
-  AreaSeries,
-  LineSeries,
-  CandlestickSeries
-} from 'lightweight-charts';
+import { Minus, Plus, Maximize } from 'lucide-react';
+import { createChart, ColorType, CrosshairMode, AreaSeries, LineSeries, CandlestickSeries } from 'lightweight-charts';
+
+const up = '#55d6ad';
+const down = '#ff8995';
+const seriesTypes = { Candlestick: CandlestickSeries, Area: AreaSeries, Line: LineSeries };
 
 export default function ProChart({ data, type = 'Candlestick', height = 400, showAverage = false, tools = false }) {
-  const containerRef = useRef(null);
-  const chartRef = useRef(null);
-  const [hover, setHover] = useState(null);
+  const container = useRef(null);
+  const plot = useRef(null);
+  const [hoverTime, setHoverTime] = useState(null);
 
   useEffect(() => {
-    if (!containerRef.current || !data || data.length === 0) return;
-
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#7f8c9e',
-      },
-      grid: {
-        vertLines: { color: '#253040' },
-        horzLines: { color: '#253040' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: '#45d5c5', width: 1, style: 3, labelBackgroundColor: '#18212e' },
-        horzLine: { color: '#45d5c5', width: 1, style: 3, labelBackgroundColor: '#18212e' },
-      },
-      timeScale: {
-        borderColor: '#253040',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      rightPriceScale: {
-        borderColor: '#253040',
-      },
-      width: containerRef.current.clientWidth,
-      height: height,
+    const element = container.current;
+    const chart = createChart(element, {
+      width: element.clientWidth, height,
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#acbad2' },
+      grid: { vertLines: { visible: false }, horzLines: { color: '#26344a' } },
+      crosshair: { mode: CrosshairMode.Normal },
+      timeScale: { borderColor: '#334158', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: '#334158' },
     });
+    const price = chart.addSeries(seriesTypes[type], type === 'Candlestick' ? {
+      upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down,
+    } : type === 'Area' ? {
+      lineColor: '#91abff', topColor: '#7698ff60', bottomColor: '#7698ff00', lineWidth: 2,
+    } : { color: '#91abff', lineWidth: 2 });
+    const average = chart.addSeries(LineSeries, {
+      color: '#f6c879', lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+    });
+    plot.current = { chart, price, average, initialized: false };
+    if (tools) chart.subscribeCrosshairMove(event => setHoverTime(event.time ?? null));
+    const observer = new ResizeObserver(() => {
+      chart.applyOptions({ width: element.clientWidth, height: element.clientWidth < 480 ? Math.min(height, 300) : height });
+    });
+    observer.observe(element);
+    return () => { observer.disconnect(); plot.current = null; chart.remove(); };
+  }, [height, tools, type]);
 
-    chartRef.current = chart;
-
-    let series;
-
-    // 2. Tumia addSeries(SeriesType, options)
-    if (type === 'Line') {
-      series = chart.addSeries(LineSeries, {
-        color: '#45d5c5',
-        lineWidth: 2,
-      });
-      series.setData(data.map((d) => ({
-        time: d.epoch,
-        value: Number(d.close),
-      })));
-    } else if (type === 'Area') {
-      series = chart.addSeries(AreaSeries, {
-        lineColor: '#45d5c5',
-        topColor: 'rgba(69, 213, 197, 0.4)',
-        bottomColor: 'rgba(69, 213, 197, 0.0)',
-        lineWidth: 2,
-      });
-      const areaData = data.map((d) => ({
-        time: d.epoch,
-        value: Number(d.close),
-      }));
-      series.setData(areaData);
-    } else {
-      // Kwa Candlestick, tumia CandlestickSeries
-      series = chart.addSeries(CandlestickSeries, {
-        upColor: '#45d5c5',
-        downColor: '#ff6985',
-        borderVisible: false,
-        wickUpColor: '#45d5c5',
-        wickDownColor: '#ff6985',
-      });
-
-      const candleData = data.map((d) => ({
-        time: d.epoch,
-        open: Number(d.open),
-        high: Number(d.high),
-        low: Number(d.low),
-        close: Number(d.close),
-      }));
-      series.setData(candleData);
+  useEffect(() => {
+    const { chart, price, average, initialized } = plot.current;
+    const precision = Math.min(8, Math.max(2, ...data.flatMap(row =>
+      [row.open, row.high, row.low, row.close].map(value => {
+        const [mantissa, exponent = '0'] = String(value).toLowerCase().split('e');
+        return (mantissa.split('.')[1]?.length ?? 0) - Number(exponent);
+      }))));
+    price.applyOptions({ priceFormat: { type: 'price', precision, minMove: 10 ** -precision } });
+    price.setData(data.map(({ epoch: time, open, high, low, close }) => type === 'Candlestick'
+      ? { time, open, high, low, close } : { time, value: close }));
+    average.setData(showAverage ? data.slice(19).map((row, index) => ({
+      time: row.epoch, value: data.slice(index, index + 20).reduce((sum, bar) => sum + bar.close, 0) / 20,
+    })) : []);
+    if (!initialized && data.length) {
+      chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, data.length - 70), to: data.length + 2 });
+      plot.current.initialized = true;
     }
+  }, [data, type, showAverage, height, tools]);
 
-    if (showAverage) {
-      const average = chart.addSeries(LineSeries, {
-        color: '#ffcf69', lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
-      });
-      average.setData(data.slice(19).map((row, index) => ({
-        time: row.epoch,
-        value: data.slice(index, index + 20).reduce((sum, bar) => sum + bar.close, 0) / 20,
-      })));
-    }
-
-    if (tools) {
-      const bars = new Map(data.map(row => [row.epoch, row]));
-      chart.subscribeCrosshairMove(event => setHover(bars.get(event.time) || null));
-    }
-    chart.timeScale().fitContent();
-
-    const handleResize = () => {
-      if (!containerRef.current) return;
-      const width = containerRef.current.clientWidth;
-      chart.applyOptions({ width, height: tools && width < 480 ? 300 : height });
-    };
-    const observer = new ResizeObserver(handleResize);
-    observer.observe(containerRef.current);
-    handleResize();
-
-    return () => {
-      observer.disconnect();
-      chartRef.current = null;
-      chart.remove();
-    };
-  }, [data, type, height, showAverage, tools]);
-
-  const candle = data?.includes(hover) ? hover : data?.at(-1);
-
-  return (
-    <div className="pro-chart-container" style={{ position: 'relative', width: '100%' }}>
-      {tools && candle && <div className="terminal-chart-readout">
-        <div><span>O {candle.open}</span><span>H {candle.high}</span><span>L {candle.low}</span><span>C {candle.close}</span></div>
-        <button type="button" className="outline" onClick={() => chartRef.current?.timeScale().fitContent()}>Reset view</button>
-      </div>}
-      <div ref={containerRef} />
-    </div>
-  );
+  function zoom(factor) {
+    const scale = plot.current.chart.timeScale();
+    const range = scale.getVisibleLogicalRange();
+    if (!range) return;
+    const width = Math.max(8, Math.min(data.length + 3, (range.to - range.from) * factor));
+    scale.setVisibleLogicalRange({ from: range.to - width, to: range.to });
+  }
+  const candle = data.find(row => row.epoch === hoverTime) ?? data.at(-1);
+  return <div className="pro-chart-container">
+    {tools && candle && <div className="terminal-chart-readout">
+      <div>{[['O', candle.open], ['H', candle.high], ['L', candle.low], ['C', candle.close]].map(([key, value]) =>
+        <span key={key}>{key} <b>{value}</b></span>)}</div>
+      <div className="chart-tools" role="group" aria-label="Chart view">
+        <button type="button" className="outline" aria-label="Zoom in" onClick={() => zoom(.7)}><Plus size={16} /></button>
+        <button type="button" className="outline" aria-label="Zoom out" onClick={() => zoom(1.4)}><Minus size={16} /></button>
+        <button type="button" className="outline" aria-label="Fit all candles" onClick={() => plot.current.chart.timeScale().fitContent()}><Maximize size={16} /></button>
+      </div>
+    </div>}
+    <div ref={container} role="img" aria-label={type + ' price history in UTC' + (showAverage ? ' with 20-bar moving average' : '')} />
+  </div>;
 }

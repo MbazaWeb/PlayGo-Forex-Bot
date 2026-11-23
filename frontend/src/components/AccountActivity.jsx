@@ -130,7 +130,8 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
 
   const tone = value => value > 0 ? 'gain' : value < 0 ? 'loss' : '';
   const money = value => (value > 0 ? '+' : '') + value.toFixed(2) + ' ' + currency;
-  const settledIds = new Set(settled?.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0)).map(trade => trade.contractId));
+  const closedRows = [...(settled ?? [])].sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
+  const settledIds = new Set(closedRows.map(trade => trade.contractId));
   const openRows = (contracts ?? []).filter(contract => !settledIds.has(contract.id));
   const net = openRows.reduce((sum, row) => sum + row.profit, 0);
   return (
@@ -166,7 +167,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
                   onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry</small>}</td>
               </tr>
             ))}
-            {settled?.map(trade => {
+            {closedRows.map(trade => {
               const profit = trade.sell - trade.buy;
               const outcome = profit > 0 ? 'Win' : profit < 0 ? 'Loss' : 'Break-even';
               const hasTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;

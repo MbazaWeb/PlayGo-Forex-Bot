@@ -21,13 +21,13 @@ function useRequest(key, payload, parse, refreshMs) {
     async function update() {
       try {
         const rows = parse(await publicRequest(payload, controller.signal));
-        if (!controller.signal.aborted) setResult({ key, attempt, rows });
+        if (!controller.signal.aborted) setResult({ key, attempt, rows, receivedAt: Date.now() });
       } catch {
         if (!controller.signal.aborted) setResult(previous => ({
           key, attempt, error: true,
-          rows: refreshMs && previous.key === key
-            ? previous.rows?.map(row => ({ ...row, status: 'Unknown' }))
-            : undefined,
+          rows: previous.key !== key ? undefined : key === 'catalog'
+            ? previous.rows?.map(row => ({ ...row, status: 'Unknown' })) : previous.rows,
+          receivedAt: previous.key === key ? previous.receivedAt : undefined,
         }));
       } finally {
         if (refreshMs && !controller.signal.aborted) timer = setTimeout(update, refreshMs);
@@ -88,7 +88,7 @@ export default function MarketExplorer({ catalog, overview }) {
     adjust_start_time: 1, count: 200, granularity: interval,
   } : null, [symbol, interval]);
 
-  const [history, reload] = useRequest(market ? market.symbol + '/' + interval : '', payload, readCandles);
+  const [history, reload] = useRequest(market ? market.symbol + '/' + interval : '', payload, readCandles, 30_000);
   const data = history.rows;
 
   function chartOptions() {
@@ -111,7 +111,7 @@ export default function MarketExplorer({ catalog, overview }) {
   return (
     <section className="panel chart-panel">
       <div className="panelhead">
-        <div><h2>{overview ? 'Market Overview' : 'Market Chart'}</h2>{overview && <p>Deriv Options - Live prices</p>}</div>
+        <div><h2>{overview ? 'Market Overview' : 'Market Chart'}</h2><p>Deriv Options</p></div>
         {market && (
           <span className="market-status" data-status={market.status} role="status">
             {market.name} {market.status}
@@ -130,15 +130,16 @@ export default function MarketExplorer({ catalog, overview }) {
       {data?.length > 0 ? (
         <>
           <div className="market-line">
-            <div><b>{market.name}</b><small>{data[data.length - 1].time} UTC</small></div>
+            <div><b>{market.name}</b><small>Candle opened {data.at(-1).time} UTC</small></div>
             <strong>{data[data.length - 1].close}</strong>
           </div>
 
           <div style={{ marginTop: '16px' }}>
-            <ProChart data={data} type={type} height={overview ? 300 : 460} showAverage={showAverage} tools={!overview} />
+            <ProChart key={symbol + interval} data={data} type={type} height={overview ? 300 : 460} showAverage={showAverage} tools={!overview} />
           </div>
 
-          <button className="textlink" style={{ marginTop: '16px' }} onClick={reload}>Refresh prices</button>
+          <div className="chart-footer"><small role="status">{history.error ? 'Refresh failed · showing last prices' : 'Updates every 30s'} · {new Date(history.receivedAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</small>
+            <button type="button" className="textlink" onClick={reload}>Refresh prices</button></div>
         </>
       ) : (
         <p role="status">

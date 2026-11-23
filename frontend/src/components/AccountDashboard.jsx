@@ -1,7 +1,7 @@
 import { brokerRequest } from './brokerRequest';
 import { summarizeClosedTrades } from './tradePerformance';
 import React, { useEffect, useState } from 'react';
-import { Wallet, ShieldCheck } from 'lucide-react';
+import { Wallet, ShieldCheck, TrendingUp, TrendingDown, ListChecks } from 'lucide-react';
 import Metric from './Metric';
 import AccountActivity from './AccountActivity';
 import { downloadTradePdf, downloadTradeReport } from './tradeReport';
@@ -141,9 +141,9 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       <section aria-label="Today's trading results">
           <div className="panelhead"><div><h2>Today</h2><p>Settled trades · Tanzania time</p></div></div>
           <div className="metrics three">
-            <Metric title="Today's Wins" value={today?.wins ?? '-'} icon={ShieldCheck} positive />
-            <Metric title="Today's Losses" value={today?.losses ?? '-'} icon={ShieldCheck} positive={false} />
-            <Metric title="Total Trades Today" value={today?.total ?? '-'} icon={ShieldCheck} />
+            <Metric title="Today's Wins" value={today?.wins ?? '-'} icon={TrendingUp} positive />
+            <Metric title="Today's Losses" value={today?.losses ?? '-'} icon={TrendingDown} positive={false} />
+            <Metric title="Total Trades Today" value={today?.total ?? '-'} icon={ListChecks} />
           </div>
           {id && result && !today && <p role="status">Today's totals are unavailable.</p>}
       </section>
@@ -216,7 +216,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
 
         {points?.length ? (
           <React.Suspense fallback={<p>Loading chart...</p>}>
-            <MarketChart data={points} outcomes label={currency ? `P&L (${currency})` : 'P&L'} />
+            <MarketChart data={points.slice().sort((a, b) => (a.settledAt || 0) - (b.settledAt || 0))} outcomes label={currency ? `P&L (${currency})` : 'P&L'} />
           </React.Suspense>
         ) : (
           <p role="status">

@@ -5,7 +5,7 @@ const settlementTime = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Africa/Dar_es_Salaam',
 });
 
-export default function AccountActivity({ accountId, currency, openAnalytics }) {
+export default function AccountActivity({ accountId, currency, openOnly = false, openAnalytics }) {
   const [settled, setSettled] = useState(null);
   const [historyError, setHistoryError] = useState(false);
   const historyRefreshRef = useRef(null);
@@ -63,6 +63,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
   }, [accountId]);
 
   useEffect(() => {
+    if (openOnly) return;
     const controller = new AbortController();
     const { signal } = controller;
     let timer, busy = false, pending = false;
@@ -99,7 +100,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       historyRefreshRef.current = null;
       window.removeEventListener('playgo:settlement', onSettlement);
     };
-  }, [accountId]);
+  }, [accountId, openOnly]);
 
   async function closeTrade(contract) {
     setClosing(true);
@@ -131,7 +132,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
   return (
     <section className="panel account-panel">
       <div className="panelhead">
-        <div><h2>Trades</h2>{observedAt && <small>{error ? 'Last available' : 'Updated'} {new Date(observedAt).toLocaleTimeString()}</small>}</div>
+        <div><h2>{openOnly ? 'Open trades' : 'Trades'}</h2>{observedAt && <small>{error ? 'Last available' : 'Updated'} {new Date(observedAt).toLocaleTimeString()}</small>}</div>
         <button type="button" className="outline" onClick={() => {
           refreshRef.current?.();
           historyRefreshRef.current?.();
@@ -142,8 +143,8 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       {historyError && <p role="status">{settled ? 'Showing last available settlements.' : 'Closed trades are unavailable.'}</p>}
       {contracts && <p>{openRows.length} open · Open P&amp;L <strong className={tone(net)}>{money(net)}</strong></p>}
       <div className="tablewrap">
-        <table aria-label="Open trades and recent settlements">
-          <thead><tr><th scope="col">Trade</th><th scope="col">Status</th><th scope="col">P&amp;L</th><th scope="col">Settled (EAT)</th><th scope="col">Action</th></tr></thead>
+        <table aria-label={openOnly ? 'Open trades' : 'Open trades and recent settlements'}>
+          <thead><tr><th scope="col">Trade</th><th scope="col">Status</th><th scope="col">P&amp;L</th>{!openOnly && <th scope="col">Settled (EAT)</th>}<th scope="col">Action</th></tr></thead>
           <tbody>
             {openRows.map(contract => (
               <tr key={'open-' + contract.id}>
@@ -152,7 +153,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
                   <small>Entry {contract.entrySpot ?? '—'} → Now {contract.currentSpot ?? '—'}</small></td>
                 <td>Open</td>
                 <td><strong className={tone(contract.profit)}>{money(contract.profit)}</strong></td>
-                <td>—</td>
+                {!openOnly && <td>—</td>}
                 <td>{contract.canSell ? <button type="button" className="outline" disabled={closing || Boolean(error)}
                   onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry</small>}</td>
               </tr>
@@ -170,7 +171,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
               </tr>;
             })}
             {openRows.length === 0 && !settled?.length && !error && !historyError &&
-              <tr><td colSpan={5}>{contracts && settled ? 'No trades to display.' : 'Checking trades…'}</td></tr>}
+              <tr><td colSpan={openOnly ? 4 : 5}>{contracts && (openOnly || settled) ? 'No trades to display.' : 'Checking trades…'}</td></tr>}
           </tbody>
         </table>
       </div>

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Wallet, ShieldCheck } from 'lucide-react';
 import Metric from './Metric';
 import AccountActivity from './AccountActivity';
+import { downloadTradeReport } from './tradeReport';
 
 const settlementFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Africa/Dar_es_Salaam', day: '2-digit', month: 'short', year: 'numeric',
@@ -44,7 +45,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
             const buy = Number(t?.buy);
             if (!Number.isFinite(sell) || !Number.isFinite(buy)) return null;
             const value = Number((sell - buy).toFixed(8));
-            return { time: String(t.id), settledAt: t.settledAt, value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
+            return { time: String(t.id), contractId: t.contractId, buy, sell, settledAt: t.settledAt, value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
           })
           .filter(Boolean);
         if (!controller.signal.aborted) setHistory({ id, points, today: body.today });
@@ -120,6 +121,10 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         <section aria-label="Profitability">
           <div className="panelhead">
             <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p></div>
+            <button type="button" className="outline" disabled={!points?.length}
+              onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
+              Download Excel report
+            </button>
           </div>
           <div className="metrics performance-metrics">
             <Metric title="Net P&L" value={signedMoney(performance?.net)} change="Total gains minus losses" positive={performance?.net > 0} />
@@ -177,7 +182,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
               <tr><th>Settled (EAT)</th><th>Transaction</th><th>Status</th><th className="trade-pnl">Realized P&amp;L</th></tr>
             </thead>
             <tbody>
-              {points.slice().reverse().map((t) => (
+              {points.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0)).map((t) => (
                 <tr key={t.time}>
                   <td>{Number.isSafeInteger(t.settledAt) && t.settledAt > 0 && t.settledAt < 1e11
                     ? <time dateTime={new Date(t.settledAt * 1000).toISOString()}>{settlementFormat.format(t.settledAt * 1000)}</time>
@@ -197,7 +202,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           <button className="outline" onClick={() => navigate?.('Bot Agents')}>View Bot Agents</button>
         </div>
       )}
-      {id && <AccountActivity key={id} accountId={id} currency={currency} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
+      {id && <AccountActivity key={id} accountId={id} currency={currency} openOnly={analytics} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
     </>
   );
 }

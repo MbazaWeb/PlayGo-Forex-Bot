@@ -218,6 +218,7 @@ export default async function handler(req, res) {
     if (!account) return respond(res, 400, { error: 'Deriv account not found.' });
     const read = path === 'history' ? readHistory : readPortfolio;
     const result = await read({
+      report: params.get('report') === '1',
       account,
       token: session.token,
       appId: CLIENT,

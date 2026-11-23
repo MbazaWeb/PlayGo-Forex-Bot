@@ -40,7 +40,7 @@ Review `SECURITY.md` before working on authentication, session handling, or any 
 
 ## Commit Messages
 
-Use the imperative mood: "Add rate limiter to demo routes" rather than "Added rate limiter".
+Use the imperative mood: "Add rate limiter to authenticated routes" rather than "Added rate limiter".
 
 ## Pull Requests
 

@@ -1,7 +1,11 @@
-# Repository import
+# Repository status
 
-The PlayGo Trading frontend, backend, tests, documentation and read-only MT5 adapter have been imported from the supplied project ZIP.
+The application has a real-account-only Deriv execution path. Demo execution, demo portfolio UI, paper strategy workers, their database migrations, and associated routes have been removed from the application source.
 
-The original npm package-lock.json was not imported with this GitHub transfer. Run `npm install` (Node.js 22+) to create a local package-lock.json before running `npm ci`. The original lockfile remains available in the supplied ZIP. Review any lockfile changes before committing them.
+Bot Agents can analyze live candles and, when explicitly started, request orders for all connected real accounts. The Emergency Agent monitors equity while the signed-in Bot Agents page is active, pauses new orders at a 20% drawdown from the starting balance, and attempts to close open contracts.
 
-The code is a prototype foundation, not a functioning real-money execution system. No broker credentials are included.
+Bot Agents also support a one-time order check that uses server-side analysis, automatic 1%-of-balance sizing, and required per-contract stop-loss/take-profit percentages. Deriv exits are monitored and best-effort; FOK is not supported by the current CALL/PUT path.
+
+Automated tests use fake broker responses only. No live order has been placed or used for validation. Before execution can work in a deployment, its operator must configure the server-side live gate and apply `backend/deriv_execution/real_execution.sql` to the intended database. This repository does not apply the migration to a hosted database.
+
+The 75/100 score is an indicator-confluence score, not a measured win probability. A best-effort close request cannot guarantee a 20% maximum loss. Emergency monitoring stops when the Bot Agents page/session stops.

@@ -33,15 +33,12 @@ nav button.selected{border-left:3px solid #50ddc6}
 .top-left,.top-right{display:flex;align-items:center;gap:17px;font-size:13px}
 .breadcrumb,.slash{color:#75849a}
 .top-right{gap:22px}
-.demo-tag{color:#7ae2c9;background:#15342f;padding:8px 11px;border-radius:7px;font-size:10px;font-weight:800;letter-spacing:.5px;white-space:nowrap}
-.demo-tag .dot{margin-right:6px}
 .iconbtn,.hamburger,.mobile-close{border:0;background:none;color:#9ba9ba;position:relative;padding:5px}
 .iconbtn i{position:absolute;top:3px;right:4px;width:6px;height:6px;background:#ff6884;border-radius:50%}
 .hamburger,.mobile-close{display:none}
 .content{max-width:1600px;margin:auto;padding:34px 35px 60px}
 .heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:28px}
 .eyebrow{font-size:10px;font-weight:800;letter-spacing:1.7px;color:#54d8bf;margin-bottom:9px}
-.demo-only-badge{display:inline-block;margin-top:8px;padding:5px 9px;border:1px solid #426e64;border-radius:20px;color:#75e3ca;font-size:10px;font-weight:800;letter-spacing:.8px}
 h1{font-size:29px;margin:0 0 8px;letter-spacing:-1px}
 h2{font-size:15px;margin:0 0 6px}
 p{color:#8a99ac;margin:0;font-size:12px}
@@ -150,7 +147,6 @@ option{background:#1b2735}
   .topbar{height:65px;padding:0 17px}
   .top-left{gap:9px}
   .top-right{gap:10px}
-  .top-right .demo-tag{font-size:9px}
   .content{padding:23px 15px 45px}
   .heading{align-items:flex-start;flex-direction:column}
   h1{font-size:25px}
@@ -208,3 +204,27 @@ option{background:#1b2735}
 .terminal-ticket-market{color:#eaf1f8;font-weight:700}
 .terminal-order-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .terminal-order-fields label{margin-bottom:0}
+.trade-agent-dashboard{display:grid;gap:18px}
+.agent-control-row{display:flex;flex-wrap:wrap;gap:14px}
+.agent-control-row label{flex:1 1 200px;margin-bottom:0}
+.agent-progress-heading,.agent-card-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.agent-progress-heading h2,.agent-card-heading h2{margin:0}
+.agent-progress-heading strong{color:#65e4d2;font-size:13px}
+.agent-progress progress{width:100%;height:8px;margin:16px 0 10px;accent-color:#45d5c5}
+.agent-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.agent-card{min-height:145px}
+.agent-card-heading{margin-bottom:16px}
+.agent-card-heading h2{font-size:13px}
+.agent-state{color:#87d9cc;font-size:10px;font-weight:700}
+.agent-card p,.agent-progress p{line-height:1.6}
+.agent-proposal-button{margin-top:14px}
+.agent-trade-feedback{margin-top:10px}
+.agent-proposal{margin-top:14px;padding:12px;border:1px solid #395c56;border-radius:9px;background:#152b29}
+.agent-proposal strong{display:block;color:#8ce4cf;font-size:12px;margin-bottom:6px}
+.agent-proposal p{overflow-wrap:anywhere}
+.agent-recommendation{font-size:14px;font-weight:700;color:#eaf1f8}
+.agent-activity ol{list-style:none;padding:0;margin:0}
+.agent-activity li{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid #2b3644;font-size:12px}
+.agent-activity li:last-child{border-bottom:0}
+.agent-activity time{flex:0 0 84px;color:#8596a9}
+@media(max-width:520px){.agent-activity li{flex-direction:column;gap:4px}}

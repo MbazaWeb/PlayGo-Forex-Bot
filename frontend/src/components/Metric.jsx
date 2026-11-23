@@ -9,7 +9,7 @@ export default function Metric({ title, value, change, icon: Icon = Activity, po
         <span className="metric-icon"><Icon size={19} /></span>
       </div>
       <strong>{value}</strong>
-      <small className={positive ? 'gain' : 'muted'}>{change || 'Demo workspace'}</small>
+      <small className={positive ? 'gain' : 'muted'}>{change || 'Account workspace'}</small>
     </div>
   );
 }

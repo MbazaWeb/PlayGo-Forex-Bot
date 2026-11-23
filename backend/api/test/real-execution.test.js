@@ -1,0 +1,584 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { PGlite } from '@electric-sql/pglite';
+import { executeRealOrder, getRealWebSocketUrl, readRealPortfolio } from '../../trading/execute.js';
+import {
+  evaluateEmergencyStop,
+  calculateStake,
+  contractsAtExitThresholds,
+  validExitSettings,
+} from '../../trading/execution-risk.js';
+import { runEmergencyCheck } from '../../trading/emergency-agent.js';
+import { placeRealAgentOrders } from '../../trading/real-agent.js';
+
+const realAccount = {
+  account_id: 'CR123456',
+  account_type: 'real',
+  currency: 'USD',
+  balance: 1000,
+};
+
+class BrokerSocket {
+  constructor(url) {
+    this.url = url;
+    this.readyState = 0;
+    this.sent = [];
+    queueMicrotask(() => {
+      this.readyState = 1;
+      this.onopen?.();
+    });
+  }
+
+  send(raw) {
+    const request = JSON.parse(raw);
+    this.sent.push(request);
+    const response = request.proposal
+      ? { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } }
+      : { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345 } };
+    queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+  }
+
+  close() {
+    this.readyState = 3;
+    this.onclose?.();
+  }
+}
+
+const otpFetch = async () => Response.json({
+  data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
+});
+
+test('real execution accepts only a verified real-account OTP endpoint', async () => {
+  const url = await getRealWebSocketUrl({
+    token: 'fixture',
+    account: realAccount,
+    fetchImpl: otpFetch,
+  });
+  assert.match(url, /\/ws\/real\?otp=/);
+  await assert.rejects(getRealWebSocketUrl({
+    token: 'fixture',
+    account: { ...realAccount, account_type: 'demo' },
+    fetchImpl: assert.fail,
+  }), /REAL_ACCOUNT_REQUIRED/);
+  await assert.rejects(getRealWebSocketUrl({
+    token: 'fixture',
+    account: realAccount,
+    fetchImpl: async () => Response.json({
+      data: { url: 'wss://api.derivws.com/trading/v1/options/ws/demo?otp=fixture' },
+    }),
+  }), /INVALID_REAL_ENDPOINT/);
+});
+
+test('real buy is persisted before the mock broker receives the buy request', async () => {
+  const events = [];
+  const order = await executeRealOrder({
+    account: realAccount,
+    token: 'fixture',
+    intent: {
+      symbol: 'R_75',
+      contractType: 'CALL',
+      stake: 10,
+      duration: 1,
+      durationUnit: 'm',
+    },
+    fetchImpl: otpFetch,
+    Socket: class extends BrokerSocket {
+      send(raw) {
+        const request = JSON.parse(raw);
+        if (request.buy) events.push('buy-request');
+        super.send(raw);
+      }
+    },
+    beforeBuy: async () => { events.push('persist-submit'); },
+  });
+  events.push('confirmed');
+  assert.deepEqual(order, { contractId: '12345', askPrice: 10 });
+  assert.deepEqual(events, ['persist-submit', 'buy-request', 'confirmed']);
+});
+
+test('stake sizing and emergency threshold are measured from the stored starting balance', async () => {
+  assert.equal(calculateStake(1000), 10);
+  assert.equal(evaluateEmergencyStop({
+    startingBalance: 1000,
+    balance: 850,
+    openProfit: -50,
+  }).stopped, true);
+  assert.equal(evaluateEmergencyStop({
+    startingBalance: 1000,
+    balance: 850,
+    openProfit: 0,
+  }).stopped, false);
+});
+
+test('per-contract exits compare verified P&L with configured percentages of stake', () => {
+  assert.equal(validExitSettings(10, 25), true);
+  assert.equal(validExitSettings(101, 25), false);
+  assert.equal(validExitSettings(10, 0), false);
+  const contracts = [
+    { id: '1', stake: 10, profit: -1 },
+    { id: '2', stake: 20, profit: 5 },
+    { id: '3', stake: 10, profit: -0.99 },
+    { id: '4', stake: 10, profit: 2.49 },
+    { id: '5', stake: 0, profit: -10 },
+  ];
+  assert.deepEqual(
+    contractsAtExitThresholds(contracts, 10, 25).map(contract => contract.id),
+    ['1', '2'],
+  );
+});
+
+test('one-time order requests reject missing exit settings before database or broker access', async () => {
+  await assert.rejects(placeRealAgentOrders({
+    accounts: [realAccount],
+    token: 'fixture',
+    symbol: 'R_75',
+    granularity: 60,
+    stopLossPercent: 0,
+    takeProfitPercent: 25,
+    env: { LIVE_TRADING_ENABLED: 'true' },
+    fetchImpl: assert.fail,
+  }), /INVALID_EXIT_SETTINGS/);
+});
+
+test('one-time trade checks restore an inactive control after a non-qualifying analysis', async () => {
+  const events = [];
+  let control = null;
+  const env = {
+    LIVE_TRADING_ENABLED: 'true',
+    PLAYGO_ENV: 'local',
+    PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+    PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+  };
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.endsWith('/playgo_real_controls')) {
+      events.push('read-control');
+      return Response.json(control ? [control] : []);
+    }
+    if (parsed.pathname.endsWith('/rpc/playgo_real_configure_control')) {
+      events.push('start-control');
+      control = {
+        account_id: realAccount.account_id,
+        starting_balance: 1000,
+        active: true,
+        paused: false,
+        stop_loss_percent: 10,
+        take_profit_percent: 25,
+      };
+      return Response.json({ active: true });
+    }
+    if (parsed.pathname.endsWith('/rpc/playgo_real_stop_control')) {
+      events.push('stop-control');
+      control.active = false;
+      return Response.json({ active: false });
+    }
+    if (parsed.pathname.endsWith('/otp')) {
+      events.push('request-otp');
+      return Response.json({
+        data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
+      });
+    }
+    throw Error(`Unexpected mocked request: ${options.method || 'GET'} ${parsed.pathname}`);
+  };
+  class EmptyMarketSocket {
+    constructor() {
+      this.readyState = 0;
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
+    }
+
+    send(raw) {
+      const request = JSON.parse(raw);
+      const response = request.portfolio
+        ? { req_id: request.req_id, msg_type: 'portfolio', portfolio: { contracts: [] } }
+        : { req_id: request.req_id, candles: [] };
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+    }
+
+    close() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
+  }
+  const results = await placeRealAgentOrders({
+    accounts: [realAccount],
+    token: 'fixture',
+    appId: 'fixture',
+    symbol: 'R_75',
+    granularity: 60,
+    stopLossPercent: 10,
+    takeProfitPercent: 25,
+    env,
+    fetchImpl,
+    Socket: EmptyMarketSocket,
+    now: () => 1_000_000_000,
+  });
+  assert.equal(results[0].status, 'watching');
+  assert.equal(control.active, false);
+  assert.ok(events.includes('start-control'));
+  assert.ok(events.includes('stop-control'));
+  assert.equal(events.includes('buy-request'), false);
+});
+
+test('one-time qualifying order keeps Bot Agents active for scheduled monitoring', async () => {
+  const events = [];
+  let control = null;
+  const env = {
+    LIVE_TRADING_ENABLED: 'true',
+    PLAYGO_ENV: 'local',
+    PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+    PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+  };
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.endsWith('/playgo_real_controls'))
+      return Response.json(control ? [control] : []);
+    if (parsed.pathname.endsWith('/rpc/playgo_real_configure_control')) {
+      events.push('start-control');
+      control = {
+        account_id: realAccount.account_id,
+        starting_balance: 1000,
+        active: true,
+        paused: false,
+        stop_loss_percent: 10,
+        take_profit_percent: 25,
+      };
+      return Response.json({ active: true });
+    }
+    if (parsed.pathname.endsWith('/rpc/playgo_real_stop_control')) {
+      events.push('stop-control');
+      control.active = false;
+      return Response.json({ active: false });
+    }
+    if (parsed.pathname.endsWith('/rpc/playgo_real_reserve_intent')) {
+      events.push('reserve-intent');
+      return Response.json({ accepted: true, intentId: '00000000-0000-4000-8000-000000000001' });
+    }
+    if (parsed.pathname.endsWith('/rpc/playgo_real_transition')) {
+      const event = JSON.parse(options.body).p_event;
+      events.push(`intent-${event}`);
+      return Response.json({ status: event });
+    }
+    if (parsed.pathname.endsWith('/otp'))
+      return Response.json({
+        data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
+      });
+    throw Error(`Unexpected mocked request: ${parsed.pathname}`);
+  };
+  class QualifyingMarketSocket {
+    constructor() {
+      this.readyState = 0;
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
+    }
+
+    send(raw) {
+      const request = JSON.parse(raw);
+      let response;
+      if (request.portfolio) {
+        response = { req_id: request.req_id, msg_type: 'portfolio', portfolio: { contracts: [] } };
+      } else if (request.ticks_history) {
+        const candles = Array.from({ length: 80 }, (_, index) => {
+          const close = 100 + index * 0.12 + Math.sin(index * 1.1) * 0.5;
+          return {
+            epoch: 1_700_000_000 + index * 60,
+            open: close - 0.1,
+            high: close + 0.2,
+            low: close - 0.2,
+            close,
+          };
+        });
+        response = { req_id: request.req_id, candles };
+      } else if (request.proposal) {
+        response = { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } };
+      } else if (request.buy) {
+        events.push('buy-request');
+        response = { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345 } };
+      } else {
+        throw Error('Unexpected mocked broker request');
+      }
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+    }
+
+    close() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
+  }
+  const results = await placeRealAgentOrders({
+    accounts: [realAccount],
+    token: 'fixture',
+    appId: 'fixture',
+    symbol: 'R_75',
+    granularity: 60,
+    stopLossPercent: 10,
+    takeProfitPercent: 25,
+    env,
+    fetchImpl,
+    Socket: QualifyingMarketSocket,
+    now: () => 1_800_000_000_000,
+  });
+  assert.equal(results[0].status, 'ordered');
+  assert.equal(results[0].automationActive, true);
+  assert.equal(control.active, true);
+  assert.ok(events.includes('buy-request'));
+  assert.ok(!events.includes('stop-control'));
+});
+
+test('active control settings cannot be replaced by a one-time request', async () => {
+  const control = {
+    account_id: realAccount.account_id,
+    starting_balance: 1000,
+    active: true,
+    paused: false,
+    stop_loss_percent: 10,
+    take_profit_percent: 25,
+  };
+  const env = {
+    LIVE_TRADING_ENABLED: 'true',
+    PLAYGO_ENV: 'local',
+    PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+    PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+  };
+  const fetchImpl = async url => {
+    const parsed = new URL(url);
+    if (parsed.pathname.endsWith('/playgo_real_controls')) return Response.json([control]);
+    throw Error(`Unexpected request: ${parsed.pathname}`);
+  };
+  const results = await placeRealAgentOrders({
+    accounts: [realAccount],
+    token: 'fixture',
+    symbol: 'R_75',
+    granularity: 60,
+    stopLossPercent: 20,
+    takeProfitPercent: 30,
+    env,
+    fetchImpl,
+  });
+  assert.equal(results[0].status, 'blocked');
+  assert.equal(results[0].reason, 'EXIT_SETTINGS_MISMATCH');
+  assert.equal(results[0].automationActive, true);
+  assert.equal(control.active, true);
+});
+
+test('one-time checks close a contract at its configured loss threshold without buying again', async () => {
+  const events = [];
+  let control = null;
+  const env = {
+    LIVE_TRADING_ENABLED: 'true',
+    PLAYGO_ENV: 'local',
+    PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+    PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+  };
+  const fetchImpl = async url => {
+    const parsed = new URL(url);
+    if (parsed.pathname.endsWith('/playgo_real_controls'))
+      return Response.json(control ? [control] : []);
+    if (parsed.pathname.endsWith('/rpc/playgo_real_configure_control')) {
+      control = {
+        account_id: realAccount.account_id,
+        starting_balance: 1000,
+        active: true,
+        paused: false,
+        stop_loss_percent: 10,
+        take_profit_percent: 25,
+      };
+      return Response.json({ active: true });
+    }
+    if (parsed.pathname.endsWith('/rpc/playgo_real_stop_control')) {
+      control.active = false;
+      return Response.json({ active: false });
+    }
+    if (parsed.pathname.endsWith('/otp'))
+      return Response.json({
+        data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
+      });
+    throw Error(`Unexpected mocked request: ${parsed.pathname}`);
+  };
+  class ExitThresholdSocket {
+    constructor() {
+      this.readyState = 0;
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
+    }
+
+    send(raw) {
+      const request = JSON.parse(raw);
+      let response;
+      if (request.portfolio) {
+        response = { req_id: request.req_id, msg_type: 'portfolio', portfolio: { contracts: [{ contract_id: 12345 }] } };
+      } else if (request.proposal_open_contract) {
+        response = {
+          req_id: request.req_id,
+          msg_type: 'proposal_open_contract',
+          proposal_open_contract: {
+            contract_id: 12345,
+            is_sold: 0,
+            status: 'open',
+            profit: -1,
+            buy_price: 10,
+            underlying_symbol: 'R_75',
+          },
+        };
+      } else if (request.sell) {
+        events.push('sell-request');
+        response = { req_id: request.req_id, msg_type: 'sell', sell: { sold_for: 9 } };
+      } else {
+        events.push('unexpected-order-request');
+        response = { req_id: request.req_id, msg_type: 'error', error: { code: 'UNEXPECTED' } };
+      }
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+    }
+
+    close() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
+  }
+  const results = await placeRealAgentOrders({
+    accounts: [realAccount],
+    token: 'fixture',
+    appId: 'fixture',
+    symbol: 'R_75',
+    granularity: 60,
+    stopLossPercent: 10,
+    takeProfitPercent: 25,
+    env,
+    fetchImpl,
+    Socket: ExitThresholdSocket,
+  });
+  assert.equal(results[0].status, 'exited');
+  assert.equal(results[0].closeResults[0].closed, true);
+  assert.deepEqual(events, ['sell-request']);
+  assert.equal(control.active, false);
+});
+
+test('Emergency Agent pauses first, then attempts to close every open contract', async () => {
+  const events = [];
+  const result = await runEmergencyCheck({
+    account: { ...realAccount, balance: 850 },
+    control: { starting_balance: 1000 },
+    portfolio: {
+      contracts: [
+        { id: '11', profit: -25 },
+        { id: '12', profit: -25 },
+      ],
+    },
+    pause: async () => { events.push('pause'); },
+    closeContracts: async ids => {
+      events.push('close');
+      assert.deepEqual(ids, ['11', '12']);
+      return ids.map(contractId => ({ contractId, closed: true }));
+    },
+  });
+  assert.equal(result.status, 'stopped');
+  assert.deepEqual(events, ['pause', 'close']);
+});
+
+test('real portfolio reads and verifies the stake used by exit thresholds', async () => {
+  const portfolio = await readRealPortfolio({
+    account: realAccount,
+    token: 'fixture',
+    fetchImpl: otpFetch,
+    Socket: class extends BrokerSocket {
+      send(raw) {
+        const request = JSON.parse(raw);
+        const response = request.portfolio
+          ? { req_id: request.req_id, msg_type: 'portfolio', portfolio: { contracts: [{ contract_id: 12345 }] } }
+          : {
+            req_id: request.req_id,
+            msg_type: 'proposal_open_contract',
+            proposal_open_contract: {
+              contract_id: 12345,
+              is_sold: 0,
+              status: 'open',
+              profit: -1,
+              buy_price: 10,
+              underlying_symbol: 'R_75',
+            },
+          };
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+      }
+    },
+  });
+  assert.deepEqual(portfolio.contracts, [
+    { id: '12345', symbol: 'R_75', profit: -1, stake: 10 },
+  ]);
+});
+
+test('real execution migration persists controls and rejects over-limit reservations', async t => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
+  await db.exec(await readFile('backend/deriv_execution/real_execution.sql', 'utf8'));
+  await db.exec('set role service_role');
+
+  const configure = (balance, stopLoss, takeProfit) => db.query(
+    'select public.playgo_real_configure_control($1,$2,$3,$4) as result',
+    ['CR123456', balance, stopLoss, takeProfit],
+  );
+  assert.equal((await configure(1000, 10, 25)).rows[0].result.active, true);
+  assert.deepEqual(
+    (await db.query(
+      'select starting_balance,stop_loss_percent,take_profit_percent from public.playgo_real_controls where account_id=$1',
+      ['CR123456'],
+    )).rows[0],
+    { starting_balance: '1000', stop_loss_percent: '10', take_profit_percent: '25' },
+  );
+  await assert.rejects(configure(1000, 0, 25), /INVALID_REAL_AGENT_CONFIGURATION/);
+
+  const record = {
+    account_id: 'CR123456',
+    idempotency_key: 'a'.repeat(64),
+    status: 'reserved',
+    symbol: 'R_75',
+    contract_type: 'CALL',
+    stake: 10,
+    duration: 1,
+    balance: 1000,
+    equity: 1000,
+    open_count: 0,
+  };
+  const reserve = row => db.query(
+    'select public.playgo_real_reserve_intent($1) as result',
+    [JSON.stringify(row)],
+  );
+  const first = (await reserve(record)).rows[0].result;
+  assert.equal(first.accepted, true);
+  assert.equal((await reserve({ ...record, idempotency_key: 'b'.repeat(64) })).rows[0].result.reason, 'UNKNOWN_ORDER_STATE');
+
+  await db.exec('reset role; set role authenticated');
+  await assert.rejects(
+    db.query('select * from public.playgo_real_controls'),
+    /permission denied/,
+  );
+  await assert.rejects(
+    db.query(
+      'select public.playgo_real_configure_control($1,$2,$3,$4)',
+      ['CR123456', 1000, 10, 25],
+    ),
+    /permission denied/,
+  );
+  await db.exec('reset role; set role service_role');
+
+  const stop = (await reserve({
+    ...record,
+    idempotency_key: 'c'.repeat(64),
+    stake: 8,
+    balance: 800,
+    equity: 800,
+  })).rows[0].result;
+  assert.equal(stop.reason, 'DRAWDOWN_LIMIT');
+  const control = (await db.query(
+    'select active,paused,stop_reason from public.playgo_real_controls where account_id=$1',
+    ['CR123456'],
+  )).rows[0];
+  assert.deepEqual(control, { active: false, paused: true, stop_reason: 'DRAWDOWN_LIMIT' });
+});

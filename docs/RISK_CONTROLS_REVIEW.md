@@ -1,16 +1,19 @@
-# Phase 7D follow-up
+# Real execution risk controls
 
-This report supersedes the implementation and test status in PHASE7D_REVIEW.md. The previous release instructions still require explicit deployment approval.
+## Configured limits
 
-Apply reserve.sql then risk_controls.sql only after verifying the existing schema, hardening and atomic transition definitions in the target staging database. The follow-up migration is single-use; its DDL must run in one transaction. No remote changes were performed. Keep broker submission disabled.
+- Per-order stake: at most 1% of the latest authenticated account balance.
+- Open contracts: at most five per real account.
+- Per-contract stop-loss and take-profit: required user inputs, persisted with each account control and used as the authority for scheduled checks. They use monitored floating P&L and best-effort sell requests, not broker-side guarantees.
+- Emergency threshold: pause new orders when verified equity is at or below 80% of the stored starting balance.
+- Emergency action: persist the pause first, then attempt to sell each broker-reported open contract. While the Bot Agents page remains active, later checks retry contracts still reported open.
+- Scheduling: selected candle interval, page-active only. The one-time order action reruns server-side analysis and does not bypass the signal threshold.
+- Fill policy: Deriv CALL/PUT proposal/buy does not offer FOK; execution buys at no more than the quoted proposal price.
 
-The account switch defaults to paused, including when the account has no control row. A database operator can pause an existing account or create a paused record using a parameterized statement:
+Starting balance is captured when an account is first started and remains unchanged across ordinary stop/start actions. A risk-triggered pause cannot be cleared by starting again. Unknown order outcomes also pause the account to prevent duplicate submissions.
 
-    insert into public.playgo_demo_controls(account_id,paused) values ($1,true)
-    on conflict(account_id) do update set paused=true;
+These controls do not guarantee a maximum loss. Market movement, network interruptions, broker rejection, gaps, or execution price can prevent or worsen a close. Monitoring is page-active, not continuous after the browser/session stops.
 
-The worker cannot arm an account. The guard checks the switch on both reservation and submission. It calculates losses using numeric posted settlement amounts and UTC broker sale dates. An old settled trade with missing accounting blocks new reservations. Operator review is required before opening a previously used account. Account limits assume one settlement currency per broker account.
+## Validation status
 
-The recovery worker posts the verified settlement and intent transition together and records a heartbeat after a successful recovery pass. The operations screen displays the switch, daily P&L and last recovery time. Serverless and local API entry points both use the shared reader.
-
-77 automated tests passed. Production frontend build passed. A disposable native PostgreSQL cluster reproduced competing reservation and submission checks, disconnect rollback and restart durability. Local Chromium acceptance used fixture broker data. There is no live broker order transport in the application. The code still requires a real authenticated demo session, an isolated staging Supabase project with its actual worker role, and a complete demo-order lifecycle acceptance run. Do not enable broker submission based on the offline results.
+The migration and execution logic are tested with an embedded PostgreSQL implementation and mocked broker WebSockets. Tests do not call live buy or sell endpoints. The migration has not been applied to a hosted database, and no live-account acceptance run has been performed.

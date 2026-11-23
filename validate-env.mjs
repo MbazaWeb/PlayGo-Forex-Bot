@@ -36,9 +36,17 @@ if (!env) {
 const errors = [];
 const warnings = [];
 
-const required = ['DERIV_CLIENT_ID', 'DERIV_REDIRECT_URI', 'APP_ORIGIN', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+const required = ['DERIV_CLIENT_ID', 'DERIV_REDIRECT_URI', 'APP_ORIGIN', 'PLAYGO_COOKIE_SECRET'];
 for (const k of required) {
   if (!env[k]) errors.push(`Missing required var: ${k}`);
+}
+
+if (env.PLAYGO_ENV === 'local') {
+  if (!env.PLAYGO_LOCAL_REST_URL) errors.push('Missing PLAYGO_LOCAL_REST_URL for local mode');
+  if (!env.PLAYGO_LOCAL_WORKER_JWT) errors.push('Missing PLAYGO_LOCAL_WORKER_JWT for local mode');
+} else {
+  if (!env.SUPABASE_URL) errors.push('Missing SUPABASE_URL for hosted mode');
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) errors.push('Missing SUPABASE_SERVICE_ROLE_KEY for hosted mode');
 }
 
 if (env.APP_ORIGIN && env.APP_ORIGIN.endsWith('/')) {
@@ -85,20 +93,9 @@ if (env.PLAYGO_ENV === 'local' && env.PLAYGO_LOCAL_REST_URL && !/^http:\/\/127\.
   errors.push(`PLAYGO_LOCAL_REST_URL must be http://127.0.0.1:PORT`);
 }
 
-if (env.LIVE_TRADING_ENABLED !== 'false') {
-  warnings.push('LIVE_TRADING_ENABLED should be "false"');
-}
-if (env.PLAYGO_DEMO_EXECUTION_ENABLED === 'true' && env.LIVE_TRADING_ENABLED !== 'false') {
-  errors.push('PLAYGO_DEMO_EXECUTION_ENABLED=true but LIVE_TRADING_ENABLED!=false');
-}
-if (env.PLAYGO_DEMO_EXECUTION_ENABLED === 'true' && !env.PLAYGO_BROKER_DEMO_ACCOUNT) {
-  errors.push('PLAYGO_DEMO_EXECUTION_ENABLED=true but PLAYGO_BROKER_DEMO_ACCOUNT missing');
-}
-if (env.PLAYGO_BROKER_DEMO_ACCOUNT && env.DERIV_DEMO_ACCOUNT_ID && env.PLAYGO_BROKER_DEMO_ACCOUNT !== env.DERIV_DEMO_ACCOUNT_ID) {
-  errors.push(`PLAYGO_BROKER_DEMO_ACCOUNT (${env.PLAYGO_BROKER_DEMO_ACCOUNT}) != DERIV_DEMO_ACCOUNT_ID (${env.DERIV_DEMO_ACCOUNT_ID})`);
-}
+if (env.LIVE_TRADING_ENABLED !== 'true') warnings.push('Real order execution remains disabled until LIVE_TRADING_ENABLED=true');
 
-if (env.SUPABASE_URL && !/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(env.SUPABASE_URL)) {
+if (env.PLAYGO_ENV !== 'local' && env.SUPABASE_URL && !/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(env.SUPABASE_URL)) {
   errors.push(`SUPABASE_URL must match https://[project].supabase.co`);
 }
 

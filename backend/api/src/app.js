@@ -1,12 +1,7 @@
-import {manualTicket} from './manual-demo.js';
-import {strategyStore} from '../../trading/strategy-store.js';
-import {readOperations} from '../../trading/operations.js';
-import {readDemoPortfolio,readDemoHistory,readMarketQuote,readDemoSignal} from '../../trading/demo-portfolio.js';
+import {readPortfolio, readHistory} from './portfolio/index.js';
+import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
-import {executeRealOrder} from './ticket/real.js';
-import {strategyPassReal} from './strategy/real.js';
-import {readRealPortfolio} from './portfolio/real.js';
 
 const random=()=>randomBytes(32).toString('base64url');
 const RATE_LIMIT_WINDOW_MS=60000;
@@ -51,8 +46,8 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
   const path=new URL(req.url,'http://localhost').pathname;
   const sid=cookies(req)[cookieName],session=sessions.get(sid);
   try{
-   if(path==='/api/health'&&req.method==='GET')return json(res,200,{status:'ok',execution:false});
-   if(path==='/api/session'&&req.method==='GET')return json(res,200,{authenticated:!!session,configured:!!config.clientId,execution:false,mt5:'not_linked'});
+   if(path==='/api/health'&&req.method==='GET')return json(res,200,{status:'ok',execution:process.env.LIVE_TRADING_ENABLED==='true'});
+   if(path==='/api/session'&&req.method==='GET')return json(res,200,{authenticated:!!session,configured:!!config.clientId,execution:process.env.LIVE_TRADING_ENABLED==='true',mt5:'not_linked'});
    if(path==='/api/auth/deriv/start'&&req.method==='GET'){
     if(!config.clientId)return json(res,503,{error:'Configure DERIV_CLIENT_ID and DERIV_REDIRECT_URI on the backend.'});
     if(pending.size>=1000)return json(res,429,{error:'Too many sign-in attempts. Try later.'});
@@ -82,62 +77,94 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')return json(res,403,{error:'Request origin rejected'});
     sessions.delete(sid);setCookie(res,cookieName,'',0);return json(res,200,{ok:true});
    }
-   const liveRoute={
-    '/api/live/ticket':executeRealOrder,
-    '/api/live/strategy':strategyPassReal,
-    '/api/live/portfolio':readRealPortfolio,
-   }[path];
-   if(path.startsWith('/api/live/')){
-    if(!liveRoute)return json(res,403,{error:'Real-money trading is unavailable.'});
-    const result=await liveRoute();
-    return json(res,result.status,result.body);
-   }
+
    if(!session)return json(res,401,{error:'Sign in with Deriv first.'});
    if(sid&&rateLimit(sid))return json(res,429,{error:'Rate limit exceeded. Slow down.'});
-   if(path==='/api/demo/ticket' && ['GET','POST'].includes(req.method)){
-    if(req.method==='POST' && (req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1'))
-      return json(res,403,{message:'Request origin rejected.'});
-    const result=await manualTicket({method:req.method,params:new URL(req.url,'http://localhost').searchParams,token:session.token,
-      appId:config.clientId,fetchImpl:fetcher});
+
+   const params=new URL(req.url,'http://localhost').searchParams;
+   const accountId=params.get('account');
+   let linkedAccounts;
+   try {
+     linkedAccounts=await listAccounts(session.token,fetcher,config.clientId);
+   } catch (error) {
+     const status=error.status||502;
+     if(status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}
+     return json(res,status,{error:status===401?'Deriv session expired. Sign in again.':status===429?'Deriv account service rate limit exceeded.':'Could not verify real accounts.'});
+   }
+   const account=linkedAccounts.find(a=>a.account_id===accountId);
+
+   if(path==='/api/agent/status'&&req.method==='GET'){
+    const results=await readRealAgentStatuses({accounts:linkedAccounts,env:process.env,fetchImpl:fetcher});
+    return json(res,200,{accounts:results});
+   }
+   if(['/api/agent/start','/api/agent/stop','/api/agent/run','/api/agent/place'].includes(path)&&req.method==='POST'){
+    if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')
+      return json(res,403,{error:'Request origin rejected.'});
+    if(path==='/api/agent/start'){
+      try{
+        const results=await startRealAgents({
+          accounts:linkedAccounts,
+          stopLossPercent:Number(params.get('stopLossPercent')),
+          takeProfitPercent:Number(params.get('takeProfitPercent')),
+          env:process.env,
+          fetchImpl:fetcher,
+        });
+        return json(res,200,{accounts:results});
+      }catch(error){
+        const code=error.code||'AGENT_START_FAILED';
+        return json(res,code==='LIVE_TRADING_DISABLED'?403:['REAL_ACCOUNT_REQUIRED','INVALID_EXIT_SETTINGS'].includes(code)?400:503,{error:code});
+      }
+    }
+    if(path==='/api/agent/stop'){
+      const results=await stopRealAgents({accounts:linkedAccounts,env:process.env,fetchImpl:fetcher});
+      return json(res,200,{accounts:results});
+    }
+    if(path==='/api/agent/place'){
+      try{
+        const results=await placeRealAgentOrders({
+          accounts:linkedAccounts,
+          token:session.token,
+          appId:config.clientId,
+          symbol:params.get('symbol'),
+          granularity:Number(params.get('granularity')),
+          stopLossPercent:Number(params.get('stopLossPercent')),
+          takeProfitPercent:Number(params.get('takeProfitPercent')),
+          env:process.env,
+          fetchImpl:fetcher,
+        });
+        return json(res,200,{accounts:results});
+      }catch(error){
+        const code=error.code||'AGENT_PLACE_FAILED';
+        return json(res,code==='LIVE_TRADING_DISABLED'?403:['REAL_ACCOUNT_REQUIRED','INVALID_EXIT_SETTINGS','INVALID_MARKET_REQUEST'].includes(code)?400:503,{error:code});
+      }
+    }
+    const symbol=params.get('symbol');
+    const granularity=Number(params.get('granularity'));
+    const results=[];
+    for(const row of linkedAccounts.filter(a=>a.account_type==='real')){
+      try{
+        results.push(await runRealAgentTick({
+          account:row,token:session.token,appId:config.clientId,symbol,granularity,
+          env:process.env,fetchImpl:fetcher
+        }));
+      }catch(error){
+        results.push({accountId:row.account_id,status:'error',reason:error.code||error.message||'AGENT_RUN_FAILED'});
+      }
+    }
+    return json(res,200,{accounts:results});
+   }
+
+   if(['/api/portfolio','/api/history'].includes(path)&&req.method==='GET'){
+    if(!account||account.account_type!=='real')return json(res,400,{error:'Real account not found.'});
+    const read=path==='/api/history'?readHistory:readPortfolio;
+    const result=await read({account,token:session.token,appId:config.clientId,fetchImpl:fetcher});
     return json(res,result.status,result.body);
    }
-   if (path === '/api/demo/strategy' && ['GET','POST'].includes(req.method)) {
-    const write=req.method==='POST';
-    if(write && (req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1'))
-      return json(res,403,{error:'Request origin rejected'});
-    try {
-      const params=new URL(req.url,'http://localhost').searchParams;
-      const accounts=await listAccounts(session.token,fetcher,config.clientId);
-      const row=await strategyStore({accountId:params.get('account'),accounts,fetchImpl:fetcher},write?'save':params.get('view')==='history'?'history':'read',{
-        packId:params.get('pack'),fast:Number(params.get('fast')),slow:Number(params.get('slow')),
-        enabled:params.get('enabled')==='true'?true:params.get('enabled')==='false'?false:null
-      });
-      return json(res,200,{strategy:row});
-    } catch(err) {
-      return json(res,err.message==='DEMO_ACCOUNT_REQUIRED'?403:err.message==='INVALID_STRATEGY'?400:err.status||503,{error:'Strategy unavailable'});
-    }
-   }
-   if (['/api/demo/portfolio','/api/demo/history','/api/demo/quote','/api/demo/operations','/api/demo/signal'].includes(path) && req.method === 'GET') {
-    try {
-      const accountId = new URL(req.url,'http://localhost').searchParams.get('account');
-      const accounts = await listAccounts(session.token, fetcher, config.clientId);
-      const read = path.endsWith('/operations') ? readOperations : path.endsWith('/history') ? readDemoHistory : readDemoPortfolio;
-      const context = {token:session.token, accountId, accounts, appId:config.clientId, fetchImpl:fetcher};
-      const params = new URL(req.url,'http://localhost').searchParams;
-      const result = path.endsWith('/signal') ? await readDemoSignal(context,params) : path.endsWith('/quote') ? await readMarketQuote(context, {
-        symbol:params.get('symbol')||'frxEURUSD',contractType:params.get('direction') ?? 'CALL',duration:Number(params.get('minutes') ?? 15),durationUnit:'m',stake:Number(params.get('stake') ?? 1)
-      }) : await read(context);
-      return json(res, 200, result);
-    } catch (err) {
-      return json(res, err.message === 'DEMO_ACCOUNT_REQUIRED' ? 403 : err.message === 'BROKER_RATE_LIMIT' ? 429 : ['INVALID_QUOTE','INVALID_STRATEGY'].includes(err.message) ? 400 : err.status || 502, {error:'Demo portfolio unavailable'});
-    }
-   }
-   if(path==='/api/accounts'&&req.method==='GET'){
-    try{return json(res,200,{accounts:await listAccounts(session.token,fetcher,config.clientId)});}
-    catch(e){if(e.status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}return json(res,e.status||502,{error:e.status===401?'Your Deriv session expired. Sign in again.':'Could not retrieve Deriv accounts.'});}
-   }
+
+   if(path==='/api/accounts'&&req.method==='GET')return json(res,200,{accounts:linkedAccounts.filter(a=>a.account_type==='real')});
+
    if(path==='/api/mt5/status'&&req.method==='GET')return json(res,200,{status:'not_linked',execution:false});
-   if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Broker order submission is disabled.'});
+   if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Route not available.'});
    return json(res,404,{error:'Route not found'});
   }catch(err){console.error('[playgo] request failed:',err&&err.message);return json(res,500,{error:'Request failed'});}
  };

@@ -1,6 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readMarkets, readCandles } from './derivMarkets.js';
+import { publicRequest, readMarkets, readCandles } from './derivMarkets.js';
+
+test('waits for a connecting WebSocket to open before closing after cancellation', async (t) => {
+  const originalWebSocket = globalThis.WebSocket;
+  t.after(() => { globalThis.WebSocket = originalWebSocket; });
+
+  class MockWebSocket {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSING = 2;
+    static CLOSED = 3;
+    static instances = [];
+
+    constructor() {
+      this.readyState = MockWebSocket.CONNECTING;
+      this.closeCalls = 0;
+      MockWebSocket.instances.push(this);
+    }
+
+    close() {
+      this.closeCalls += 1;
+      this.readyState = MockWebSocket.CLOSED;
+      this.onclose?.({ code: 1000 });
+    }
+
+    open() {
+      this.readyState = MockWebSocket.OPEN;
+      this.onopen?.();
+    }
+  }
+
+  globalThis.WebSocket = MockWebSocket;
+  const controller = new AbortController();
+  const request = publicRequest({ active_symbols: 'brief' }, controller.signal);
+  controller.abort();
+
+  await assert.rejects(request, /Cancelled/);
+  const socket = MockWebSocket.instances[0];
+  assert.equal(socket.closeCalls, 0);
+
+  socket.open();
+  assert.equal(socket.closeCalls, 1);
+});
 
 test('keeps unfamiliar market groups and deduplicates symbols', () => {
   const row = { underlying_symbol: 'X', underlying_symbol_name: 'Example', market: 'new_market' };

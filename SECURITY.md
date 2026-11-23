@@ -2,38 +2,31 @@
 
 ## Supported Versions
 
-PlayGo Trading is a prototype foundation, not a production real-money execution system. Security fixes are applied to the latest `main` branch only.
+Security fixes are applied to the latest `main` branch.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly:
-
-1. **Do not** open a public GitHub issue.
-2. Email the maintainer directly with a description, reproduction steps, and impact assessment.
-3. You should receive an acknowledgment within 72 hours.
+Please report vulnerabilities privately to the maintainer. Do not open a public issue with credentials or a working exploit.
 
 ## Scope
 
-The following are in scope:
+In scope:
 
-- Authentication / session handling (Deriv OAuth2/PKCE, cookie sealing)
-- Cross-site request forgery (CSRF) bypasses on state-changing routes
-- Input validation / injection in API routes and SQL migrations
-- Path traversal in static file serving
-- Secrets exposure (committed credentials, token leakage in logs)
+- Deriv OAuth2/PKCE, cookies, session handling, and account ownership checks
+- CSRF protection and authorization of state-changing routes
+- Real-money order execution, emergency pause/close handling, idempotency, and risk enforcement
+- Database grants, RLS, SQL input validation, and migration behavior
+- Secret exposure, logging, and static-file path handling
 
-The following are **out of scope** as they are intentionally disabled by design:
+## Execution safeguards
 
-- Broker order submission routes (`/api/orders`, `/api/bots`) — these return `501` by design
-- Real-money routes (`/api/live/ticket`, `/api/live/strategy`, `/api/live/portfolio`) — these always return `403`
+- Only accounts returned by the authenticated Deriv session with `account_type: real` can reach execution.
+- Real orders require the server-side `LIVE_TRADING_ENABLED=true` gate and durable real-execution controls.
+- The database stores starting balances, order state, and an audit trail; it does not store Deriv OAuth tokens.
+- Stake is limited to 1% of current balance per order; the account is limited to five open contracts.
+- The Emergency Agent pauses new orders at a 20% drawdown from the stored starting balance and attempts to close open contracts. Broker close requests may fail or fill at a different price; this is not a guaranteed loss cap.
+- Emergency monitoring runs only while the signed-in Trade Agent page is active. It is not a 24/7 background service.
+- The 75/100 signal score is indicator confluence, not a validated win probability.
+- Tests use mocks and do not call real buy or sell endpoints.
 
-## Security Posture
-
-- Real-money execution is **hard-disabled** in both API handlers; environment flags cannot enable it.
-- Demo broker submission is a separate, explicitly gated path. It requires verified demo account ownership and passing risk/recovery preflight checks.
-- The demo account activity panel uses authenticated backend reads. Only the demo order ticket can submit Deriv demo contracts, and it remains blocked unless execution and risk preflight gates pass.
-- Strategy replay/history and `playgo_pack_trades` are paper simulations, not broker-account records.
-- Tokens are stored server-side in memory only; only an opaque session ID is placed in an HttpOnly cookie.
-- Production cookies are `__Host-` prefixed, `Secure`, `SameSite=Lax`.
-- CSRF protection requires both `Origin` header match and a custom `X-PlayGo-Request: 1` header on state-changing requests.
-- Content-Security-Policy is applied to all responses.
+OAuth tokens remain in the authenticated server session and are never returned to frontend code or stored in localStorage. State-changing requests require both a same-origin `Origin` header and `X-PlayGo-Request: 1`.

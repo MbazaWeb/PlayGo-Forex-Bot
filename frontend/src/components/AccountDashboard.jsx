@@ -1,17 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Bot, Wallet, ShieldCheck } from 'lucide-react';
+import { Wallet, ShieldCheck } from 'lucide-react';
 import Metric from './Metric';
+import AccountActivity from './AccountActivity';
 
 const MarketChart = React.lazy(() => import('./MarketChart'));
 const MarketWorkspace = React.lazy(() => import('./MarketWorkspace'));
 
 export default function AccountDashboard({ accounts, mt5, navigate, analytics = false }) {
-  const demos = useMemo(
-    () => (accounts?.filter((a) => a.account_type === 'demo' && typeof a.account_id === 'string' && a.account_id) ?? []),
+  const usable = useMemo(
+    () => (accounts?.filter((a) => a.account_type === 'real') ?? []),
     [accounts],
   );
   const [selected, setSelected] = useState('');
-  const account = demos.find((a) => a.account_id === selected) ?? demos[0];
+  const account = usable.find((a) => a.account_id === selected) ?? usable[0];
   const id = account?.account_id;
   const [history, setHistory] = useState(null);
 
@@ -23,15 +24,10 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
     const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch(
-          '/api/demo/history?account=' + encodeURIComponent(id),
-          { signal: controller.signal },
-        );
+        const res = await fetch('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
         if (!res.ok) throw new Error('history unavailable');
         const body = await res.json();
-        if (body?.accountId !== id || !Array.isArray(body.transactions)) {
-          throw new Error('unexpected payload');
-        }
+        if (body?.accountId !== id || !Array.isArray(body.transactions)) throw new Error('unexpected payload');
         const points = body.transactions
           .slice()
           .reverse()
@@ -55,78 +51,67 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
   const currency = account?.currency ?? '';
   const wins = points?.filter((t) => t.value > 0).length ?? 0;
   const winRate = points?.length ? (100 * wins / points.length).toFixed(1) + '%' : '—';
-  const closedPnl = points?.reduce((sum, trade) => sum + trade.value, 0);
-  const pnlLabel = points?.length && Number.isFinite(closedPnl) && /^[A-Z]{3}$/.test(currency)
-    ? new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(closedPnl)
-    : 'Unavailable';
 
   return (
     <>
-      {demos.length > 1 && (
+      {usable.length > 1 && (
         <label>
-          Demo account
+          Account
           <select value={id || ''} onChange={(e) => setSelected(e.target.value)}>
-            {demos.map((a) => (
-              <option key={a.account_id} value={a.account_id}>{a.account_id}</option>
-            ))}
+            {usable.map((a) => <option key={a.account_id} value={a.account_id}>{a.account_id} ({a.account_type})</option>)}
           </select>
         </label>
       )}
 
-      <div className="metrics">
+      <div className="metrics three">
         <Metric
           title="Total Portfolio Balance"
           value={account?.balance == null ? 'Unavailable' : account.balance + ' ' + currency}
-          change={id ? 'Selected demo account · ' + id : 'No demo account'}
+          change={id ? 'Selected account ' + id : 'No account'}
           icon={Wallet}
-        />
-        <Metric
-          title="Closed-trade net P&L"
-          value={pnlLabel}
-          change={points?.length ? 'From recent closed demo trades' : 'No verified closed-trade total'}
-          icon={Activity}
-        />
-        <Metric
-          title="Demo accounts"
-          value={String(demos.length)}
-          change="Available in this Deriv session"
-          icon={Bot}
         />
         <Metric
           title="Win Rate"
           value={winRate}
-          change="Recent closed demo trades"
+          change="Recent closed trades"
           icon={ShieldCheck}
+        />
+        <Metric
+          title="Realized P&L"
+          value={points?.length ? points.reduce((sum, point) => sum + point.value, 0).toFixed(2) + ' ' + currency : '—'}
+          change="From verified closed trades"
+          icon={ShieldCheck}
+          positive={!!points?.length && points.reduce((sum, point) => sum + point.value, 0) >= 0}
         />
       </div>
 
       {!analytics && (
-        <React.Suspense fallback={<p>Loading markets…</p>}>
-          <MarketWorkspace page="Overview" changePage={navigate} accounts={accounts} />
+        <React.Suspense fallback={<p>Loading markets...</p>}>
+          <MarketWorkspace page="Overview" changePage={navigate} />
         </React.Suspense>
       )}
 
       <section className="panel account-panel">
         <div className="panelhead">
           <div>
-            <h2>Closed trade performance</h2>
-            <p>Realized P&L per trade{currency ? ' · ' + currency : ''}</p>
+            <h2>Trade performance</h2>
+            <p>Realized P&L per trade{currency ? ' (' + currency + ')' : ''}</p>
           </div>
         </div>
 
         {points?.length ? (
-          <React.Suspense fallback={<p>Loading chart…</p>}>
+          <React.Suspense fallback={<p>Loading chart...</p>}>
             <MarketChart data={points} />
           </React.Suspense>
         ) : (
           <p role="status">
             {!id
-              ? 'A demo account is required.'
+              ? 'An account is required.'
               : result?.error
                 ? 'Broker history unavailable.'
                 : points
                   ? 'No closed trades reported.'
-                  : 'Loading broker history…'}
+                  : 'Loading broker history...'}
           </p>
         )}
 
@@ -149,10 +134,10 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
 
       {!analytics && (
         <div className="panelhead">
-          <button className="outline" onClick={() => navigate?.('Portfolio')}>Manage accounts</button>
-          <button className="primary" onClick={() => navigate?.('Trading Bots')}>Configure strategy</button>
+          <button className="outline" onClick={() => navigate?.('Bot Agents')}>View Bot Agents</button>
         </div>
       )}
+      {!analytics && id && <AccountActivity accountId={id} />}
     </>
   );
 }

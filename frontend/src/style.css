@@ -256,3 +256,13 @@ option{background:#1b2735}
 .terminal-chart-readout, .terminal-chart-readout > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .terminal-chart-readout { justify-content: space-between; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
 @media (max-width: 950px) { .terminal-workspace { grid-template-columns: minmax(0, 1fr); } }
+
+.confirm-dialog { width: min(440px, calc(100% - 32px)); padding: 24px; color: #eaf1f8; background: #141e2a; border: 1px solid #314157; border-radius: 16px; box-shadow: 0 20px 72px #0009; }
+.confirm-dialog::backdrop { background: #050810bd; }
+.confirm-dialog h2 { margin: 0 0 16px; }
+.confirm-dialog p { margin: 12px 0; color: #b9c9da; }
+.confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.trade-review { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; }
+.trade-review div { background: #0b1420; padding: 10px; border-radius: 8px; }
+.trade-review dt { color: #9eafc3; font-size: 0.8rem; }
+.trade-review dd { margin: 4px 0 0; overflow-wrap: anywhere; }

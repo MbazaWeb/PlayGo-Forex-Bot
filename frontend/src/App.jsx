@@ -1,3 +1,4 @@
+import ConfirmDialog from './components/ConfirmDialog';
 import React, { useEffect, useState } from 'react';
 import {
   Activity, LogOut, ShieldCheck, LayoutDashboard, Wallet,
@@ -27,6 +28,7 @@ async function fetchJSON(url, opts) {
 export default function App() {
   const [session, setSession] = useState(null);
   const [accounts, setAccounts] = useState(null);
+  const [pendingAccountId, setPendingAccountId] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -129,8 +131,8 @@ export default function App() {
             {!!accounts?.length && (
               <select className="outline" aria-label="Deriv trading account" value={selectedAccount?.account_id || ''}
                 onChange={event => {
-                  if (selectedAccount && !window.confirm('Switch accounts? Bot Agents will stop monitoring the current account until you select it again.')) return;
-                  setSelectedAccountId(event.target.value);
+                  if (selectedAccount) setPendingAccountId(event.target.value);
+                  else setSelectedAccountId(event.target.value);
                 }}>
                 <option value="" disabled>Select Deriv account</option>
                 {accounts.map(account => (
@@ -171,6 +173,11 @@ export default function App() {
           )}
         </main>
       </div>
+      {pendingAccountId && <ConfirmDialog title="Switch Deriv account" confirmLabel="Switch account"
+        onCancel={() => setPendingAccountId('')}
+        onConfirm={() => { setSelectedAccountId(pendingAccountId); setPendingAccountId(''); }}>
+        <p>Bot Agents will pause monitoring the current account until you select it again.</p>
+      </ConfirmDialog>}
     </div>
   );
 }

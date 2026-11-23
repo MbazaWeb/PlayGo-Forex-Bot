@@ -1,3 +1,4 @@
+import ConfirmDialog from './ConfirmDialog';
 import { AUTOMATIC_SETUP, automaticEntryBlock } from '../../../shared/agent-analysis.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { analyzeCandles } from './agentAnalysis.js';
@@ -44,6 +45,7 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
   const [analysis, setAnalysis] = useState({ status: 'waiting', progress: 0 });
   const [activities, setActivities] = useState([]);
   const [agentRunning, setAgentRunning] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatuses, setAgentStatuses] = useState([]);
   const [agentFeedback, setAgentFeedback] = useState('');
@@ -257,7 +259,6 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
 
   async function startAgent() {
     if (agentBusy || !executionAvailable || !exitSettingsValid) return;
-    if (!window.confirm(`Start Bot Agents on Deriv ${accountLabel} account ${accountId}? Orders require a qualifying signal. Stake is 1% of the account balance. Stop and target exits are best-effort.`)) return;
     setAgentBusy(true);
     setAgentFeedback('');
     try {
@@ -283,7 +284,6 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
   async function placeTradeNow() {
     if (agentBusy || !executionAvailable || !selectedMarket || !ready ||
         !signalQualifies || !exitSettingsValid) return;
-    if (!window.confirm(`Submit a ${accountLabel === 'Real' ? 'real-money' : 'virtual-funds'} order on Deriv ${accountLabel} account ${accountId} if server-side analysis and risk checks still qualify? After a successful order, Bot Agents will stay active for monitoring and may place later qualifying trades until stopped.`)) return;
     setAgentBusy(true);
     setAgentFeedback('');
     try {
@@ -499,13 +499,13 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
             type="button"
             className="primary agent-proposal-button"
             disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
-            onClick={() => void placeTradeNow()}
+            onClick={() => setConfirmation('place')}
           >
             {agentBusy ? 'Checking...' : 'Place Trade Now'}
           </button>
           {agentRunning
             ? <button type="button" className="outline agent-proposal-button" disabled={agentBusy} onClick={stopAgent}>Stop trading</button>
-            : <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={startAgent}>Start scheduled trading</button>}
+            : <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={() => setConfirmation('start')}>Start scheduled trading</button>}
           {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
           {agentFeedback && <p className="agent-trade-feedback" role="status">{agentFeedback}</p>}
         </AgentCard>
@@ -524,6 +524,17 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
           </ol>
         ) : <p>No agent activity yet.</p>}
       </section>
+      {confirmation && <ConfirmDialog
+        title={confirmation === 'start' ? 'Start Bot Agents' : 'Review bot trade'}
+        confirmLabel={confirmation === 'start' ? 'Start trading' : 'Check and trade'}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          setConfirmation(null);
+          void (confirmation === 'start' ? startAgent() : placeTradeNow());
+        }}>
+        <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
+        <p>Orders require a qualifying signal. Each order stakes 1% of the balance. The bot may place later qualifying orders until stopped.</p>
+      </ConfirmDialog>}
     </div>
   );
 }

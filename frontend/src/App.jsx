@@ -80,7 +80,7 @@ export default function App() {
           {error && <p role="alert" className="signin-error">Sign-in unavailable. <button onClick={load}>Try again</button></p>}
           {loading ? <p role="status">Checking session...</p>
             : session?.configured
-              ? <a className="signin-action" href="/api/auth/deriv/start">Continue with Deriv <span aria-hidden="true">Ã¢â€ â€™</span></a>
+              ? <a className="signin-action" href="/api/auth/deriv/start">Continue with Deriv <span aria-hidden="true">&rarr;</span></a>
               : !error && <p role="status" className="signin-error">Deriv sign-in is not configured.</p>}
         </main>
       </div>

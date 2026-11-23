@@ -8,9 +8,9 @@ export async function readPortfolio({ account, token, appId, fetchImpl = fetch }
   return { status: 200, body };
 }
 
-export async function readHistory({ account, token, appId, fetchImpl = fetch }) {
+export async function readHistory({ account, token, appId, fetchImpl = fetch, report = false }) {
   if (!isDerivAccount(account)) return { status: 403, body: { error: 'REAL_ACCOUNT_REQUIRED' } };
-  const body = await readRealHistory({ account, token, appId, fetchImpl });
+  const body = await readRealHistory({ account, token, appId, fetchImpl, report });
   return { status: 200, body };
 }
 

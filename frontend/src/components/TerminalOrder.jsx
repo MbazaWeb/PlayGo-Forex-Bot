@@ -1,3 +1,4 @@
+import { recordDecision } from './tradeReview.js';
 import { publicRequest, supportedTradeDurations } from './derivMarkets';
 import ConfirmDialog from './ConfirmDialog';
 import React, { useEffect, useState } from 'react';
@@ -57,6 +58,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       const body = await response.json();
       const order = body.accounts?.[0];
       if (!response.ok || !order) throw Error(body.error || 'Trade request failed.');
+      recordDecision(account.account_id, market.symbol, order);
       const databaseError = /^REAL_EXECUTION_DATABASE_/.test(order.reason || '');
       const rejection = /^DERIV_([A-Z_]+?)_REJECTED(?:_([A-Za-z0-9_]+))?$/.exec(order.reason || '');
       const message = rejection

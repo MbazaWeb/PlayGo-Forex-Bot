@@ -222,7 +222,7 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
   });
 }
 
-export async function readRealHistory({ account, token, appId, fetchImpl = fetch, Socket, now = Date.now }) {
+export async function readRealHistory({ account, token, appId, fetchImpl = fetch, Socket, now = Date.now, report = false }) {
   if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
     const observedAt = new Date(now());
@@ -248,11 +248,37 @@ export async function readRealHistory({ account, token, appId, fetchImpl = fetch
         const brokerId = row.contract_id;
         const contractId = typeof brokerId === 'string' || Number.isSafeInteger(brokerId)
           ? String(brokerId) : null;
-        return { id, contractId, buy, sell, settledAt };
+        return { id, contractId, buy, sell, settledAt,
+          purchasedAt: Number(row.purchase_time) || null,
+          terms: typeof row.longcode === 'string' ? row.longcode : null,
+          contractCode: typeof row.shortcode === 'string' ? row.shortcode : null,
+        };
       });
     }
 
-    const transactions = await readPage({ limit: 25 }, 1);
+    const transactions = await readPage({ limit: 25, description: 1 }, 1);
+    if (report) {
+      const deadline = Date.now() + 7000;
+      let requestId = 2;
+      for (const trade of transactions.filter(row => row.sell < row.buy)) {
+        if (Date.now() >= deadline) break;
+        if (!trade.contractId || !Number.isSafeInteger(Number(trade.contractId))) continue;
+        try {
+          const response = await sendAndWait(socket, { proposal_open_contract: 1,
+            contract_id: Number(trade.contractId) }, 'proposal_open_contract', requestId++);
+          const c = response.proposal_open_contract;
+          if (String(c?.contract_id) !== trade.contractId || Number(c.is_sold) !== 1) continue;
+          trade.review = {
+            market: c.underlying_symbol ?? c.underlying, direction: c.contract_type,
+            entrySpot: c.entry_tick ?? c.entry_spot, exitSpot: c.exit_tick ?? c.exit_spot,
+            status: c.status, expiry: c.date_expiry,
+          };
+        } catch (error) {
+          if (!error.code?.startsWith('DERIV_PROPOSAL_OPEN_CONTRACT_REJECTED')) break;
+        }
+      }
+      return { accountId: account.account_id, transactions, observedAt: observedAt.toISOString() };
+    }
     let today = null;
     try {
       const daily = new Map(transactions

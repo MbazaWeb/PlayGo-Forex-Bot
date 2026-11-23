@@ -377,7 +377,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           ...(scanning && { marketScan: '1' }),
         });
         results = Array.isArray(body.accounts) ? body.accounts : [];
-        if (!exitsOnly) results.forEach(item => recordDecision(accountId, market.symbol, item));
+        results.filter(item => !exitsOnly || item.closeResults?.length).forEach(item => recordDecision(accountId, market.symbol, item));
         if (scanning) {
           if (results[0]?.reason === 'DERIV_PROPOSAL_REJECTED_ContractBuyValidationError')
             rejectedUntil.current.set(market.symbol, Date.now() + 60_000);

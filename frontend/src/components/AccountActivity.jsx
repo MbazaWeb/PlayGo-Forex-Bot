@@ -1,4 +1,4 @@
-import { tradeStats } from './tradeReview.js';
+import { recordDecision, tradeStats } from './tradeReview.js';
 import React, { useRef, useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -113,6 +113,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       const body = await response.json();
       setNotice(response.ok && body.closed ? 'Trade closed. Waiting for Deriv settlement.' : body.error || 'Close status unavailable.');
       if (response.ok && body.closed) {
+        recordDecision(accountId, contract.symbol, { status: 'exited', closeResults: [{ contractId: contract.id, closed: true }], reason: 'MANUAL_CLOSE' });
         setContracts(rows => rows?.filter(row => row.id !== contract.id) ?? []);
         window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
         return;
@@ -122,16 +123,6 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
     } finally {
       setClosing(false);
     }
-  }
-
-  const [exporting, setExporting] = useState(false);
-  async function exportReport() {
-    setExporting(true);
-    try {
-      const { downloadTradeWorkbook } = await import('./tradeWorkbook.js');
-      await downloadTradeWorkbook(accountId, currency, settled, openRows);
-    } catch { setNotice('Download failed. Please try again.'); }
-    finally { setExporting(false); }
   }
 
   const stats = tradeStats((settled || []).map(row => row.sell - row.buy));
@@ -149,9 +140,6 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
           historyRefreshRef.current?.();
         }} disabled={loading || closing}>Refresh</button>
       </div>
-      <button type="button" className="outline" disabled={!settled || !contracts || exporting || historyError || Boolean(error)} onClick={exportReport}>
-        {exporting ? 'Preparing report…' : 'Download Excel report'}
-      </button>
       {stats.count > 0 && <p>Latest {stats.count} settled · {stats.wins} wins ({(stats.winRate * 100).toFixed(1)}%) · {stats.losses} losses ({(stats.lossRate * 100).toFixed(1)}%)
         {stats.flat > 0 && ` · ${stats.flat} break-even`} · Net <strong className={tone(stats.net)}>{money(stats.net)}</strong></p>}
       {notice && <p role="status">{notice}</p>}

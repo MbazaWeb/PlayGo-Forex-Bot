@@ -322,7 +322,7 @@ export async function runRealAgentTick({
   const analysis = manualDirection ? null : analyzeCandles(candles, granularity);
   const contractType = manualDirection || qualifyingDirection(analysis);
   let automaticBlock = automatic && analysis ? automaticEntryBlock(analysis) : null;
-  let strategy = automatic ? 'Trend + momentum' : 'Manual rules';
+  let strategy = manualDirection ? 'User-selected direction' : automatic ? 'Trend + momentum' : 'Manual rules';
   if (automatic && marketScan && analysis?.status === 'ready') {
     automaticBlock = marketIntegrityBlock(candles, granularity, now()) || automaticBlock;
     if (analysis.volatilityRank < 0.2) {
@@ -415,6 +415,12 @@ export async function runRealAgentTick({
     });
     return {
       status: 'ordered',
+      entry: {
+        durationMinutes: duration, signalAt: analysis?.last?.epoch, candleClose: analysis?.last?.close,
+        sma20: analysis?.sma20, sma50: analysis?.sma50, rsi: analysis?.rsi,
+        momentumPct: analysis?.momentumPct, volatilityPct: analysis?.volatilityPct,
+        riskLevel: analysis?.riskLevel, mode: manualDirection ? 'User-selected direction' : 'Signal-based entry',
+      },
       strategy,
       accountId: account.account_id,
       contractId: order.contractId,
@@ -441,6 +447,10 @@ export async function runRealAgentTick({
         env,
         fetchImpl,
       });
+    }
+    if (!beforeBuyStarted && error.code?.startsWith('DERIV_PROPOSAL_REJECTED')) {
+      return { status: 'error', reason: publicStatus(error), detail: error.proposalDetail,
+        accountId: account.account_id, symbol, strategy, contractType, score: analysis?.confluenceScore ?? null };
     }
     throw error;
   }

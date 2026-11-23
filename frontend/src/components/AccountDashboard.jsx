@@ -47,7 +47,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
             return { time: String(t.id), settledAt: t.settledAt, value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
           })
           .filter(Boolean);
-        if (!controller.signal.aborted) setHistory({ id, points, today: body.today });
+        if (!controller.signal.aborted) setHistory({ id, points, transactions: body.transactions, today: body.today });
       } catch {
         if (!controller.signal.aborted) setHistory({ id, error: true });
       } finally {
@@ -83,8 +83,42 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   const even = (points?.length ?? 0) - wins - losses;
   const winRate = points?.length ? (100 * wins / points.length).toFixed(1) + '%' : '—';
 
+  const [exporting, setExporting] = useState(false);
+  const [reportError, setReportError] = useState('');
+  async function downloadReport() {
+    setExporting(true);
+    setReportError('');
+    try {
+      const { downloadTradeWorkbook } = await import('./tradeWorkbook.js');
+      async function readReportData(path, timeout) {
+        try {
+          const response = await fetch(path, { cache: 'no-store', signal: AbortSignal.timeout(timeout) });
+          const body = response.ok && await response.json();
+          return body?.accountId === id ? body : null;
+        } catch { return null; }
+      }
+      const query = '?account=' + encodeURIComponent(id);
+      const [historyDetail, portfolio] = await Promise.all([
+        readReportData('/api/history' + query + '&report=1', 25000),
+        readReportData('/api/portfolio' + query, 8000),
+      ]);
+      const settled = historyDetail?.transactions ?? result.transactions;
+      const closed = new Set(settled.map(row => row.contractId));
+      const open = portfolio?.contracts?.filter(row => !closed.has(row.id)) ?? null;
+      await downloadTradeWorkbook(id, currency, settled, open);
+    } catch { setReportError('Download failed. Please try again.'); }
+    finally { setExporting(false); }
+  }
+
   return (
     <>
+      {analytics && <section className="panel" aria-label="Trading report">
+        <div className="panelhead"><div><h2>Trading report</h2><p>Strategies, losses and agent decisions</p></div>
+          <button type="button" className="primary" disabled={!result?.transactions || exporting} onClick={downloadReport}>
+            {exporting ? 'Preparing report…' : 'Download Excel report'}
+          </button></div>
+        {reportError && <p role="alert">{reportError}</p>}
+      </section>}
       <section aria-label="Today's trading results">
           <div className="panelhead"><div><h2>Today</h2><p>Settled trades · Tanzania time</p></div></div>
           <div className="metrics three">

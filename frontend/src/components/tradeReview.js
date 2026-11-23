@@ -42,10 +42,22 @@ export function recordDecision(account, market, result) {
   if (!account || !result || (result.accountId && result.accountId !== account)) return;
   const decision = {
     time: Date.now(), market, status: result.status, reason: explainDecision(result),
-    strategy: result.strategy, direction: result.contractType, score: result.score,
+    entry: result.entry, strategy: result.strategy, direction: result.contractType, score: result.score,
     contract: result.contractId ? String(result.contractId) : null,
   };
-  try { localStorage.setItem(journalKey(account), JSON.stringify([decision, ...readDecisions(account)].slice(0, 1000))); } catch {}
+  const exits = (result.closeResults || []).filter(row => row.closed === true).map(row => {
+    const trigger = result.exitContracts?.find(item => String(item.contractId) === String(row.contractId));
+    const reason = result.reason === 'MANUAL_CLOSE' ? 'User closed the trade'
+      : result.reason === 'DRAWDOWN_LIMIT' ? 'Account loss limit triggered'
+      : result.reason === 'CONTRACT_EXIT_THRESHOLD' && trigger ? (trigger.profit < 0 ? 'Stop-loss triggered' : 'Profit target triggered') : 'Bot close confirmed';
+    return { time: decision.time, status: 'closed', contract: String(row.contractId), reason, triggerProfit: trigger?.profit };
+  });
+  const events = [decision, ...exits];
+  const linked = events.filter(row => row.contract);
+  try {
+    if (linked.length) localStorage.setItem(journalKey(account) + ':contracts', JSON.stringify([...linked, ...readContractEvidence(account)].slice(0, 1000)));
+  } catch {}
+  try { localStorage.setItem(journalKey(account), JSON.stringify([...events, ...readDecisions(account)].slice(0, 1000))); } catch {}
 }
 
 export function tradeStats(amounts) {
@@ -57,4 +69,11 @@ export function tradeStats(amounts) {
     lossRate: amounts.length ? losses.length / amounts.length : null,
     avgWin: totals.averageWin,
     avgLoss: totals.averageLoss };
+}
+
+export function readContractEvidence(account) {
+  try {
+    const rows = JSON.parse(localStorage.getItem(journalKey(account) + ':contracts') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
 }

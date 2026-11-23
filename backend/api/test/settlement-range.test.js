@@ -49,3 +49,12 @@ test('rejects an invalid range before opening a broker connection', async () => 
     account, token: 'fixture', fetchImpl: otp, Socket: pagedSocket(1), from: 10, to: 5,
   }), { code: 'INVALID_HISTORY_RANGE' });
 });
+
+test('non-page-aligned caps never return more than the requested limit', async () => {
+  const result = await readSettlementRange({
+    account, token: 'fixture', fetchImpl: otp, Socket: pagedSocket(250),
+    from: 1_763_000_000, to: 1_763_100_000, maxRows: 125,
+  });
+  assert.equal(result.complete, false);
+  assert.equal(result.transactions.length, 125);
+});

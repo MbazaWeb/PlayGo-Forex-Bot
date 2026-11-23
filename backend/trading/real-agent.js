@@ -220,6 +220,7 @@ export async function runRealAgentTick({
   granularity,
   automatic = false,
   exitsOnly = false,
+  marketScan = false,
   manualDirection = null,
   env = process.env,
   fetchImpl = fetch,
@@ -312,16 +313,29 @@ export async function runRealAgentTick({
     };
   }
 
-  const analysis = manualDirection ? null : analyzeCandles(
-    await readMarketCandles({ symbol, granularity, Socket, now }), granularity,
-  );
+  const candles = manualDirection ? [] : await readMarketCandles({ symbol, granularity, Socket, now });
+  const analysis = manualDirection ? null : analyzeCandles(candles, granularity);
   const contractType = manualDirection || qualifyingDirection(analysis);
-  const automaticBlock = automatic && analysis ? automaticEntryBlock(analysis) : null;
+  let automaticBlock = automatic && analysis ? automaticEntryBlock(analysis) : null;
+  let strategy = automatic ? 'Trend + momentum' : 'Manual rules';
+  if (automatic && marketScan && analysis?.status === 'ready') {
+    if (Math.floor(now() / 1000) - analysis.last.epoch > granularity * 3)
+      automaticBlock = 'STALE_MARKET_DATA';
+    if (analysis.volatilityRank < 0.2) {
+      strategy = 'Low-volatility breakout';
+      const prior = candles.slice(-11, -1);
+      const breakout = contractType === 'CALL' ? analysis.last.close > Math.max(...prior.map(candle => candle.high))
+        : contractType === 'PUT' && analysis.last.close < Math.min(...prior.map(candle => candle.low));
+      if (!automaticBlock && (analysis.confluenceScore < 90 || !breakout)) automaticBlock = 'BREAKOUT_NOT_CONFIRMED';
+    }
+  }
   if (!contractType || automaticBlock) {
     return {
       status: 'watching',
       reason: automaticBlock || (analysis.status === 'ready' ? 'NO_QUALIFYING_SIGNAL' : analysis.status.toUpperCase()),
       accountId: account.account_id,
+      symbol,
+      strategy,
       score: analysis.confluenceScore ?? null,
       equity: emergency.equity,
       emergency,
@@ -396,6 +410,7 @@ export async function runRealAgentTick({
     });
     return {
       status: 'ordered',
+      strategy,
       accountId: account.account_id,
       contractId: order.contractId,
       symbol,

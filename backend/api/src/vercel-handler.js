@@ -190,6 +190,7 @@ export default async function handler(req, res) {
           granularity: Number(params.get('granularity')),
           automatic: params.get('mode') === 'automatic',
           exitsOnly: params.get('exitsOnly') === '1',
+          marketScan: params.get('marketScan') === '1',
           env: process.env,
           fetchImpl: fetch,
         }));

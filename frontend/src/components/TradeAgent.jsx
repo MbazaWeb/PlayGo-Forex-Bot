@@ -4,6 +4,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeCandles } from './agentAnalysis.js';
 import { publicRequest, readCandles, readMarkets } from './derivMarkets.js';
 
+const retryMarketReasons = new Set([
+  'STALE_MARKET_DATA', 'WEAK_SIGNAL', 'ELEVATED_VOLATILITY', 'BREAKOUT_NOT_CONFIRMED',
+  'NO_QUALIFYING_SIGNAL', 'INSUFFICIENT', 'INVALID', 'MARKET_DATA_TIMEOUT',
+  'MARKET_DATA_DISCONNECTED', 'MARKET_DATA_UNAVAILABLE', 'MARKET_DATA_SEND_FAILED',
+]);
+
 const INTERVALS = [
   [60, '1 minute'],
   [300, '5 minutes'],
@@ -13,7 +19,7 @@ const INTERVALS = [
 
 function AgentCard({ title, status, children }) {
   return (
-    <section className="panel agent-card">
+    <section className="panel agent-card" data-working={status === 'Analyzing' || undefined}>
       <div className="agent-card-heading">
         <h2>{title}</h2>
         <span className="agent-state">{status}</span>
@@ -50,6 +56,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const stopPending = useRef(false);
   const generation = useRef(0);
   const tickPending = useRef(false);
+  const [scan, setScan] = useState(null);
+  const activeMarket = useRef(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatuses, setAgentStatuses] = useState([]);
   const [agentFeedback, setAgentFeedback] = useState('');
@@ -124,7 +132,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const controller = new AbortController();
     setCatalogState('loading');
     recordActivity('Loading the live market list.');
-    publicRequest({ active_symbols: 'brief' }, controller.signal)
+    publicRequest({ active_symbols: 'full' }, controller.signal)
       .then(readMarkets)
       .then((rows) => {
         if (controller.signal.aborted) return;
@@ -274,12 +282,53 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const requestGeneration = generation.current;
     setAgentBusy(true);
     try {
-      const body = await postAgentAction('run', {
-        symbol: selectedMarket.symbol,
-        granularity: String(interval),
-        ...(exitsOnly && { exitsOnly: '1' }),
-      });
-      const results = Array.isArray(body.accounts) ? body.accounts : [];
+      const scanning = !manual && !exitsOnly;
+      let candidates = [selectedMarket];
+      if (scanning) {
+        setScan({ checked: 0, total: 0, running: true, current: 'Refreshing open markets', rows: [] });
+        const currentMarkets = readMarkets(await publicRequest({ active_symbols: 'full' }));
+        if (requestGeneration !== generation.current || stopPending.current) return;
+        const open = currentMarkets.filter(market => market.status === 'Open');
+        const preferred = [activeMarket.current, selectedMarket.symbol];
+        candidates = [...open.filter(market => preferred.includes(market.symbol))
+          .sort((a, b) => preferred.indexOf(a.symbol) - preferred.indexOf(b.symbol)),
+          ...open.filter(market => !preferred.includes(market.symbol))].slice(0, 5);
+        if (!candidates.length) {
+          setScan({ checked: 0, total: 0, running: false, rows: [] });
+          setAgentFeedback('No open markets are available for an entry check.');
+          return;
+        }
+      }
+      const trace = [];
+      let results = [];
+      for (const market of candidates) {
+        if (requestGeneration !== generation.current || stopPending.current) return;
+        if (scanning) setScan({ checked: trace.length, total: candidates.length, running: true, current: market.name, rows: [...trace] });
+        const body = await postAgentAction('run', {
+          symbol: market.symbol,
+          granularity: String(interval),
+          ...(exitsOnly && { exitsOnly: '1' }),
+          ...(scanning && { marketScan: '1' }),
+        });
+        results = Array.isArray(body.accounts) ? body.accounts : [];
+        if (scanning) {
+          const outcome = results[0];
+          trace.push({ symbol: market.symbol, name: market.name, ...outcome });
+          if (outcome?.status === 'ordered') activeMarket.current = market.symbol;
+          if (requestGeneration !== generation.current) {
+            if (outcome?.status === 'ordered') {
+              trackContract(outcome.contractId);
+              recordActivity(`Open #${outcome.contractId} · Deriv confirmed the in-flight order for ${market.symbol}.`);
+            }
+            return;
+          }
+          setScan({ checked: trace.length, total: candidates.length, running: false, rows: [...trace] });
+          const canContinue = results.length === 1 && (retryMarketReasons.has(outcome.reason) ||
+            /^DERIV_PROPOSAL_REJECTED(?:_|$)/.test(outcome.reason || ''));
+          if (canContinue) continue;
+        }
+        break;
+      }
       if (results.some(item => item.closeResults?.some(contract => contract.closed))) {
         window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
       }
@@ -318,9 +367,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       recordActivity('Agent run failed; no success was assumed.');
     } finally {
       tickPending.current = false;
+      setScan(previous => previous?.running ? { ...previous, running: false } : previous);
       setAgentBusy(false);
     }
-  }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts, trackContract]);
+  }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts, trackContract, manual]);
 
   const latestRun = useRef(runAgent);
   useEffect(() => { latestRun.current = runAgent; }, [runAgent]);
@@ -447,6 +497,26 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         {agentFeedback && <p className="agent-command-feedback" role="status">{agentFeedback}</p>}
         {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
         {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}
+      </section>
+      <section className="panel agent-flow" aria-label="Agent workflow">
+        <div className="panelhead"><div><h2>Agent workflow</h2><p>{manual ? 'Manual setup uses the selected market.' : 'Automatic mode checks up to five open markets per cycle.'}</p></div></div>
+        <ol className="agent-flow-steps">
+          <li><strong>Market Scout</strong><small>{scan?.running ? scan.current : scan ? `${scan.checked} market(s) checked` : 'Waiting for next scan'}</small></li>
+          <li><strong>Strategy</strong><small>{scan?.rows.at(-1)?.strategy || 'Trend + momentum / breakout'}</small></li>
+          <li><strong>Risk</strong><small>Volatility, exposure and drawdown</small></li>
+          <li><strong>Execution</strong><small>{scan?.rows.at(-1)?.status === 'ordered' ? 'Order confirmed' : 'Waiting for eligible signal'}</small></li>
+        </ol>
+        {scan && <div className="agent-scan">
+          <div className="agent-progress-heading">
+            <strong>{scan.running ? 'Checking with Deriv' : 'Scan finished'}</strong>
+            <span>{scan.total ? Math.round(scan.checked / scan.total * 100) : 0}% · {scan.checked}/{scan.total}</span>
+          </div>
+          <progress aria-label="Markets checked" max={scan.total || 1} value={scan.checked} />
+          {scan.rows.length > 0 && <ul>{scan.rows.map(row => <li key={row.symbol}>
+            <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : (row.reason || row.status || 'No response').replaceAll('_', ' ')}</span>
+            {Number.isFinite(row.score) && <small>{row.score}/100 signal score</small>}
+          </li>)}</ul>}
+        </div>}
       </section>
       <section className="panel agent-controls">
         <div className="panelhead">

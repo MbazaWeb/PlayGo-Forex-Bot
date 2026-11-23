@@ -248,3 +248,16 @@ td[data-outcome] { font-weight: 650; }
 
 .performance-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 960px) { .performance-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.agent-flow-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; padding:0; list-style:none; margin:0; }
+.agent-flow-steps li { position:relative; display:grid; gap:5px; padding:10px; border:1px solid var(--border); border-radius:8px; }
+.agent-flow-steps li:not(:last-child)::after { content:'\2192'; position:absolute; right:-10px; top:35%; color:var(--brand); }
+.agent-flow-steps small { overflow-wrap:anywhere; }
+.agent-scan { margin-top:14px; }
+.agent-scan progress { width:100%; accent-color:var(--accent); }
+.agent-scan ul { padding:0; margin:8px 0 0; list-style:none; }
+.agent-scan li { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); font-size:.82rem; }
+.agent-card[data-working=true] .agent-state::before { content:''; display:inline-block; width:7px; height:7px; margin-right:5px; border:1px solid currentColor; border-right-color:transparent; border-radius:50%; animation:agent-spin .8s linear infinite; }
+@keyframes agent-spin { to { transform:rotate(360deg); } }
+@media(max-width:650px) { .agent-flow-steps { grid-template-columns:repeat(2,minmax(0,1fr)); } .agent-flow-steps li:nth-child(even)::after { content:none; } }
+@media(prefers-reduced-motion:reduce) { .agent-card[data-working=true] .agent-state::before { animation:none; } }

@@ -1,5 +1,5 @@
 export const MAX_STAKE_PERCENT = 0.01;
-export const MAX_OPEN_CONTRACTS = 5;
+export const MAX_OPEN_CONTRACTS = 10;
 export const MAX_DRAWDOWN_PERCENT = 0.20;
 export const SIGNAL_THRESHOLD = 75;
 export const MAX_STOP_LOSS_PERCENT_OF_STAKE = 100;

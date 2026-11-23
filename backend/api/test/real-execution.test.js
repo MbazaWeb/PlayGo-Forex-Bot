@@ -598,7 +598,8 @@ test('real execution migration persists controls and rejects over-limit reservat
     'select public.playgo_real_reserve_intent($1) as result',
     [JSON.stringify(row)],
   );
-  const first = (await reserve(record)).rows[0].result;
+  assert.equal((await reserve({ ...record, open_count: 10 })).rows[0].result.reason, 'OPEN_CONTRACT_LIMIT');
+  const first = (await reserve({ ...record, open_count: 9 })).rows[0].result;
   assert.equal(first.accepted, true);
   assert.equal((await reserve({ ...record, idempotency_key: 'b'.repeat(64) })).rows[0].result.reason, 'UNKNOWN_ORDER_STATE');
 

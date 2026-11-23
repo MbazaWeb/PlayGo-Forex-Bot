@@ -48,6 +48,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     INTERVALS.some(([seconds]) => seconds === savedSetup?.interval) ? savedSetup.interval : 60,
   );
   const interval = manual ? manualInterval : AUTOMATIC_SETUP.interval;
+  const checkInterval = manual ? manualInterval : AUTOMATIC_SETUP.checkInterval;
+  const useUsdTargets = account?.currency === 'USD';
   const [refresh, setRefresh] = useState(0);
   const [analysis, setAnalysis] = useState({ status: 'waiting', progress: 0 });
   const [activities, setActivities] = useState([]);
@@ -327,8 +329,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           .sort((a, b) => preferred.indexOf(a.symbol) - preferred.indexOf(b.symbol));
         const backups = open.filter(market => !preferred.includes(market.symbol));
         const offset = fallbackOffset.current % Math.max(backups.length, 1);
-        candidates = [...primary, ...backups.slice(offset), ...backups.slice(0, offset)].slice(0, 5);
-        fallbackOffset.current += Math.max(1, 5 - primary.length);
+        candidates = [...primary, ...backups.slice(offset), ...backups.slice(0, offset)].slice(0, AUTOMATIC_SETUP.marketsPerScan);
+        fallbackOffset.current += Math.max(1, AUTOMATIC_SETUP.marketsPerScan - primary.length);
         if (!candidates.length) {
           setScan({ checked: 0, total: 0, running: false, rows: [] });
           setAgentFeedback('No open markets are available for an entry check.');
@@ -359,8 +361,13 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             }
             return;
           }
-          setScan({ checked: trace.length, total: candidates.length, running: false, rows: [...trace] });
-          const canContinue = results.length === 1 && (retryMarketReasons.has(outcome.reason) ||
+          if (outcome?.status === 'ordered') {
+            trackContract(outcome.contractId);
+            recordActivity(`Open #${outcome.contractId} · Deriv confirmed an order for ${market.name || market.symbol}.`);
+          }
+          setScan({ checked: trace.length, total: candidates.length, running: true, rows: [...trace] });
+          const canContinue = results.length === 1 && (outcome.status === 'ordered' ||
+            outcome.reason === 'MARKET_ALREADY_OPEN' || retryMarketReasons.has(outcome.reason) ||
             /^DERIV_PROPOSAL_REJECTED(?:_|$)/.test(outcome.reason || ''));
           if (canContinue) continue;
         }
@@ -385,7 +392,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         result: item,
       })));
       for (const result of results) {
-        if (result.status === 'ordered') {
+        if (result.status === 'ordered' && !scanning) {
           trackContract(result.contractId);
           recordActivity(`Open #${result.contractId} · Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence).`);
         } else if (result.status === 'exited') {
@@ -400,6 +407,11 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       }
       if (exitsOnly && results.every(item => item.reason === 'EXIT_MONITORING')) return;
       const outcome = results[0];
+      const confirmedCount = trace.filter(item => item.status === 'ordered').length;
+      if (confirmedCount) {
+        setAgentFeedback(`Opened ${confirmedCount} contract(s).${outcome?.reason === 'OPEN_CONTRACT_LIMIT' ? ' Open contract limit reached.' : ''}`);
+        return;
+      }
       const reason = outcome?.reason?.replaceAll('_', ' ');
       setAgentFeedback(outcome?.status === 'ordered'
         ? `Order opened on ${outcome.symbol}.`
@@ -437,7 +449,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       setNextScanSeconds(emergencyRetry ? null : Math.max(0, Math.ceil((entryDue - time) / 1000)));
       if (stopPending.current || tickPending.current || latestBusy.current) return;
       if (!emergencyRetry && time >= entryDue) {
-        entryDue = time + interval * 1000;
+        entryDue = time + checkInterval * 1000;
         exitDue = time + 15_000;
         void latestRun.current();
       } else if (time >= exitDue) {
@@ -446,7 +458,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [agentRunning, emergencyRetry, exitSettingsValid, interval, schedulerReady]);
+  }, [agentRunning, emergencyRetry, exitSettingsValid, checkInterval, schedulerReady]);
 
   async function startAgent() {
     if (agentBusy || !executionAvailable || !exitSettingsValid) return;
@@ -624,9 +636,473 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         </div>
         {!manual && (
           <dl className="agent-setup-summary">
-            <div><dt>Market</dt><dd>{selectedMarket?.name || 'Loading'}</dd></div>
-            <div><dt>Check interval</dt><dd>5 minutes</dd></div>
-            <div><dt>Stop-loss target</dt><dd>{stopLossValue}% of stake</dd></div>
+            <div><dt>Markets</dt><dd>Up to {AUTOMATIC_SETUP.marketsPerScan} open markets</dd></div>
+            <div><dt>Check interval</dt><dd>{checkInterval} seconds</dd></div>
+            <div><dt>Stop-loss target</dt><dd>{useUsdTargets ? '-</div>
+            <div><dt>Take-profit target</dt><dd>{useUsdTargets ? '+</div>
+          </dl>
+        )}
+        {catalogState === 'error' ? (
+          <p role="alert">
+            Market list unavailable.{' '}
+            <button className="textlink" onClick={() => setCatalogAttempt((value) => value + 1)}>Retry</button>
+          </p>
+        ) : manual && (
+          <div className="agent-control-row">
+            <label>
+              Market
+              <select
+                value={selectedMarket?.symbol || ''}
+                disabled={!markets.length || analyzing || agentRunning || agentBusy}
+                onChange={(event) => onMarketChange(event.target.value)}
+              >
+                {markets.map((market) => (
+                  <option key={market.symbol} value={market.symbol}>{market.name} ({market.symbol})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Candle interval and schedule
+              <select
+                value={interval}
+                disabled={analyzing || agentRunning || agentBusy}
+                onChange={(event) => setCandleInterval(Number(event.target.value))}
+              >
+                {INTERVALS.map(([seconds, title]) => (
+                  <option key={seconds} value={seconds}>{title}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        {manual && <div className="agent-control-row">
+          <label>
+            Stop loss (% of stake)
+            <input
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.1"
+              value={stopLossPercent}
+              disabled={agentBusy || monitoringActive}
+              onChange={(event) => setStopLossPercent(event.target.value)}
+              aria-label="Stop loss percentage of stake"
+            />
+          </label>
+          <label>
+            Take profit (% of stake)
+            <input
+              type="number"
+              min="0.01"
+              max="10000"
+              step="0.1"
+              value={takeProfitPercent}
+              disabled={agentBusy || monitoringActive}
+              onChange={(event) => setTakeProfitPercent(event.target.value)}
+              aria-label="Take profit percentage of stake"
+            />
+          </label>
+        </div>}
+        {accountId && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
+        {!exitSettingsValid && <p role="status">Enter valid stop-loss and take-profit percentages to enable trading.</p>}
+      </section>
+
+      <section className="panel agent-progress" aria-live="polite">
+        <div className="agent-progress-heading">
+          <h2>Analysis progress</h2>
+          <strong>{analysis.progress || 0}%</strong>
+        </div>
+        <progress max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
+      </section>
+
+      <div className="agent-card-grid">
+        <AgentCard title="Risk Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready
+            ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}%</p>
+            : <p>Waiting for candles.</p>}
+        </AgentCard>
+        <AgentCard title="Strategies Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready
+            ? <p>SMA 20 {analysis.sma20.toFixed(5)} · SMA 50 {analysis.sma50.toFixed(5)} · RSI {analysis.rsi.toFixed(1)} · momentum {analysis.momentumPct.toFixed(3)}%.</p>
+            : <p>Waiting for signal.</p>}
+        </AgentCard>
+        <AgentCard title="Reminder Agent" status={ready ? 'Ready' : 'Waiting'}>
+          {ready
+            ? <p>Next check {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p>
+            : <p>Waiting for next check.</p>}
+        </AgentCard>
+        <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
+          {validAccounts?.map((account, index) => {
+            const latest = agentStatuses.find(item => item.accountId === account.account_id);
+            const equity = latest?.result?.equity ?? latest?.equity;
+            const balance = Number(account.balance);
+            const nextStake = Number.isFinite(balance) && balance > 0
+              ? Math.floor(balance * 0.01 * 1e8) / 1e8
+              : null;
+            return (
+              <p key={account.account_id}>
+                Account {index + 1} ({account.currency || 'currency'}) next stake:{' '}
+                {Number.isFinite(nextStake) ? `${nextStake.toFixed(2)} ${account.currency || ''}` : 'unavailable'} · equity at last verified check:{' '}
+                {Number.isFinite(equity) ? `${equity.toFixed(2)} ${account.currency || ''}` : 'awaiting verified trade check'}
+              </p>
+            );
+          })}
+        </AgentCard>
+        <AgentCard title="Emergency Agent" status={monitoringActive ? 'Monitoring' : agentRunning ? 'Settings required' : 'Standby'}>
+        </AgentCard>
+        <AgentCard title="Bot Agents" status={monitoringActive ? 'Running' : agentRunning ? 'Settings required' : ready ? 'Ready' : analyzing ? 'Analyzing' : 'Waiting'}>
+          <p className="agent-recommendation">{recommendation}</p>
+          {ready && <p>Confluence score: {analysis.confluenceScore}/100 · {analysis.bars} bars checked.</p>}
+          <button
+            type="button"
+            className="primary agent-proposal-button"
+            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
+            onClick={() => setConfirmation('place')}
+          >
+            {agentBusy ? 'Checking...' : 'Place Trade Now'}
+          </button>
+          {!agentRunning && <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={() => setConfirmation('start')}>Start scheduled trading</button>}
+          {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
+        </AgentCard>
+      </div>
+
+      <section className="panel agent-activity">
+        <div className="panelhead"><div><h2>Agent activity</h2></div></div>
+        {activities.length ? (
+          <ol>
+            {activities.map((item) => (
+              <li key={item.id}>
+                <time dateTime={item.at}>{new Date(item.at).toLocaleTimeString()}</time>
+                <span>{item.message}</span>
+              </li>
+            ))}
+          </ol>
+        ) : <p>No agent activity yet.</p>}
+      </section>
+      {confirmation && <ConfirmDialog
+        title={confirmation === 'start' ? 'Start Bot Agents' : 'Review bot trade'}
+        confirmLabel={confirmation === 'start' ? 'Start trading' : 'Check and trade'}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          setConfirmation(null);
+          void (confirmation === 'start' ? startAgent() : placeTradeNow());
+        }}>
+        <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
+        <p>1% stake per order. Keep Bot Agents open for scheduled checks.</p>
+      </ConfirmDialog>}
+    </div>
+  );
+}
+ + AUTOMATIC_SETUP.stopLossUsd + ' per position' : stopLossValue + '% of stake'}</dd></div>
+            <div><dt>Take-profit target</dt><dd>{takeProfitValue}% of stake</dd></div>
+          </dl>
+        )}
+        {catalogState === 'error' ? (
+          <p role="alert">
+            Market list unavailable.{' '}
+            <button className="textlink" onClick={() => setCatalogAttempt((value) => value + 1)}>Retry</button>
+          </p>
+        ) : manual && (
+          <div className="agent-control-row">
+            <label>
+              Market
+              <select
+                value={selectedMarket?.symbol || ''}
+                disabled={!markets.length || analyzing || agentRunning || agentBusy}
+                onChange={(event) => onMarketChange(event.target.value)}
+              >
+                {markets.map((market) => (
+                  <option key={market.symbol} value={market.symbol}>{market.name} ({market.symbol})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Candle interval and schedule
+              <select
+                value={interval}
+                disabled={analyzing || agentRunning || agentBusy}
+                onChange={(event) => setCandleInterval(Number(event.target.value))}
+              >
+                {INTERVALS.map(([seconds, title]) => (
+                  <option key={seconds} value={seconds}>{title}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        {manual && <div className="agent-control-row">
+          <label>
+            Stop loss (% of stake)
+            <input
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.1"
+              value={stopLossPercent}
+              disabled={agentBusy || monitoringActive}
+              onChange={(event) => setStopLossPercent(event.target.value)}
+              aria-label="Stop loss percentage of stake"
+            />
+          </label>
+          <label>
+            Take profit (% of stake)
+            <input
+              type="number"
+              min="0.01"
+              max="10000"
+              step="0.1"
+              value={takeProfitPercent}
+              disabled={agentBusy || monitoringActive}
+              onChange={(event) => setTakeProfitPercent(event.target.value)}
+              aria-label="Take profit percentage of stake"
+            />
+          </label>
+        </div>}
+        {accountId && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
+        {!exitSettingsValid && <p role="status">Enter valid stop-loss and take-profit percentages to enable trading.</p>}
+      </section>
+
+      <section className="panel agent-progress" aria-live="polite">
+        <div className="agent-progress-heading">
+          <h2>Analysis progress</h2>
+          <strong>{analysis.progress || 0}%</strong>
+        </div>
+        <progress max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
+      </section>
+
+      <div className="agent-card-grid">
+        <AgentCard title="Risk Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready
+            ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}%</p>
+            : <p>Waiting for candles.</p>}
+        </AgentCard>
+        <AgentCard title="Strategies Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready
+            ? <p>SMA 20 {analysis.sma20.toFixed(5)} · SMA 50 {analysis.sma50.toFixed(5)} · RSI {analysis.rsi.toFixed(1)} · momentum {analysis.momentumPct.toFixed(3)}%.</p>
+            : <p>Waiting for signal.</p>}
+        </AgentCard>
+        <AgentCard title="Reminder Agent" status={ready ? 'Ready' : 'Waiting'}>
+          {ready
+            ? <p>Next check {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p>
+            : <p>Waiting for next check.</p>}
+        </AgentCard>
+        <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
+          {validAccounts?.map((account, index) => {
+            const latest = agentStatuses.find(item => item.accountId === account.account_id);
+            const equity = latest?.result?.equity ?? latest?.equity;
+            const balance = Number(account.balance);
+            const nextStake = Number.isFinite(balance) && balance > 0
+              ? Math.floor(balance * 0.01 * 1e8) / 1e8
+              : null;
+            return (
+              <p key={account.account_id}>
+                Account {index + 1} ({account.currency || 'currency'}) next stake:{' '}
+                {Number.isFinite(nextStake) ? `${nextStake.toFixed(2)} ${account.currency || ''}` : 'unavailable'} · equity at last verified check:{' '}
+                {Number.isFinite(equity) ? `${equity.toFixed(2)} ${account.currency || ''}` : 'awaiting verified trade check'}
+              </p>
+            );
+          })}
+        </AgentCard>
+        <AgentCard title="Emergency Agent" status={monitoringActive ? 'Monitoring' : agentRunning ? 'Settings required' : 'Standby'}>
+        </AgentCard>
+        <AgentCard title="Bot Agents" status={monitoringActive ? 'Running' : agentRunning ? 'Settings required' : ready ? 'Ready' : analyzing ? 'Analyzing' : 'Waiting'}>
+          <p className="agent-recommendation">{recommendation}</p>
+          {ready && <p>Confluence score: {analysis.confluenceScore}/100 · {analysis.bars} bars checked.</p>}
+          <button
+            type="button"
+            className="primary agent-proposal-button"
+            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
+            onClick={() => setConfirmation('place')}
+          >
+            {agentBusy ? 'Checking...' : 'Place Trade Now'}
+          </button>
+          {!agentRunning && <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={() => setConfirmation('start')}>Start scheduled trading</button>}
+          {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
+        </AgentCard>
+      </div>
+
+      <section className="panel agent-activity">
+        <div className="panelhead"><div><h2>Agent activity</h2></div></div>
+        {activities.length ? (
+          <ol>
+            {activities.map((item) => (
+              <li key={item.id}>
+                <time dateTime={item.at}>{new Date(item.at).toLocaleTimeString()}</time>
+                <span>{item.message}</span>
+              </li>
+            ))}
+          </ol>
+        ) : <p>No agent activity yet.</p>}
+      </section>
+      {confirmation && <ConfirmDialog
+        title={confirmation === 'start' ? 'Start Bot Agents' : 'Review bot trade'}
+        confirmLabel={confirmation === 'start' ? 'Start trading' : 'Check and trade'}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          setConfirmation(null);
+          void (confirmation === 'start' ? startAgent() : placeTradeNow());
+        }}>
+        <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
+        <p>1% stake per order. Keep Bot Agents open for scheduled checks.</p>
+      </ConfirmDialog>}
+    </div>
+  );
+}
+ + AUTOMATIC_SETUP.takeProfitUsd + ' per position' : takeProfitValue + '% of stake'}</dd></div>
+          </dl>
+        )}
+        {catalogState === 'error' ? (
+          <p role="alert">
+            Market list unavailable.{' '}
+            <button className="textlink" onClick={() => setCatalogAttempt((value) => value + 1)}>Retry</button>
+          </p>
+        ) : manual && (
+          <div className="agent-control-row">
+            <label>
+              Market
+              <select
+                value={selectedMarket?.symbol || ''}
+                disabled={!markets.length || analyzing || agentRunning || agentBusy}
+                onChange={(event) => onMarketChange(event.target.value)}
+              >
+                {markets.map((market) => (
+                  <option key={market.symbol} value={market.symbol}>{market.name} ({market.symbol})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Candle interval and schedule
+              <select
+                value={interval}
+                disabled={analyzing || agentRunning || agentBusy}
+                onChange={(event) => setCandleInterval(Number(event.target.value))}
+              >
+                {INTERVALS.map(([seconds, title]) => (
+                  <option key={seconds} value={seconds}>{title}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        {manual && <div className="agent-control-row">
+          <label>
+            Stop loss (% of stake)
+            <input
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.1"
+              value={stopLossPercent}
+              disabled={agentBusy || monitoringActive}
+              onChange={(event) => setStopLossPercent(event.target.value)}
+              aria-label="Stop loss percentage of stake"
+            />
+          </label>
+          <label>
+            Take profit (% of stake)
+            <input
+              type="number"
+              min="0.01"
+              max="10000"
+              step="0.1"
+              value={takeProfitPercent}
+              disabled={agentBusy || monitoringActive}
+              onChange={(event) => setTakeProfitPercent(event.target.value)}
+              aria-label="Take profit percentage of stake"
+            />
+          </label>
+        </div>}
+        {accountId && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
+        {!exitSettingsValid && <p role="status">Enter valid stop-loss and take-profit percentages to enable trading.</p>}
+      </section>
+
+      <section className="panel agent-progress" aria-live="polite">
+        <div className="agent-progress-heading">
+          <h2>Analysis progress</h2>
+          <strong>{analysis.progress || 0}%</strong>
+        </div>
+        <progress max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
+      </section>
+
+      <div className="agent-card-grid">
+        <AgentCard title="Risk Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready
+            ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}%</p>
+            : <p>Waiting for candles.</p>}
+        </AgentCard>
+        <AgentCard title="Strategies Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready
+            ? <p>SMA 20 {analysis.sma20.toFixed(5)} · SMA 50 {analysis.sma50.toFixed(5)} · RSI {analysis.rsi.toFixed(1)} · momentum {analysis.momentumPct.toFixed(3)}%.</p>
+            : <p>Waiting for signal.</p>}
+        </AgentCard>
+        <AgentCard title="Reminder Agent" status={ready ? 'Ready' : 'Waiting'}>
+          {ready
+            ? <p>Next check {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p>
+            : <p>Waiting for next check.</p>}
+        </AgentCard>
+        <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
+          {validAccounts?.map((account, index) => {
+            const latest = agentStatuses.find(item => item.accountId === account.account_id);
+            const equity = latest?.result?.equity ?? latest?.equity;
+            const balance = Number(account.balance);
+            const nextStake = Number.isFinite(balance) && balance > 0
+              ? Math.floor(balance * 0.01 * 1e8) / 1e8
+              : null;
+            return (
+              <p key={account.account_id}>
+                Account {index + 1} ({account.currency || 'currency'}) next stake:{' '}
+                {Number.isFinite(nextStake) ? `${nextStake.toFixed(2)} ${account.currency || ''}` : 'unavailable'} · equity at last verified check:{' '}
+                {Number.isFinite(equity) ? `${equity.toFixed(2)} ${account.currency || ''}` : 'awaiting verified trade check'}
+              </p>
+            );
+          })}
+        </AgentCard>
+        <AgentCard title="Emergency Agent" status={monitoringActive ? 'Monitoring' : agentRunning ? 'Settings required' : 'Standby'}>
+        </AgentCard>
+        <AgentCard title="Bot Agents" status={monitoringActive ? 'Running' : agentRunning ? 'Settings required' : ready ? 'Ready' : analyzing ? 'Analyzing' : 'Waiting'}>
+          <p className="agent-recommendation">{recommendation}</p>
+          {ready && <p>Confluence score: {analysis.confluenceScore}/100 · {analysis.bars} bars checked.</p>}
+          <button
+            type="button"
+            className="primary agent-proposal-button"
+            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
+            onClick={() => setConfirmation('place')}
+          >
+            {agentBusy ? 'Checking...' : 'Place Trade Now'}
+          </button>
+          {!agentRunning && <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={() => setConfirmation('start')}>Start scheduled trading</button>}
+          {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
+        </AgentCard>
+      </div>
+
+      <section className="panel agent-activity">
+        <div className="panelhead"><div><h2>Agent activity</h2></div></div>
+        {activities.length ? (
+          <ol>
+            {activities.map((item) => (
+              <li key={item.id}>
+                <time dateTime={item.at}>{new Date(item.at).toLocaleTimeString()}</time>
+                <span>{item.message}</span>
+              </li>
+            ))}
+          </ol>
+        ) : <p>No agent activity yet.</p>}
+      </section>
+      {confirmation && <ConfirmDialog
+        title={confirmation === 'start' ? 'Start Bot Agents' : 'Review bot trade'}
+        confirmLabel={confirmation === 'start' ? 'Start trading' : 'Check and trade'}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          setConfirmation(null);
+          void (confirmation === 'start' ? startAgent() : placeTradeNow());
+        }}>
+        <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
+        <p>1% stake per order. Keep Bot Agents open for scheduled checks.</p>
+      </ConfirmDialog>}
+    </div>
+  );
+}
+ + AUTOMATIC_SETUP.stopLossUsd + ' per position' : stopLossValue + '% of stake'}</dd></div>
             <div><dt>Take-profit target</dt><dd>{takeProfitValue}% of stake</dd></div>
           </dl>
         )}

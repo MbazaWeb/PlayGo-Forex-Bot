@@ -97,6 +97,10 @@ export function analyzeCandles(candles, intervalSeconds) {
 
 export const AUTOMATIC_SETUP = Object.freeze({
   interval: 300,
+  checkInterval: 45,
+  marketsPerScan: 10,
+  stopLossUsd: 10,
+  takeProfitUsd: 30,
   stopLossPercent: 35,
   takeProfitPercent: 50,
   minimumScore: 85,

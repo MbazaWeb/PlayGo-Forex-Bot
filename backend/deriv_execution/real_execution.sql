@@ -230,6 +230,7 @@ declare
   balance numeric := (p_record->>'balance')::numeric;
   equity numeric := (p_record->>'equity')::numeric;
   open_count integer := (p_record->>'open_count')::integer;
+  snapshot_started_at timestamptz := (p_record->>'portfolio_snapshot_started_at')::timestamptz;
   stake_value numeric := (p_record->>'stake')::numeric;
   control public.playgo_real_controls%rowtype;
   intent_id uuid;
@@ -269,7 +270,14 @@ begin
     return jsonb_build_object('accepted', false, 'reason', 'STAKE_LIMIT');
   end if;
 
-  if open_count >= 5 then
+  -- Count recent confirmations conservatively when concurrent requests read the same portfolio.
+  if snapshot_started_at is not null then
+    select open_count + count(*) into open_count
+    from public.playgo_real_intents
+    where account_id = account and status = 'confirmed' and updated_at >= snapshot_started_at;
+  end if;
+
+  if open_count >= 10 then
     return jsonb_build_object('accepted', false, 'reason', 'OPEN_CONTRACT_LIMIT');
   end if;
 

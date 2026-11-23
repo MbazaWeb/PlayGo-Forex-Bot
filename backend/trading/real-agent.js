@@ -246,6 +246,7 @@ export async function runRealAgentTick({
 
   const balance = balanceOf(account);
   const brokerOptions = { account, token, appId, fetchImpl, Socket };
+  const portfolioSnapshotStartedAt = new Date().toISOString();
   const portfolio = await readRealPortfolio(brokerOptions);
   if (control.paused && control.stop_reason === 'DRAWDOWN_LIMIT') {
     const closeResults = portfolio.contracts.length
@@ -276,11 +277,11 @@ export async function runRealAgentTick({
   if (emergency.status !== 'watching')
     return { ...emergency, accountId: account.account_id };
 
-  const exitContracts = contractsAtExitThresholds(
-    portfolio.contracts,
-    stopLossPercent,
-    takeProfitPercent,
-  );
+  const useUsdTargets = automatic && (marketScan || exitsOnly) && account.currency === 'USD';
+  const exitContracts = useUsdTargets
+    ? portfolio.contracts.filter(contract => contract.canSell &&
+        (contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd))
+    : contractsAtExitThresholds(portfolio.contracts, stopLossPercent, takeProfitPercent);
   if (exitContracts.length) {
     const closeResults = await closeRealContracts({
       ...brokerOptions,
@@ -311,6 +312,10 @@ export async function runRealAgentTick({
       equity: emergency.equity,
       emergency,
     };
+  }
+
+  if (automatic && marketScan && portfolio.contracts.some(contract => contract.symbol === symbol)) {
+    return { status: 'watching', reason: 'MARKET_ALREADY_OPEN', accountId: account.account_id, symbol };
   }
 
   const candles = manualDirection ? [] : await readMarketCandles({ symbol, granularity, Socket, now });
@@ -358,6 +363,7 @@ export async function runRealAgentTick({
       balance,
       equity: emergency.equity,
       open_count: portfolio.contracts.length,
+      portfolio_snapshot_started_at: portfolioSnapshotStartedAt,
     },
     env,
     fetchImpl,

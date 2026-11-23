@@ -9,6 +9,8 @@
 - Real Deriv login/account retrieval: NOT VERIFIED; OAuth client configuration required.
 - MT5 terminal connection: NOT VERIFIED; terminal and account configuration required.
 - Browser visual/interaction verification: NOT PERFORMED.
-- Live order execution: NOT IMPLEMENTED.
+- Live order execution: implemented behind LIVE_TRADING_ENABLED and an account-specific LIVE_TRADING_CONFIRM. NOT VERIFIED against a live account.
+- Live-readiness gate (shared/live-gate.js): unit-tested; not yet wired to a stored settlement history.
+- Full backend and frontend test suite: 51/51 PASS (node --test, with dependencies installed via npm ci).
 
 The source archive omits node_modules and generated dist. Run npm ci, npm test and npm run build.

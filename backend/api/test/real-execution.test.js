@@ -160,7 +160,7 @@ test('one-time order requests reject missing exit settings before database or br
     granularity: 60,
     stopLossPercent: 0,
     takeProfitPercent: 25,
-    env: { LIVE_TRADING_ENABLED: 'true' },
+    env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456' },
     fetchImpl: assert.fail,
   }), /INVALID_EXIT_SETTINGS/);
 });
@@ -169,7 +169,7 @@ test('one-time trade checks restore an inactive control after a non-qualifying a
   const events = [];
   let control = null;
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -251,7 +251,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
   const events = [];
   let control = null;
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -324,6 +324,8 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
       } else if (request.buy) {
         events.push('buy-request');
         response = { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345 } };
+      } else if (request.profit_table) {
+        response = { req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions: [] } };
       } else {
         throw Error('Unexpected mocked broker request');
       }
@@ -385,7 +387,7 @@ test('active control settings cannot be replaced by a one-time request', async (
     take_profit_percent: 25,
   };
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -415,7 +417,7 @@ test('one-time checks close a contract at its configured loss threshold without 
   const events = [];
   let control = null;
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',

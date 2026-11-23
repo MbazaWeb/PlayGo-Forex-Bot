@@ -2,13 +2,15 @@ import { automaticEntryBlock, AUTOMATIC_SETUP } from '../../shared/agent-analysi
 import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 import { createHash } from 'node:crypto';
 import { analyzeCandles } from '../../shared/agent-analysis.js';
-import { executeRealOrder, readRealPortfolio, closeRealContracts } from './execute.js';
+import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements } from './execute.js';
 import {
   calculateStake,
   qualifyingDirection,
   MAX_OPEN_CONTRACTS,
   contractsAtExitThresholds,
   validExitSettings,
+  consecutiveLossHalt,
+  dailyRiskState,
 } from './execution-risk.js';
 import { marketIntegrityBlock, readMarketCandles } from './market-data.js';
 import {
@@ -383,6 +385,22 @@ export async function runRealAgentTick({
       equity: emergency.equity,
       emergency,
     };
+  }
+
+  // Loss-streak cooldown and daily loss cap apply to every entry, manual or automatic.
+  const recent = await readRecentSettlements({ ...brokerOptions, limit: 50 });
+  const nowEpoch = Math.floor(now() / 1000);
+  if (consecutiveLossHalt(recent.transactions, nowEpoch)) {
+    return { status: 'watching', reason: 'LOSS_STREAK_COOLDOWN', accountId: account.account_id, equity: emergency.equity };
+  }
+  const daily = dailyRiskState(recent.transactions, {
+    nowEpoch, fetchLimit: recent.fetchLimit, startingBalance: Number(control.starting_balance),
+  });
+  if (!daily.complete) {
+    return { status: 'watching', reason: 'DAILY_HISTORY_INCOMPLETE', accountId: account.account_id, equity: emergency.equity };
+  }
+  if (daily.breached) {
+    return { status: 'watching', reason: 'DAILY_LOSS_LIMIT', accountId: account.account_id, equity: emergency.equity };
   }
 
   const calculatedStake = calculateStake(balance, account.currency);

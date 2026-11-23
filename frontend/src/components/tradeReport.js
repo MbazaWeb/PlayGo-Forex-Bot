@@ -1,3 +1,5 @@
+import { evaluateLiveGate, LIVE_GATE } from '../../../shared/live-gate.js';
+
 const xml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
 })[character]);
@@ -48,10 +50,35 @@ function saveReport(data, type, filename) {
 
 const pdfText = value => String(value).replace(/[^ -~]/g, ' ').replace(/[\\()]/g, '\\$&');
 
+// Wilson 95% score interval for a win rate; more honest than a point estimate on small samples.
+function wilsonInterval(successes, total) {
+  if (!total) return null;
+  const z = 1.96;
+  const p = successes / total;
+  const denominator = 1 + z * z / total;
+  const centre = (p + z * z / (2 * total)) / denominator;
+  const half = z * Math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / denominator;
+  return [Math.max(0, centre - half), Math.min(1, centre + half)];
+}
+
 export function downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence }) {
   const money = value => Number.isFinite(value) ? value.toFixed(2) + ' ' + currency : 'Unavailable';
+  const pct = value => Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : 'Unavailable';
   const fullLosses = points.filter(trade => trade.value < 0 && trade.sell === 0);
   const rows = points.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
+  const gate = evaluateLiveGate(points.map(trade => ({
+    settledAt: trade.settledAt,
+    buy: trade.buy,
+    sell: trade.sell,
+    strategy: evidence?.[trade.contractId]?.strategy ?? null,
+    reconciled: Boolean(trade.contractId) && Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0,
+  })));
+  const interval = wilsonInterval(wins, points.length);
+  const breakEven = gate.summary.breakEven;
+  const windowText = gate.summary.trades
+    ? 'Window: ' + settlementFormat.format(Math.min(...points.map(t => t.settledAt)) * 1000) + ' to ' +
+      settlementFormat.format(Math.max(...points.map(t => t.settledAt)) * 1000) + ' (EAT), ' + gate.summary.weeks + ' week(s).'
+    : 'Window: no settlements.';
   const pages = [[
     'PlayGo trade review',
     'Account ' + id + ' | ' + currency + ' | ' + new Date().toISOString().slice(0, 10),
@@ -59,7 +86,9 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     '',
     'RESULTS',
     'Wins: ' + wins + ' | Losses: ' + losses + ' | Break-even: ' + even,
-    'Win rate: ' + (wins / points.length * 100).toFixed(1) + '%',
+    'Win rate: ' + (wins / points.length * 100).toFixed(1) + '%' +
+      (interval ? ' (95% interval ' + pct(interval[0]) + ' to ' + pct(interval[1]) + ')' : ''),
+    'Break-even win rate at these payouts: ' + pct(breakEven) + ' | ' + windowText,
     'Net P&L: ' + money(performance.net) + ' | Average per trade: ' + money(performance.average),
     'Profit factor: ' + (performance.profitFactor?.toFixed(2) ?? 'Unavailable'),
     'Average win: ' + money(performance.averageWin) + ' | Average loss: ' + money(performance.averageLoss),
@@ -68,7 +97,26 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     '',
     evidence ? 'Evidence includes entries and recent exit checks recorded by PlayGo.'
       : 'PlayGo audit data was unavailable at the time of export.',
+    '',
+    'LIVE-READINESS GATE: ' + (gate.passed ? 'PASSED' : 'NOT PASSED'),
+    'Live trading requires every check below. This report does not show an edge until all pass.',
   ]];
+  pages.push([
+    'Live-readiness gate',
+    'Thresholds are fixed in code (shared/live-gate.js).',
+    '',
+    ...gate.checks.flatMap(check => {
+      const shown = typeof check.actual === 'number' && check.id !== 'sample' && check.id !== 'weeks' && check.id !== 'strategy' && check.id !== 'reconciled'
+        ? (check.id === 'breakEven' ? pct(check.actual) + ' vs break-even ' + pct(check.threshold)
+          : check.id === 'sessions' ? pct(check.actual) : check.id === 'profitFactor' ? check.actual.toFixed(2)
+          : money(check.actual))
+        : String(check.actual ?? 'Unavailable');
+      return [(check.passed ? 'PASS  ' : 'FAIL  ') + check.label, '      Actual: ' + shown];
+    }),
+    '',
+    gate.passed ? 'All checks passed. Still review the full trade log before any real-money decision.'
+      : 'Not ready for live trading. Keep the account on Demo until every check passes on a new, larger sample.',
+  ]);
   for (let start = 0; start < rows.length; start += 6) {
     pages.push(['Closed trades | EAT', 'Buy price, proceeds and net P&L in ' + currency, '',
       ...rows.slice(start, start + 6).flatMap(trade => {
@@ -151,12 +199,11 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     '',
     ...(fullLosses.length ? [
       '1. Review the ' + fullLosses.length + ' zero-proceeds losses first.',
-      '   On Demo, compare stake caps and record when early sale is available.',
+      '   Early sale was often unavailable. The stop-loss cannot limit a binary loss below the stake.',
     ] : ['1. Review the largest losing positions and their recorded exit checks.']),
     '',
-    '2. Compare strategies on Demo using the same stake, market and test period.',
-    '   Compare net P&L, drawdown and average outcome before changing entry rules.',
-    '   Then test any proposed change on a separate Demo period before adopting it.',
+    '2. Do not treat signal score as a win probability. Scores in this export were not predictive.',
+    '   Validate any entry rule out-of-sample on at least 500 settled trades across 3+ weeks.',
     '',
     '3. Check evidence coverage. ' + missingStrategy + ' settlements have no recorded strategy.',
     '   Capture the entry signal and early-sale outcome for trades with missing evidence.',

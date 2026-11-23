@@ -306,3 +306,60 @@ export async function closeRealContracts({ account, token, appId, contractIds, f
     return results;
   });
 }
+
+function parseSettlement(row) {
+  const buy = Number(row.buy_price);
+  const sell = Number(row.sell_price);
+  const settledAt = Number(row.sell_time);
+  if (!Number.isFinite(buy) || buy < 0 || !Number.isFinite(sell) || sell < 0 ||
+      !Number.isSafeInteger(settledAt) || settledAt <= 0)
+    throw codedError('INVALID_HISTORY_RESPONSE');
+  const contractId = typeof row.contract_id === 'string' || Number.isSafeInteger(row.contract_id)
+    ? String(row.contract_id) : null;
+  return { id: String(row.transaction_id ?? ''), contractId, buy, sell, settledAt };
+}
+
+// One bounded profit_table call, newest first. Used by per-tick risk checks.
+export async function readRecentSettlements({ account, token, appId, fetchImpl = fetch, Socket, limit = 50 }) {
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw codedError('INVALID_HISTORY_LIMIT');
+  return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
+    const response = await sendAndWait(socket, { profit_table: 1, sort: 'DESC', limit }, 'profit_table', 1);
+    const rows = response?.profit_table?.transactions;
+    if (!Array.isArray(rows)) throw codedError('INVALID_HISTORY_RESPONSE');
+    return { transactions: rows.map(parseSettlement), fetchLimit: limit };
+  });
+}
+
+// Pages every settlement in [from, to] (unix seconds), oldest first, for the trade report.
+// complete is false when maxRows was reached; the report must then say the sample is partial.
+export async function readSettlementRange({
+  account, token, appId, fetchImpl = fetch, Socket, from, to, maxRows = 5000,
+}) {
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || to < from)
+    throw codedError('INVALID_HISTORY_RANGE');
+  if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000)
+    throw codedError('INVALID_HISTORY_LIMIT');
+  return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
+    const pageSize = 100;
+    const byId = new Map();
+    let reqId = 1;
+    for (let offset = 0; offset < maxRows; offset += pageSize) {
+      const response = await sendAndWait(socket, {
+        profit_table: 1, sort: 'ASC', limit: pageSize, offset,
+        date_from: String(from), date_to: String(to),
+      }, 'profit_table', reqId++);
+      const page = response?.profit_table?.transactions;
+      if (!Array.isArray(page)) throw codedError('INVALID_HISTORY_RESPONSE');
+      for (const row of page) {
+        const parsed = parseSettlement(row);
+        byId.set(parsed.id, parsed);
+      }
+      if (page.length < pageSize) {
+        return { transactions: [...byId.values()], complete: true, observedAt: new Date().toISOString() };
+      }
+    }
+    return { transactions: [...byId.values()], complete: false, observedAt: new Date().toISOString() };
+  });
+}

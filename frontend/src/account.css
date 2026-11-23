@@ -20,3 +20,9 @@
 .account-trades-table td:nth-child(n+2) { white-space: nowrap; }
 .account-trades-table td[data-outcome="Loss"], .account-trades-table strong.loss { color: #ff9898; }
 .account-trades-table .trade-outcome[data-outcome="Open"] { color: var(--brand); }
+
+.analytics-report-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.agent-command-feedback { overflow-wrap: anywhere; }
+.progress-active { animation: playgo-scan-pulse 1.4s ease-in-out infinite alternate; }
+@keyframes playgo-scan-pulse { from { opacity: .55; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .progress-active { animation: none; } }

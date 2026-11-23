@@ -1,3 +1,4 @@
+import { brokerRequest } from './brokerRequest';
 import React, { useRef, useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -28,7 +29,8 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       busy = true;
       setLoading(true);
       try {
-        const r = await fetch('/api/portfolio?account=' + encodeURIComponent(accountId), { signal, cache: 'no-store' });
+        const r = await brokerRequest('/api/portfolio?account=' + encodeURIComponent(accountId), { signal, cache: 'no-store' });
+        if (r.status === 429) throw Error('Deriv is busy. Showing the last available positions while PlayGo waits.');
         if (!r.ok) throw Error();
         const body = await r.json();
         if (body.accountId !== accountId || !Array.isArray(body.contracts)) throw Error();
@@ -37,13 +39,13 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
           setObservedAt(body.observedAt);
           setError('');
         }
-      } catch {
-        if (!signal.aborted) setError('Open trades are unavailable. Retrying…');
+      } catch (error) {
+        if (!signal.aborted) setError(error.message || 'Open trades are unavailable. Retrying…');
       } finally {
         busy = false;
         if (!signal.aborted) {
           setLoading(false);
-          timer = setTimeout(refresh, pending ? 0 : 5000);
+          timer = setTimeout(refresh, pending ? 5000 : 12000);
           pending = false;
         }
       }
@@ -71,7 +73,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       clearTimeout(timer);
       busy = true;
       try {
-        const response = await fetch('/api/history?account=' + encodeURIComponent(accountId), { signal, cache: 'no-store' });
+        const response = await brokerRequest('/api/history?account=' + encodeURIComponent(accountId), { signal, cache: 'no-store' });
         if (!response.ok) throw Error();
         const body = await response.json();
         if (body.accountId !== accountId || !Array.isArray(body.transactions)) throw Error();
@@ -106,9 +108,10 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
     setNotice('');
     try {
       const query = new URLSearchParams({ account: accountId, contract: contract.id });
-      const response = await fetch('/api/portfolio/close?' + query, {
+      const response = await brokerRequest('/api/portfolio/close?' + query, {
         method: 'POST', headers: { 'X-PlayGo-Request': '1' },
       });
+      if (response.status === 429) { setNotice("Deriv is busy. Wait before trying to close again."); return; }
       const body = await response.json();
       setNotice(response.ok && body.closed ? 'Trade closed. Waiting for Deriv settlement.' : body.error || 'Close status unavailable.');
       if (response.ok && body.closed) {

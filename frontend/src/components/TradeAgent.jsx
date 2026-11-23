@@ -1,3 +1,4 @@
+import { brokerCoolingDown, brokerRequest, pauseBrokerRequests, simpleBotStatus } from './brokerRequest';
 import AccountActivity from './AccountActivity';
 import ConfirmDialog from './ConfirmDialog';
 import { AUTOMATIC_SETUP, automaticEntryBlock } from '../../../shared/agent-analysis.js';
@@ -128,7 +129,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     let timer;
     async function checkSettlements() {
       try {
-        const response = await fetch('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
+        const response = await brokerRequest('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
         if (!response.ok) return;
         const body = await response.json();
         if (controller.signal.aborted || body.accountId !== id || !Array.isArray(body.transactions)) return;
@@ -254,7 +255,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
 
   const postAgentAction = useCallback(async (path, params = {}) => {
     const query = new URLSearchParams({ ...params, account: accountId, mode: manual ? 'manual' : 'automatic' });
-    const response = await fetch(`/api/agent/${path}${query.size ? `?${query}` : ''}`, {
+    const response = await brokerRequest(`/api/agent/${path}${query.size ? `?${query}` : ''}`, {
       method: 'POST',
       headers: { 'X-PlayGo-Request': '1' },
       signal: AbortSignal.timeout(30_000),
@@ -271,6 +272,9 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     if (!body || (path === 'run' && !Array.isArray(body.accounts))) {
       throw new Error('PlayGo returned an invalid agent response.');
     }
+    if (Array.isArray(body.accounts) && body.accounts.some(item => /RATE_LIMIT/.test(item.reason || item.error || ''))) {
+      pauseBrokerRequests();
+    }
     return body;
   }, [accountId, manual]);
 
@@ -283,7 +287,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const controller = new AbortController();
     let retry;
     function loadControl() {
-      fetch(`/api/agent/status?account=${encodeURIComponent(accountId)}`, {
+      brokerRequest(`/api/agent/status?account=${encodeURIComponent(accountId)}`, {
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
       })
       .then(async response => {
@@ -475,7 +479,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const timer = setInterval(() => {
       const time = Date.now();
       setNextScanSeconds(emergencyRetry ? null : Math.max(0, Math.ceil((entryDue - time) / 1000)));
-      if (stopPending.current || tickPending.current || latestBusy.current) return;
+      if (stopPending.current || tickPending.current || latestBusy.current || brokerCoolingDown()) return;
       if (!emergencyRetry && time >= entryDue) {
         entryDue = time + checkInterval * 1000;
         exitDue = time + 15_000;
@@ -606,7 +610,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     <div className="trade-agent-dashboard">
       <section className="panel agent-command" aria-label="Bot controls">
         <div><h2>Bot control</h2><p role="status">
-          {stopping ? 'Stopping bot...' : monitoringActive ? 'Running' : agentRunning ? 'Paused' : 'Standby'}
+          {stopping ? 'Stopping bot…' : scan?.running ? 'Scanning markets' : agentBusy ? 'Checking account…' : monitoringActive ? 'Running' : agentRunning ? 'Paused' : 'Standby'}
         </p></div>
         <button type="button" className="outline agent-stop" disabled={!agentRunning || stopping}
           onClick={stopAgent}><span aria-hidden="true" className="stop-mark" /> Stop Bot</button>
@@ -615,9 +619,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             ? 'Scan due; waiting for the current check.'
             : `Next entry scan in ${Math.floor(nextScanSeconds / 60)}:${String(nextScanSeconds % 60).padStart(2, '0')}`}
         </p>}
-        {agentFeedback && <p className="agent-command-feedback" role="status">{agentFeedback}</p>}
-        {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
-        {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}
+        {agentFeedback && <p className="agent-command-feedback" role="status">{simpleBotStatus(agentFeedback)}</p>}
+        {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} {pendingContracts.length === 1 ? 'bot trade is' : 'bot trades are'} waiting to settle.</p>}
       </section>
       {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
       <section aria-label="Bot results">
@@ -641,7 +644,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             <strong>{scan.running ? 'Checking with Deriv' : `Scan ${completedScans || 1} complete`}</strong>
             <span>{scan.total ? Math.round(scan.checked / scan.total * 100) : 0}% · {scan.checked}/{scan.total}</span>
           </div>
-          <progress aria-label="Markets checked" max={scan.total || 1} value={scan.checked} />
+          <progress className={scan.running ? "progress-active" : undefined} aria-label="Markets checked" max={scan.total || 1} value={scan.checked} />
           {!scan.running && <p>
             {lastScanAt && `Last scan ${new Date(lastScanAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT. `}
             {agentRunning && nextScanSeconds !== null
@@ -651,7 +654,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
               : agentRunning ? 'Waiting for the entry scheduler.' : 'Bot is stopped.'}
           </p>}
           {scan.rows.length > 0 && <ul>{scan.rows.map(row => <li key={row.symbol}>
-            <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : (row.reason || row.status || 'No response').replaceAll('_', ' ')}</span>
+            <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : simpleBotStatus(row.reason || 'No trade signal')}</span>
             {Number.isFinite(row.score) && <small>{row.score}/100 signal score</small>}
           </li>)}</ul>}
         </div>}
@@ -761,7 +764,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           <h2>Analysis progress</h2>
           <strong>{analysis.progress || 0}%</strong>
         </div>
-        <progress max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
+        <progress className={analysis.status === "loading" ? "progress-active" : undefined} max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
       </section>
 
       <div className="agent-card-grid">
@@ -822,7 +825,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             {activities.map((item) => (
               <li key={item.id}>
                 <time dateTime={item.at}>{new Date(item.at).toLocaleTimeString()}</time>
-                <span>{item.message}</span>
+                <span>{simpleBotStatus(item.message)}</span>
               </li>
             ))}
           </ol>

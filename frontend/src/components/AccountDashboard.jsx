@@ -1,9 +1,10 @@
+import { brokerRequest } from './brokerRequest';
 import { summarizeClosedTrades } from './tradePerformance';
 import React, { useEffect, useState } from 'react';
 import { Wallet, ShieldCheck } from 'lucide-react';
 import Metric from './Metric';
 import AccountActivity from './AccountActivity';
-import { downloadTradeReport } from './tradeReport';
+import { downloadTradePdf, downloadTradeReport } from './tradeReport';
 
 const settlementFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Africa/Dar_es_Salaam', day: '2-digit', month: 'short', year: 'numeric',
@@ -32,7 +33,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       clearTimeout(timer);
       refreshing = true;
       try {
-        const res = await fetch('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
+        const res = await brokerRequest('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
         if (!res.ok) throw new Error('history unavailable');
         const body = await res.json();
         if (body?.accountId !== id || !Array.isArray(body.transactions)) throw new Error('unexpected payload');
@@ -121,10 +122,16 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         <section aria-label="Profitability">
           <div className="panelhead analytics-report-head">
             <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p></div>
+            <div className="analytics-report-actions">
             <button type="button" className="outline" disabled={!points?.length}
               onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
               Download Excel report
             </button>
+            <button type="button" className="outline" disabled={!points?.length}
+              onClick={() => downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
+              Download PDF report
+            </button>
+            </div>
           </div>
           <div className="metrics performance-metrics">
             <Metric title="Net P&L" value={signedMoney(performance?.net)} change="Total gains minus losses" positive={performance?.net > 0} />

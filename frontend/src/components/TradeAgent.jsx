@@ -248,9 +248,15 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const response = await fetch(`/api/agent/${path}${query.size ? `?${query}` : ''}`, {
       method: 'POST',
       headers: { 'X-PlayGo-Request': '1' },
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body?.error || 'Agent request failed.');
+    }).catch(() => { throw new Error('Could not reach PlayGo. Check your connection.'); });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const reason = typeof body?.error === 'string' ? body.error : 'Agent request failed';
+      throw new Error(`${reason} (HTTP ${response.status})`);
+    }
+    if (!body || (path === 'run' && !Array.isArray(body.accounts))) {
+      throw new Error('PlayGo returned an invalid agent response.');
+    }
     return body;
   }, [accountId, manual]);
 
@@ -306,10 +312,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     tickPending.current = true;
     const requestGeneration = generation.current;
     setAgentBusy(true);
+    let stage = 'Position check';
     try {
       const scanning = !manual && !exitsOnly;
       let candidates = [selectedMarket];
       if (scanning) {
+        stage = 'Deriv market list';
         setScan({ checked: 0, total: 0, running: true, current: 'Refreshing open markets', rows: [] });
         const currentMarkets = readMarkets(await publicRequest({ active_symbols: 'full' }));
         if (requestGeneration !== generation.current || stopPending.current) return;
@@ -332,6 +340,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       for (const market of candidates) {
         if (requestGeneration !== generation.current || stopPending.current) return;
         if (scanning) setScan({ checked: trace.length, total: candidates.length, running: true, current: market.name, rows: [...trace] });
+        stage = exitsOnly ? 'Exit monitoring' : `Entry check for ${market.name || market.symbol}`;
         const body = await postAgentAction('run', {
           symbol: market.symbol,
           granularity: String(interval),
@@ -399,8 +408,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           : reason || (outcome ? 'Position check complete.' : 'No account result was returned.'));
     } catch (error) {
       if (requestGeneration !== generation.current) return;
-      setAgentFeedback(error.message || 'Agent run failed.');
-      recordActivity('Agent run failed; no success was assumed.');
+      const message = `${stage} failed. ${error.message || 'Unexpected error.'}`;
+      setAgentFeedback(message);
+      recordActivity(message);
+      if (!exitsOnly && stage.startsWith('Entry check')) {
+        window.dispatchEvent(new CustomEvent('playgo:position', { detail: accountId }));
+      }
     } finally {
       tickPending.current = false;
       setScan(previous => previous?.running ? { ...previous, running: false } : previous);

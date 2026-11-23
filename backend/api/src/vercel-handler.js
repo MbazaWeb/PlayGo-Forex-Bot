@@ -221,6 +221,7 @@ export default async function handler(req, res) {
       account,
       token: session.token,
       includeEvidence: params.get('report') === '1',
+      range: params.has('range') ? { mode: params.get('range'), from: params.get('from'), to: params.get('to') } : null,
       appId: CLIENT,
       fetchImpl: fetch,
     });

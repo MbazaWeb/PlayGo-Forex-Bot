@@ -61,7 +61,7 @@ function wilsonInterval(successes, total) {
   return [Math.max(0, centre - half), Math.min(1, centre + half)];
 }
 
-export function downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence }) {
+export function downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence, partial = false, requestedRange = null }) {
   const money = value => Number.isFinite(value) ? value.toFixed(2) + ' ' + currency : 'Unavailable';
   const pct = value => Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : 'Unavailable';
   const fullLosses = points.filter(trade => trade.value < 0 && trade.sell === 0);
@@ -82,13 +82,16 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
   const pages = [[
     'PlayGo trade review',
     'Account ' + id + ' | ' + currency + ' | ' + new Date().toISOString().slice(0, 10),
-    'Scope: ' + points.length + ' recent settled Deriv trades, including bot and manual.',
+    'Scope: ' + points.length + ' settled Deriv trades, including bot and manual.',
+    ...(requestedRange ? ['Requested range: ' + requestedRange] : []),
+    ...(partial ? ['PARTIAL REPORT: broker row cap reached. Narrow the requested dates.'] : []),
     '',
     'RESULTS',
     'Wins: ' + wins + ' | Losses: ' + losses + ' | Break-even: ' + even,
     'Win rate: ' + (wins / points.length * 100).toFixed(1) + '%' +
       (interval ? ' (95% interval ' + pct(interval[0]) + ' to ' + pct(interval[1]) + ')' : ''),
-    'Break-even win rate at these payouts: ' + pct(breakEven) + ' | ' + windowText,
+    'Break-even win rate at these payouts: ' + pct(breakEven),
+    windowText,
     'Net P&L: ' + money(performance.net) + ' | Average per trade: ' + money(performance.average),
     'Profit factor: ' + (performance.profitFactor?.toFixed(2) ?? 'Unavailable'),
     'Average win: ' + money(performance.averageWin) + ' | Average loss: ' + money(performance.averageLoss),

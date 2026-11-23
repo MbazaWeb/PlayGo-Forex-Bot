@@ -308,6 +308,7 @@ export async function closeRealContracts({ account, token, appId, contractIds, f
 }
 
 function parseSettlement(row) {
+  if (row?.buy_price == null || row.sell_price == null) throw codedError('INVALID_HISTORY_RESPONSE');
   const buy = Number(row.buy_price);
   const sell = Number(row.sell_price);
   const settledAt = Number(row.sell_time);
@@ -316,7 +317,7 @@ function parseSettlement(row) {
     throw codedError('INVALID_HISTORY_RESPONSE');
   const contractId = typeof row.contract_id === 'string' || Number.isSafeInteger(row.contract_id)
     ? String(row.contract_id) : null;
-  return { id: String(row.transaction_id ?? ''), contractId, buy, sell, settledAt };
+  return { id: contractIdentifier(row.transaction_id), contractId, buy, sell, settledAt };
 }
 
 // One bounded profit_table call, newest first. Used by per-tick risk checks.
@@ -337,7 +338,7 @@ export async function readSettlementRange({
   account, token, appId, fetchImpl = fetch, Socket, from, to, maxRows = 5000,
 }) {
   if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
-  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || to < from)
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to < from || to >= 1e11)
     throw codedError('INVALID_HISTORY_RANGE');
   if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000)
     throw codedError('INVALID_HISTORY_LIMIT');
@@ -346,17 +347,21 @@ export async function readSettlementRange({
     const byId = new Map();
     let reqId = 1;
     for (let offset = 0; offset < maxRows; offset += pageSize) {
+      const limit = Math.min(pageSize, maxRows - offset);
       const response = await sendAndWait(socket, {
-        profit_table: 1, sort: 'ASC', limit: pageSize, offset,
+        profit_table: 1, sort: 'ASC', limit, offset,
         date_from: String(from), date_to: String(to),
       }, 'profit_table', reqId++);
       const page = response?.profit_table?.transactions;
-      if (!Array.isArray(page)) throw codedError('INVALID_HISTORY_RESPONSE');
+      if (!Array.isArray(page) || page.length > limit) throw codedError('INVALID_HISTORY_RESPONSE');
       for (const row of page) {
         const parsed = parseSettlement(row);
+        if (parsed.settledAt < from || parsed.settledAt > to) throw codedError('INVALID_HISTORY_RESPONSE');
+        const previous = byId.get(parsed.id);
+        if (previous && JSON.stringify(previous) !== JSON.stringify(parsed)) throw codedError('INVALID_HISTORY_RESPONSE');
         byId.set(parsed.id, parsed);
       }
-      if (page.length < pageSize) {
+      if (page.length < limit) {
         return { transactions: [...byId.values()], complete: true, observedAt: new Date().toISOString() };
       }
     }

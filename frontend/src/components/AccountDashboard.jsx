@@ -18,6 +18,8 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   const account = accounts?.[0];
   const id = account?.account_id;
   const [history, setHistory] = useState(null);
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfNotice, setPdfNotice] = useState('');
 
@@ -90,19 +92,45 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   async function exportPdf() {
     setPdfBusy(true);
     setPdfNotice('');
-    let evidence = null;
-    try {
-      const response = await brokerRequest('/api/history?report=1&account=' + encodeURIComponent(id));
-      if (response.ok) {
-        const data = await response.json();
-        if (data.accountId === id) evidence = data.evidence;
+    const ranged = Boolean(rangeFrom || rangeTo);
+    const query = new URLSearchParams({ account: id, report: '1' });
+    if (ranged) {
+      const from = Date.parse(rangeFrom + 'T00:00:00+03:00') / 1000;
+      const to = Math.min(Date.parse(rangeTo + 'T23:59:59+03:00') / 1000, Math.floor(Date.now() / 1000));
+      if (!rangeFrom || !rangeTo || !Number.isFinite(from) || !Number.isFinite(to) || from > to) {
+        setPdfNotice('Choose a valid start and end date in Tanzania time.');
+        setPdfBusy(false);
+        return;
       }
-    } catch {
-      // The dashboard snapshot can still be exported when the audit lookup fails.
+      query.set('range', '1');
+      query.set('from', String(from));
+      query.set('to', String(to));
     }
     try {
-      downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence });
-      if (!evidence) setPdfNotice('PDF downloaded with settlement data. Trade audit records were unavailable.');
+      const response = await brokerRequest('/api/history?' + query);
+      if (!response.ok) throw new Error('Trade report unavailable');
+      const data = await response.json();
+      if (data.accountId !== id || !Array.isArray(data.transactions)) throw new Error('Invalid trade report');
+      const exportPoints = data.transactions.map(t => {
+        const value = Number((t.sell - t.buy).toFixed(8));
+        return { ...t, time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
+      });
+      if (!exportPoints.length) {
+        setPdfNotice('No settlements found for this report.');
+        return;
+      }
+      const exportWins = exportPoints.filter(t => t.value > 0).length;
+      const exportLosses = exportPoints.filter(t => t.value < 0).length;
+      downloadTradePdf({ id, currency, points: exportPoints, performance: summarizeClosedTrades(exportPoints),
+        wins: exportWins, losses: exportLosses, even: exportPoints.length - exportWins - exportLosses,
+        settlementFormat, evidence: data.evidence, partial: data.complete === false,
+        requestedRange: ranged ? rangeFrom + ' to ' + rangeTo + ' EAT' : null });
+      const warnings = [];
+      if (data.complete === false) warnings.push('Partial report: 10,000-row cap reached. Narrow the date range for a complete export.');
+      if (!data.evidence) warnings.push('Trade audit records were unavailable.');
+      setPdfNotice(warnings.join(' '));
+    } catch {
+      setPdfNotice('PDF could not be prepared. If using dates, try a shorter range.');
     } finally {
       setPdfBusy(false);
     }
@@ -150,7 +178,9 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
               onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
               Download Excel report
             </button>
-            <button type="button" className="outline" disabled={!points?.length || pdfBusy}
+            <label>From (EAT) <input type="date" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)} /></label>
+            <label>To (EAT) <input type="date" value={rangeTo} onChange={event => setRangeTo(event.target.value)} /></label>
+            <button type="button" className="outline" disabled={!id || pdfBusy || (!points?.length && !rangeFrom && !rangeTo)}
               onClick={exportPdf}>
               {pdfBusy ? "Preparing PDF…" : "Download PDF report"}
             </button>

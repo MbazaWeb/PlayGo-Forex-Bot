@@ -174,6 +174,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     if(!account)return json(res,400,{error:'Deriv account not found.'});
     const read=path==='/api/history'?readHistory:readPortfolio;
     const result=await read({account,token:session.token,includeEvidence: params.get('report') === '1',
+      range: params.has('range') ? { mode: params.get('range'), from: params.get('from'), to: params.get('to') } : null,
       appId:config.clientId,fetchImpl:fetcher});
     return json(res,result.status,result.body);
    }

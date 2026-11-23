@@ -1,3 +1,4 @@
+import { isDerivAccount } from '../../trading/deriv-account.js';
 import {readPortfolio, readHistory} from './portfolio/index.js';
 import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
@@ -89,12 +90,15 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
    } catch (error) {
      const status=error.status||502;
      if(status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}
-     return json(res,status,{error:status===401?'Deriv session expired. Sign in again.':status===429?'Deriv account service rate limit exceeded.':'Could not verify real accounts.'});
+     return json(res,status,{error:status===401?'Deriv session expired. Sign in again.':status===429?'Deriv account service rate limit exceeded.':'Could not verify Deriv accounts.'});
    }
-   const account=linkedAccounts.find(a=>a.account_id===accountId);
+   const account=linkedAccounts.find(a=>a.account_id===accountId && isDerivAccount(a));
+
+   if(path.startsWith('/api/agent/') && !account)
+    return json(res,400,{error:'Select a connected Deriv account.'});
 
    if(path==='/api/agent/status'&&req.method==='GET'){
-    const results=await readRealAgentStatuses({accounts:linkedAccounts,env:process.env,fetchImpl:fetcher});
+    const results=await readRealAgentStatuses({accounts:[account],env:process.env,fetchImpl:fetcher});
     return json(res,200,{accounts:results});
    }
    if(['/api/agent/start','/api/agent/stop','/api/agent/run','/api/agent/place'].includes(path)&&req.method==='POST'){
@@ -103,7 +107,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     if(path==='/api/agent/start'){
       try{
         const results=await startRealAgents({
-          accounts:linkedAccounts,
+          accounts:[account],
           stopLossPercent:Number(params.get('stopLossPercent')),
           takeProfitPercent:Number(params.get('takeProfitPercent')),
           env:process.env,
@@ -116,17 +120,18 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
       }
     }
     if(path==='/api/agent/stop'){
-      const results=await stopRealAgents({accounts:linkedAccounts,env:process.env,fetchImpl:fetcher});
+      const results=await stopRealAgents({accounts:[account],env:process.env,fetchImpl:fetcher});
       return json(res,200,{accounts:results});
     }
     if(path==='/api/agent/place'){
       try{
         const results=await placeRealAgentOrders({
-          accounts:linkedAccounts,
+          accounts:[account],
           token:session.token,
           appId:config.clientId,
           symbol:params.get('symbol'),
           granularity:Number(params.get('granularity')),
+          automatic:params.get('mode')==='automatic',
           stopLossPercent:Number(params.get('stopLossPercent')),
           takeProfitPercent:Number(params.get('takeProfitPercent')),
           env:process.env,
@@ -141,10 +146,11 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     const symbol=params.get('symbol');
     const granularity=Number(params.get('granularity'));
     const results=[];
-    for(const row of linkedAccounts.filter(a=>a.account_type==='real')){
+    for(const row of [account]){
       try{
         results.push(await runRealAgentTick({
           account:row,token:session.token,appId:config.clientId,symbol,granularity,
+          automatic:params.get('mode')==='automatic',
           env:process.env,fetchImpl:fetcher
         }));
       }catch(error){
@@ -155,13 +161,13 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
    }
 
    if(['/api/portfolio','/api/history'].includes(path)&&req.method==='GET'){
-    if(!account||account.account_type!=='real')return json(res,400,{error:'Real account not found.'});
+    if(!account)return json(res,400,{error:'Deriv account not found.'});
     const read=path==='/api/history'?readHistory:readPortfolio;
     const result=await read({account,token:session.token,appId:config.clientId,fetchImpl:fetcher});
     return json(res,result.status,result.body);
    }
 
-   if(path==='/api/accounts'&&req.method==='GET')return json(res,200,{accounts:linkedAccounts.filter(a=>a.account_type==='real')});
+   if(path==='/api/accounts'&&req.method==='GET')return json(res,200,{accounts:linkedAccounts.filter(isDerivAccount)});
 
    if(path==='/api/mt5/status'&&req.method==='GET')return json(res,200,{status:'not_linked',execution:false});
    if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Route not available.'});

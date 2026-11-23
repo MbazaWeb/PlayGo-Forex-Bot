@@ -1,3 +1,4 @@
+import { AUTOMATIC_SETUP, automaticEntryBlock } from '../../../shared/agent-analysis.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { analyzeCandles } from './agentAnalysis.js';
 import { publicRequest, readCandles, readMarkets } from './derivMarkets.js';
@@ -25,12 +26,20 @@ function activityEntry(message) {
   return { id: `${Date.now()}-${Math.random()}`, at: new Date().toISOString(), message };
 }
 
-export default function TradeAgent({ accounts }) {
+export default function TradeAgent({ account, realExecutionEnabled }) {
   const [markets, setMarkets] = useState([]);
   const [catalogState, setCatalogState] = useState('loading');
   const [catalogAttempt, setCatalogAttempt] = useState(0);
-  const [symbol, setSymbol] = useState('R_75');
-  const [interval, setInterval] = useState(60);
+  const setupKey = account ? 'playgo-agent-setup:' + account.account_id : null;
+  const [savedSetup] = useState(() => {
+    try { return setupKey && JSON.parse(localStorage.getItem(setupKey)); } catch { return null; }
+  });
+  const [symbol, setSymbol] = useState(savedSetup?.symbol || 'R_75');
+  const [manual, setManual] = useState(savedSetup?.manual === true);
+  const [manualInterval, setCandleInterval] = useState(
+    INTERVALS.some(([seconds]) => seconds === savedSetup?.interval) ? savedSetup.interval : 60,
+  );
+  const interval = manual ? manualInterval : AUTOMATIC_SETUP.interval;
   const [refresh, setRefresh] = useState(0);
   const [analysis, setAnalysis] = useState({ status: 'waiting', progress: 0 });
   const [activities, setActivities] = useState([]);
@@ -40,6 +49,12 @@ export default function TradeAgent({ accounts }) {
   const [agentFeedback, setAgentFeedback] = useState('');
   const [stopLossPercent, setStopLossPercent] = useState('');
   const [takeProfitPercent, setTakeProfitPercent] = useState('');
+
+  useEffect(() => {
+    if (!setupKey) return;
+    try { localStorage.setItem(setupKey, JSON.stringify({ manual, interval: manualInterval, symbol })); }
+    catch { /* Setup remains available for this session. */ }
+  }, [setupKey, manual, manualInterval, symbol]);
 
   const recordActivity = useCallback((message) => {
     setActivities((previous) => [activityEntry(message), ...previous].slice(0, 8));
@@ -90,39 +105,42 @@ export default function TradeAgent({ accounts }) {
         if (controller.signal.aborted) return;
         recordActivity(`Received ${candles.length} valid candles for ${selectedMarket.symbol}.`);
         const result = analyzeCandles(candles, interval);
-        setAnalysis({ ...result, progress: 100, symbol: selectedMarket.symbol });
+        setAnalysis({ ...result, progress: 100, symbol: selectedMarket.symbol, interval });
         recordActivity(result.status === 'ready'
           ? `${result.direction ? `${result.direction} setup` : 'No qualifying setup'}; confluence ${result.confluenceScore}/100.`
           : result.reason);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
-        setAnalysis({ status: 'error', progress: 100, symbol: selectedMarket.symbol });
+        setAnalysis({ status: 'error', progress: 100, symbol: selectedMarket.symbol, interval });
         recordActivity(`Analysis failed for ${selectedMarket.symbol}; market data was unavailable.`);
       });
 
     return () => controller.abort();
   }, [selectedMarket, interval, refresh, recordActivity]);
 
-  const validAccounts = useMemo(() => Array.isArray(accounts)
-    ? accounts.filter((account) => account?.account_type === 'real' &&
-      typeof account?.account_id === 'string' && account.account_id)
-    : null, [accounts]);
-  const accountSummary = validAccounts === null
-    ? 'Account status unavailable.'
-    : validAccounts.length
-      ? `${validAccounts.length} connected account record${validAccounts.length === 1 ? '' : 's'} checked.`
-      : 'No connected account records.';
-  const ready = analysis.status === 'ready';
+  const validAccounts = useMemo(() => account ? [account] : [], [account]);
+  const accountId = account?.account_id;
+  const accountLabel = account?.account_type === 'real' ? 'Real' : 'Demo';
+  const executionAvailable = Boolean(accountId) && (accountLabel === 'Demo' || realExecutionEnabled);
+  const accountSummary = accountId
+    ? `${accountLabel} account ${accountId} selected.`
+    : 'Select a Deriv account to trade.';
+  const ready = analysis.status === 'ready' && analysis.symbol === selectedMarket?.symbol && analysis.interval === interval;
   const analyzing = analysis.status === 'loading' || catalogState === 'loading';
-  const stopLossValue = Number(stopLossPercent);
-  const takeProfitValue = Number(takeProfitPercent);
+  const stopLossValue = Number(manual ? stopLossPercent : AUTOMATIC_SETUP.stopLossPercent);
+  const takeProfitValue = Number(manual ? takeProfitPercent : AUTOMATIC_SETUP.takeProfitPercent);
   const exitSettingsValid = Number.isFinite(stopLossValue) && stopLossValue > 0 && stopLossValue <= 100 &&
     Number.isFinite(takeProfitValue) && takeProfitValue > 0 && takeProfitValue <= 10000;
   const emergencyRetry = agentStatuses.some(item => item.control?.stop_reason === 'DRAWDOWN_LIMIT');
   const monitoringActive = agentRunning && (exitSettingsValid || emergencyRetry);
-  const signalQualifies = ready && Boolean(analysis.direction) && analysis.confluenceScore >= 75;
-  const recommendation = ready
+  const entryBlock = !manual && ready ? automaticEntryBlock(analysis) : null;
+  const signalQualifies = ready && Boolean(analysis.direction) && !entryBlock;
+  const recommendation = entryBlock === 'ELEVATED_VOLATILITY'
+    ? 'Risk Agent is waiting for volatility to ease.'
+    : entryBlock === 'WEAK_SIGNAL'
+      ? 'Strategies Agent is waiting for a stronger signal.'
+      : ready
     ? analysis.direction
       ? `${analysis.direction === 'bullish' ? 'Bullish' : 'Bearish'} setup to review`
       : 'No setup meets the 75/100 threshold'
@@ -133,7 +151,7 @@ export default function TradeAgent({ accounts }) {
         : 'Analysis not ready';
 
   const postAgentAction = useCallback(async (path, params = {}) => {
-    const query = new URLSearchParams(params);
+    const query = new URLSearchParams({ ...params, account: accountId, mode: manual ? 'manual' : 'automatic' });
     const response = await fetch(`/api/agent/${path}${query.size ? `?${query}` : ''}`, {
       method: 'POST',
       headers: { 'X-PlayGo-Request': '1' },
@@ -141,7 +159,7 @@ export default function TradeAgent({ accounts }) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body?.error || 'Agent request failed.');
     return body;
-  }, []);
+  }, [accountId, manual]);
 
   useEffect(() => {
     if (!validAccounts?.length) {
@@ -150,7 +168,7 @@ export default function TradeAgent({ accounts }) {
       return undefined;
     }
     const controller = new AbortController();
-    fetch('/api/agent/status', { signal: controller.signal })
+    fetch(`/api/agent/status?account=${encodeURIComponent(accountId)}`, { signal: controller.signal })
       .then(async response => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body?.error || 'Agent status unavailable.');
@@ -187,10 +205,10 @@ export default function TradeAgent({ accounts }) {
         if (!controller.signal.aborted) setAgentFeedback('Emergency Agent status unavailable.');
       });
     return () => controller.abort();
-  }, [validAccounts]);
+  }, [accountId, validAccounts]);
 
   const runAgent = useCallback(async () => {
-    if (!selectedMarket || !validAccounts?.length ||
+    if (!executionAvailable || !selectedMarket ||
         (!exitSettingsValid && !emergencyRetry) || agentBusy) return;
     setAgentBusy(true);
     try {
@@ -211,7 +229,7 @@ export default function TradeAgent({ accounts }) {
       })));
       for (const result of results) {
         if (result.status === 'ordered') {
-          recordActivity(`Real order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence).`);
+          recordActivity(`Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence).`);
         } else if (result.status === 'exited') {
           recordActivity(`Stop-loss or take-profit threshold reached; sell requests sent for ${result.closeResults?.length || 0} contract(s).`);
         } else if (result.status === 'stopped') {
@@ -221,15 +239,15 @@ export default function TradeAgent({ accounts }) {
         }
       }
       setAgentFeedback(results.length
-        ? `Checked ${results.length} real account${results.length === 1 ? '' : 's'}.`
-        : 'No real accounts are available.');
+        ? `Checked Deriv ${accountLabel} account ${accountId}.`
+        : 'No account result was returned.');
     } catch (error) {
       setAgentFeedback(error.message || 'Agent run failed.');
       recordActivity('Agent run failed; no success was assumed.');
     } finally {
       setAgentBusy(false);
     }
-  }, [agentBusy, emergencyRetry, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts]);
+  }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts]);
 
   useEffect(() => {
     if (!agentRunning || (!exitSettingsValid && !emergencyRetry)) return undefined;
@@ -238,8 +256,8 @@ export default function TradeAgent({ accounts }) {
   }, [agentRunning, emergencyRetry, exitSettingsValid, interval, runAgent]);
 
   async function startAgent() {
-    if (agentBusy || !validAccounts?.length || !exitSettingsValid) return;
-    if (!window.confirm(`Start Bot Agents on all ${validAccounts.length} connected real accounts? Orders require a qualifying signal. Stake is 1% of each live balance; stop and target exits are best-effort.`)) return;
+    if (agentBusy || !executionAvailable || !exitSettingsValid) return;
+    if (!window.confirm(`Start Bot Agents on Deriv ${accountLabel} account ${accountId}? Orders require a qualifying signal. Stake is 1% of the account balance. Stop and target exits are best-effort.`)) return;
     setAgentBusy(true);
     setAgentFeedback('');
     try {
@@ -251,9 +269,9 @@ export default function TradeAgent({ accounts }) {
       setAgentStatuses(statuses);
       const active = statuses.some(item => item.active === true);
       setAgentRunning(active);
-      setAgentFeedback(active ? 'Bot Agents started.' : 'No real account could be started.');
+      setAgentFeedback(active ? 'Bot Agents started.' : statuses[0]?.error || 'The selected account could not be started.');
       recordActivity(active
-        ? `Bot Agents started for ${statuses.filter(item => item.active).length} real account(s).`
+        ? `Bot Agents started on ${accountLabel} account ${accountId}.`
         : 'Bot Agents did not start; check account and database configuration.');
     } catch (error) {
       setAgentFeedback(error.message || 'Could not start Bot Agents.');
@@ -263,9 +281,9 @@ export default function TradeAgent({ accounts }) {
   }
 
   async function placeTradeNow() {
-    if (agentBusy || !validAccounts?.length || !selectedMarket || !ready ||
+    if (agentBusy || !executionAvailable || !selectedMarket || !ready ||
         !signalQualifies || !exitSettingsValid) return;
-    if (!window.confirm(`Place a real-money order on all ${validAccounts.length} connected real accounts if server-side analysis and risk checks still qualify? After a successful order, Bot Agents will stay active for monitoring and may place later qualifying trades until stopped.`)) return;
+    if (!window.confirm(`Submit a ${accountLabel === 'Real' ? 'real-money' : 'virtual-funds'} order on Deriv ${accountLabel} account ${accountId} if server-side analysis and risk checks still qualify? After a successful order, Bot Agents will stay active for monitoring and may place later qualifying trades until stopped.`)) return;
     setAgentBusy(true);
     setAgentFeedback('');
     try {
@@ -289,7 +307,7 @@ export default function TradeAgent({ accounts }) {
       })));
       for (const result of results) {
         if (result.status === 'ordered') {
-          recordActivity(`Real order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence). Bot Agents remain active for monitoring and scheduled checks.`);
+          recordActivity(`Deriv ${accountLabel} order confirmed for ${result.symbol}; stake ${result.stake} (${result.score}/100 confluence). Bot Agents remain active for monitoring and scheduled checks.`);
         } else if (result.status === 'exited') {
           recordActivity(`Stop-loss or take-profit threshold reached; sell requests sent for ${result.closeResults?.length || 0} contract(s).`);
         } else {
@@ -297,8 +315,8 @@ export default function TradeAgent({ accounts }) {
         }
       }
       setAgentFeedback(results.length
-        ? `Trade check completed for ${results.length} real account(s). Bot Agents remain active after any successful order.`
-        : 'No real accounts are available.');
+        ? `Trade check completed for ${accountLabel} account ${accountId}. Bot Agents remain active after a successful order.`
+        : 'No account result was returned.');
     } catch (error) {
       setAgentFeedback(error.message || 'Could not place the one-time trade.');
       recordActivity('One-time trade request failed; no success was assumed.');
@@ -328,8 +346,8 @@ export default function TradeAgent({ accounts }) {
       <section className="panel agent-controls">
         <div className="panelhead">
           <div>
-            <h2>Live market analysis</h2>
-            <p>Public market data; analysis is independent of account type.</p>
+            <h2>Trading setup</h2>
+            <p>{accountSummary}</p>
           </div>
           <button
             className="outline"
@@ -339,18 +357,39 @@ export default function TradeAgent({ accounts }) {
             {analyzing ? 'Analyzing...' : 'Analyze again'}
           </button>
         </div>
+        <div className="agent-mode-bar">
+          <div className="agent-mode-options" role="group" aria-label="Trading setup mode">
+            <button type="button" className={manual ? 'outline' : 'primary'} aria-pressed={!manual}
+              disabled={agentBusy || agentRunning} onClick={() => setManual(false)}>Automatic</button>
+            <button type="button" className={manual ? 'primary' : 'outline'} aria-pressed={manual}
+              disabled={agentBusy || agentRunning} onClick={() => {
+                setStopLossPercent(value => value || String(AUTOMATIC_SETUP.stopLossPercent));
+                setTakeProfitPercent(value => value || String(AUTOMATIC_SETUP.takeProfitPercent));
+                setManual(true);
+              }}>Manual Setup</button>
+          </div>
+          {agentRunning && <small>Stop trading to change your setup.</small>}
+        </div>
+        {!manual && (
+          <dl className="agent-setup-summary">
+            <div><dt>Market</dt><dd>{selectedMarket?.name || 'Loading'}</dd></div>
+            <div><dt>Check interval</dt><dd>5 minutes</dd></div>
+            <div><dt>Stop-loss target</dt><dd>{stopLossValue}% of stake</dd></div>
+            <div><dt>Take-profit target</dt><dd>{takeProfitValue}% of stake</dd></div>
+          </dl>
+        )}
         {catalogState === 'error' ? (
           <p role="alert">
             Market list unavailable.{' '}
             <button className="textlink" onClick={() => setCatalogAttempt((value) => value + 1)}>Retry</button>
           </p>
-        ) : (
+        ) : manual && (
           <div className="agent-control-row">
             <label>
               Market
               <select
                 value={selectedMarket?.symbol || ''}
-                disabled={!markets.length || analyzing}
+                disabled={!markets.length || analyzing || agentRunning || agentBusy}
                 onChange={(event) => setSymbol(event.target.value)}
               >
                 {markets.map((market) => (
@@ -362,8 +401,8 @@ export default function TradeAgent({ accounts }) {
               Candle interval and schedule
               <select
                 value={interval}
-                disabled={analyzing}
-                onChange={(event) => setInterval(Number(event.target.value))}
+                disabled={analyzing || agentRunning || agentBusy}
+                onChange={(event) => setCandleInterval(Number(event.target.value))}
               >
                 {INTERVALS.map(([seconds, title]) => (
                   <option key={seconds} value={seconds}>{title}</option>
@@ -372,7 +411,7 @@ export default function TradeAgent({ accounts }) {
             </label>
           </div>
         )}
-        <div className="agent-control-row">
+        {manual && <div className="agent-control-row">
           <label>
             Stop loss (% of stake)
             <input
@@ -399,9 +438,10 @@ export default function TradeAgent({ accounts }) {
               aria-label="Take profit percentage of stake"
             />
           </label>
-        </div>
-        <p>Stake is automatically 1% of each account's verified balance. Bot checks run on the selected candle interval while this page is open.</p>
-        <p>Deriv execution uses a live proposal followed by a buy at the quoted maximum price. FOK is not supported. Stop-loss and take-profit use monitored sell requests and are not guaranteed.</p>
+        </div>}
+        {accountId && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
+        <p>Stake is automatically 1% of the selected account's verified balance. Bot checks run on the selected candle interval while this page is open.</p>
+        <p>Exit targets trigger sell requests. The price and execution depend on Deriv.</p>
         {!exitSettingsValid && <p role="status">Enter valid stop-loss and take-profit percentages to enable trading.</p>}
       </section>
 
@@ -411,7 +451,7 @@ export default function TradeAgent({ accounts }) {
           <strong>{analysis.progress || 0}%</strong>
         </div>
         <progress max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
-        <p>Signal threshold: 75/100.</p>
+        <p>Entry score required {manual ? 75 : AUTOMATIC_SETUP.minimumScore}/100. {!manual && 'Automatic entries also pause during elevated volatility.'}</p>
       </section>
 
       <div className="agent-card-grid">
@@ -431,7 +471,7 @@ export default function TradeAgent({ accounts }) {
             : <p>Reminder timing is based on the latest retrieved candle.</p>}
         </AgentCard>
         <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
-          <p>{accountSummary} Stake sizing uses 1% of each broker-reported balance. Account equity includes floating contract P&L.</p>
+          <p>{accountSummary} Stake sizing uses 1% of the broker-reported balance. Account equity includes floating contract P&L.</p>
           {validAccounts?.map((account, index) => {
             const latest = agentStatuses.find(item => item.accountId === account.account_id);
             const equity = latest?.result?.equity ?? latest?.equity;
@@ -458,14 +498,14 @@ export default function TradeAgent({ accounts }) {
           <button
             type="button"
             className="primary agent-proposal-button"
-            disabled={agentBusy || !validAccounts?.length || !signalQualifies || !exitSettingsValid}
+            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
             onClick={() => void placeTradeNow()}
           >
             {agentBusy ? 'Checking...' : 'Place Trade Now'}
           </button>
           {agentRunning
             ? <button type="button" className="outline agent-proposal-button" disabled={agentBusy} onClick={stopAgent}>Stop trading</button>
-            : <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !validAccounts?.length || !selectedMarket || !exitSettingsValid} onClick={startAgent}>Start scheduled trading</button>}
+            : <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={startAgent}>Start scheduled trading</button>}
           {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
           {agentFeedback && <p className="agent-trade-feedback" role="status">{agentFeedback}</p>}
         </AgentCard>

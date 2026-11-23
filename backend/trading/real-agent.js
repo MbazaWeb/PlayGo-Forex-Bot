@@ -1,3 +1,5 @@
+import { automaticEntryBlock } from '../../shared/agent-analysis.js';
+import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 import { createHash } from 'node:crypto';
 import { analyzeCandles } from '../../shared/agent-analysis.js';
 import { executeRealOrder, readRealPortfolio, closeRealContracts } from './execute.js';
@@ -42,11 +44,12 @@ export async function startRealAgents({
   env = process.env,
   fetchImpl = fetch,
 }) {
-  if (env.LIVE_TRADING_ENABLED !== 'true') throw agentError('LIVE_TRADING_DISABLED');
   if (!validExitSettings(stopLossPercent, takeProfitPercent))
     throw agentError('INVALID_EXIT_SETTINGS');
-  const realAccounts = accounts.filter(account => account.account_type === 'real');
+  const realAccounts = accounts.filter(isDerivAccount);
   if (!realAccounts.length) throw agentError('REAL_ACCOUNT_REQUIRED');
+  if (realAccounts.some(account => !canTradeAccount(account, env)))
+    throw agentError('LIVE_TRADING_DISABLED');
   const results = [];
   for (const account of realAccounts) {
     try {
@@ -68,7 +71,7 @@ export async function startRealAgents({
 
 export async function stopRealAgents({ accounts, env = process.env, fetchImpl = fetch }) {
   const results = [];
-  for (const account of accounts.filter(row => row.account_type === 'real')) {
+  for (const account of accounts.filter(isDerivAccount)) {
     try {
       const state = await stopRealControl({ accountId: account.account_id, env, fetchImpl });
       results.push({ accountId: account.account_id, ...state });
@@ -85,6 +88,7 @@ export async function placeRealAgentOrders({
   appId,
   symbol,
   granularity,
+  automatic = false,
   stopLossPercent,
   takeProfitPercent,
   env = process.env,
@@ -92,15 +96,16 @@ export async function placeRealAgentOrders({
   Socket,
   now = Date.now,
 }) {
-  if (env.LIVE_TRADING_ENABLED !== 'true') throw agentError('LIVE_TRADING_DISABLED');
   if (!validExitSettings(stopLossPercent, takeProfitPercent))
     throw agentError('INVALID_EXIT_SETTINGS');
   if (!/^[A-Za-z0-9_]{2,30}$/.test(symbol || '') ||
       ![60, 300, 900, 3600].includes(granularity))
     throw agentError('INVALID_MARKET_REQUEST');
 
-  const realAccounts = accounts.filter(account => account.account_type === 'real');
+  const realAccounts = accounts.filter(isDerivAccount);
   if (!realAccounts.length) throw agentError('REAL_ACCOUNT_REQUIRED');
+  if (realAccounts.some(account => !canTradeAccount(account, env)))
+    throw agentError('LIVE_TRADING_DISABLED');
   const results = [];
 
   for (const account of realAccounts) {
@@ -143,6 +148,7 @@ export async function placeRealAgentOrders({
             appId,
             symbol,
             granularity,
+            automatic,
             stopLossPercent,
             takeProfitPercent,
             env,
@@ -185,7 +191,7 @@ export async function placeRealAgentOrders({
 
 export async function readRealAgentStatuses({ accounts, env = process.env, fetchImpl = fetch }) {
   const results = [];
-  for (const account of accounts.filter(row => row.account_type === 'real')) {
+  for (const account of accounts.filter(isDerivAccount)) {
     try {
       results.push({
         accountId: account.account_id,
@@ -204,13 +210,14 @@ export async function runRealAgentTick({
   appId,
   symbol,
   granularity,
+  automatic = false,
   env = process.env,
   fetchImpl = fetch,
   Socket,
   now = Date.now,
 }) {
-  if (env.LIVE_TRADING_ENABLED !== 'true') return { status: 'blocked', reason: 'LIVE_TRADING_DISABLED' };
-  if (account?.account_type !== 'real') return { status: 'blocked', reason: 'REAL_ACCOUNT_REQUIRED' };
+  if (!isDerivAccount(account)) return { status: 'blocked', reason: 'REAL_ACCOUNT_REQUIRED' };
+  if (!canTradeAccount(account, env)) return { status: 'blocked', reason: 'LIVE_TRADING_DISABLED' };
   if (!/^[A-Za-z0-9_]{2,30}$/.test(symbol || '') ||
       ![60, 300, 900, 3600].includes(granularity))
     return { status: 'blocked', reason: 'INVALID_MARKET_REQUEST' };
@@ -296,10 +303,11 @@ export async function runRealAgentTick({
   const candles = await readMarketCandles({ symbol, granularity, Socket, now });
   const analysis = analyzeCandles(candles, granularity);
   const contractType = qualifyingDirection(analysis);
-  if (!contractType) {
+  const automaticBlock = automatic ? automaticEntryBlock(analysis) : null;
+  if (!contractType || automaticBlock) {
     return {
       status: 'watching',
-      reason: analysis.status === 'ready' ? 'NO_QUALIFYING_SIGNAL' : analysis.status.toUpperCase(),
+      reason: automaticBlock || (analysis.status === 'ready' ? 'NO_QUALIFYING_SIGNAL' : analysis.status.toUpperCase()),
       accountId: account.account_id,
       score: analysis.confluenceScore ?? null,
       equity: emergency.equity,

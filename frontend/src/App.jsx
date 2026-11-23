@@ -27,6 +27,7 @@ async function fetchJSON(url, opts) {
 export default function App() {
   const [session, setSession] = useState(null);
   const [accounts, setAccounts] = useState(null);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [mt5, setMt5] = useState(null);
@@ -61,7 +62,7 @@ export default function App() {
 
   async function logout() {
     try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'X-PlayGo-Request': '1' } }); } catch {}
-    setAccounts(null); load();
+    setSelectedAccountId(''); setAccounts(null); load();
   }
 
   if (!session?.authenticated) {
@@ -92,7 +93,8 @@ export default function App() {
     setMobile(false);
   }
 
-  const usableAccounts = (accounts || []).filter((a) => a.account_type === 'real');
+  const selectedAccount = accounts?.find(account => account.account_id === selectedAccountId);
+  const selectedAccounts = selectedAccount ? [selectedAccount] : [];
 
   return (
     <div className="app">
@@ -122,10 +124,19 @@ export default function App() {
             <span className="breadcrumb">Workspace</span><span className="slash">/</span><b>{page}</b>
           </div>
                     <div className="top-right">
-            {usableAccounts[0] && (
-              <span className="status" style={{ background: '#2d1a1a', color: '#ff6985' }}>
-                REAL
-              </span>
+            {!!accounts?.length && (
+              <select className="outline" aria-label="Deriv trading account" value={selectedAccount?.account_id || ''}
+                onChange={event => {
+                  if (selectedAccount && !window.confirm('Switch accounts? Bot Agents will stop monitoring the current account until you select it again.')) return;
+                  setSelectedAccountId(event.target.value);
+                }}>
+                <option value="" disabled>Select Deriv account</option>
+                {accounts.map(account => (
+                  <option key={account.account_id} value={account.account_id}>
+                    {account.account_type === 'demo' ? 'Demo' : 'Real'} · {account.account_id}
+                  </option>
+                ))}
+              </select>
             )}
             <button className="outline" onClick={logout}><LogOut size={16} /> Sign out</button>
           </div>
@@ -140,14 +151,14 @@ export default function App() {
           </div>
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
           {loading && <p role="status">Loading...</p>}
-          {!loading && page === 'Overview' && <AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate} />}
-          {!loading && page === 'Bot Agents' && <TradeAgent accounts={accounts} />}
+          {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} />}
+          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} realExecutionEnabled={session.execution === true} />}
           {!loading && page === 'Trading Terminal' && (
             <React.Suspense fallback={<p>Loading...</p>}>
               <MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} />
             </React.Suspense>
           )}
-          {!loading && page === 'Analytics' && <AccountDashboard accounts={accounts} mt5={mt5} navigate={navigate} analytics />}
+          {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}
           {!loading && page === 'Settings' && (
             <section className="panel">
               <h2>Connections</h2>

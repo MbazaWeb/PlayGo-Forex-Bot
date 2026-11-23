@@ -94,3 +94,18 @@ export function analyzeCandles(candles, intervalSeconds) {
     reviewAt: latest.epoch + intervalSeconds,
   };
 }
+
+export const AUTOMATIC_SETUP = Object.freeze({
+  interval: 300,
+  stopLossPercent: 35,
+  takeProfitPercent: 50,
+  minimumScore: 85,
+  maxVolatilityRank: 0.8,
+});
+
+export function automaticEntryBlock(analysis) {
+  if (analysis.status !== 'ready' || !analysis.direction ||
+      analysis.confluenceScore < AUTOMATIC_SETUP.minimumScore) return 'WEAK_SIGNAL';
+  if (analysis.volatilityRank > AUTOMATIC_SETUP.maxVolatilityRank) return 'ELEVATED_VOLATILITY';
+  return null;
+}

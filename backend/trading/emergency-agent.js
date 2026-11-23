@@ -1,3 +1,4 @@
+import { isDerivAccount } from './deriv-account.js';
 import { evaluateEmergencyStop } from './execution-risk.js';
 
 export async function runEmergencyCheck({
@@ -7,7 +8,7 @@ export async function runEmergencyCheck({
   pause,
   closeContracts,
 }) {
-  if (account?.account_type !== 'real' || !control || !portfolio ||
+  if (!isDerivAccount(account) || !control || !portfolio ||
       typeof pause !== 'function' || typeof closeContracts !== 'function')
     throw Error('EMERGENCY_CHECK_CONTEXT_REQUIRED');
 

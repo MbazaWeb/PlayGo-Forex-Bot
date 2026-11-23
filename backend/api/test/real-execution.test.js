@@ -49,16 +49,30 @@ const otpFetch = async () => Response.json({
   data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
 });
 
-test('real execution accepts only a verified real-account OTP endpoint', async () => {
+test('Deriv OTP endpoint matches the selected account type', async () => {
   const url = await getRealWebSocketUrl({
     token: 'fixture',
     account: realAccount,
     fetchImpl: otpFetch,
   });
   assert.match(url, /\/ws\/real\?otp=/);
+  const demoAccount = { ...realAccount, account_id: 'DOT123456', account_type: 'demo' };
+  const demoOtp = async (url, options) => {
+    assert.match(url, /\/accounts\/DOT123456\/otp$/);
+    assert.equal(options.headers.Authorization, 'Bearer fixture');
+    return Response.json({
+      data: { url: 'wss://api.derivws.com/trading/v1/options/ws/demo?otp=fixture' },
+    });
+  };
+  assert.match(await getRealWebSocketUrl({
+    token: 'fixture', account: demoAccount, fetchImpl: demoOtp,
+  }), /\/ws\/demo\?otp=/);
+  await assert.rejects(getRealWebSocketUrl({
+    token: 'fixture', account: demoAccount, fetchImpl: otpFetch,
+  }), /INVALID_REAL_ENDPOINT/);
   await assert.rejects(getRealWebSocketUrl({
     token: 'fixture',
-    account: { ...realAccount, account_type: 'demo' },
+    account: { ...realAccount, account_type: 'unknown' },
     fetchImpl: assert.fail,
   }), /REAL_ACCOUNT_REQUIRED/);
   await assert.rejects(getRealWebSocketUrl({
@@ -70,32 +84,41 @@ test('real execution accepts only a verified real-account OTP endpoint', async (
   }), /INVALID_REAL_ENDPOINT/);
 });
 
-test('real buy is persisted before the mock broker receives the buy request', async () => {
-  const events = [];
-  const order = await executeRealOrder({
-    account: realAccount,
-    token: 'fixture',
-    intent: {
-      symbol: 'R_75',
-      contractType: 'CALL',
-      stake: 10,
-      duration: 1,
-      durationUnit: 'm',
-    },
-    fetchImpl: otpFetch,
-    Socket: class extends BrokerSocket {
-      send(raw) {
-        const request = JSON.parse(raw);
-        if (request.buy) events.push('buy-request');
-        super.send(raw);
-      }
-    },
-    beforeBuy: async () => { events.push('persist-submit'); },
+for (const accountType of ['demo', 'real']) {
+  test(`${accountType} buy is persisted before the broker receives the buy request`, async () => {
+    const events = [];
+    const order = await executeRealOrder({
+      account: { ...realAccount, account_type: accountType },
+      token: 'fixture',
+      intent: {
+        symbol: 'R_75',
+        contractType: 'CALL',
+        stake: 10,
+        duration: 1,
+        durationUnit: 'm',
+      },
+      fetchImpl: async () => Response.json({
+        data: { url: `wss://api.derivws.com/trading/v1/options/ws/${accountType}?otp=fixture` },
+      }),
+      Socket: class extends BrokerSocket {
+        constructor(url) {
+          assert.match(url, new RegExp('/ws/' + accountType + '\\?otp='));
+          super(url);
+        }
+  
+        send(raw) {
+          const request = JSON.parse(raw);
+          if (request.buy) events.push('buy-request');
+          super.send(raw);
+        }
+      },
+      beforeBuy: async () => { events.push('persist-submit'); },
+    });
+    events.push('confirmed');
+    assert.deepEqual(order, { contractId: '12345', askPrice: 10 });
+    assert.deepEqual(events, ['persist-submit', 'buy-request', 'confirmed']);
   });
-  events.push('confirmed');
-  assert.deepEqual(order, { contractId: '12345', askPrice: 10 });
-  assert.deepEqual(events, ['persist-submit', 'buy-request', 'confirmed']);
-});
+}
 
 test('stake sizing and emergency threshold are measured from the stored starting balance', async () => {
   assert.equal(calculateStake(1000), 10);

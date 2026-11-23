@@ -1,3 +1,4 @@
+import { isDerivAccount } from '../../trading/deriv-account.js';
 import {readPortfolio, readHistory} from './portfolio/index.js';
 import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
 import {listAccounts} from './providers/deriv.js';
@@ -110,16 +111,19 @@ export default async function handler(req, res) {
   } catch (error) {
     const status = error.status || 502;
     if (status === 401) res.setHeader('Set-Cookie', cookie('__Host-playgo_session', '', 0));
-    return respond(res, status, { error: status === 401 ? 'Deriv session expired. Sign in again.' : status === 429 ? 'Deriv account service rate limit exceeded.' : 'Could not verify real accounts.' });
+    return respond(res, status, { error: status === 401 ? 'Deriv session expired. Sign in again.' : status === 429 ? 'Deriv account service rate limit exceeded.' : 'Could not verify Deriv accounts.' });
   }
-  const account = accounts.find(a => a.account_id === accountId);
+  const account = accounts.find(a => a.account_id === accountId && isDerivAccount(a));
 
   if (path === 'accounts' && req.method === 'GET')
-    return respond(res, 200, { accounts: accounts.filter(row => row.account_type === 'real') });
+    return respond(res, 200, { accounts: accounts.filter(isDerivAccount) });
+
+  if (path.startsWith('agent/') && !account)
+    return respond(res, 400, { error: 'Select a connected Deriv account.' });
 
   if (path === 'agent/status' && req.method === 'GET') {
     return respond(res, 200, {
-      accounts: await readRealAgentStatuses({ accounts, env: process.env, fetchImpl: fetch }),
+      accounts: await readRealAgentStatuses({ accounts: [account], env: process.env, fetchImpl: fetch }),
     });
   }
 
@@ -130,7 +134,7 @@ export default async function handler(req, res) {
       try {
         return respond(res, 200, {
           accounts: await startRealAgents({
-            accounts,
+            accounts: [account],
             stopLossPercent: Number(params.get('stopLossPercent')),
             takeProfitPercent: Number(params.get('takeProfitPercent')),
             env: process.env,
@@ -144,18 +148,19 @@ export default async function handler(req, res) {
     }
     if (path === 'agent/stop') {
       return respond(res, 200, {
-        accounts: await stopRealAgents({ accounts, env: process.env, fetchImpl: fetch }),
+        accounts: await stopRealAgents({ accounts: [account], env: process.env, fetchImpl: fetch }),
       });
     }
     if (path === 'agent/place') {
       try {
         return respond(res, 200, {
           accounts: await placeRealAgentOrders({
-            accounts,
+            accounts: [account],
             token: session.token,
             appId: CLIENT,
             symbol: params.get('symbol'),
             granularity: Number(params.get('granularity')),
+          automatic: params.get('mode') === 'automatic',
             stopLossPercent: Number(params.get('stopLossPercent')),
             takeProfitPercent: Number(params.get('takeProfitPercent')),
             env: process.env,
@@ -168,7 +173,7 @@ export default async function handler(req, res) {
       }
     }
     const results = [];
-    for (const row of accounts.filter(item => item.account_type === 'real')) {
+    for (const row of [account]) {
       try {
         results.push(await runRealAgentTick({
           account: row,
@@ -176,6 +181,7 @@ export default async function handler(req, res) {
           appId: CLIENT,
           symbol: params.get('symbol'),
           granularity: Number(params.get('granularity')),
+          automatic: params.get('mode') === 'automatic',
           env: process.env,
           fetchImpl: fetch,
         }));
@@ -191,7 +197,7 @@ export default async function handler(req, res) {
   }
 
   if (['portfolio', 'history'].includes(path) && req.method === 'GET') {
-    if (!account || account.account_type !== 'real') return respond(res, 400, { error: 'Real account not found.' });
+    if (!account) return respond(res, 400, { error: 'Deriv account not found.' });
     const read = path === 'history' ? readHistory : readPortfolio;
     const result = await read({
       account,

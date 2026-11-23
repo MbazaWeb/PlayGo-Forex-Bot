@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Wallet, ShieldCheck } from 'lucide-react';
 import Metric from './Metric';
 import AccountActivity from './AccountActivity';
@@ -7,12 +7,7 @@ const MarketChart = React.lazy(() => import('./MarketChart'));
 const MarketWorkspace = React.lazy(() => import('./MarketWorkspace'));
 
 export default function AccountDashboard({ accounts, mt5, navigate, analytics = false }) {
-  const usable = useMemo(
-    () => (accounts?.filter((a) => a.account_type === 'real') ?? []),
-    [accounts],
-  );
-  const [selected, setSelected] = useState('');
-  const account = usable.find((a) => a.account_id === selected) ?? usable[0];
+  const account = accounts?.[0];
   const id = account?.account_id;
   const [history, setHistory] = useState(null);
 
@@ -54,15 +49,6 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
 
   return (
     <>
-      {usable.length > 1 && (
-        <label>
-          Account
-          <select value={id || ''} onChange={(e) => setSelected(e.target.value)}>
-            {usable.map((a) => <option key={a.account_id} value={a.account_id}>{a.account_id} ({a.account_type})</option>)}
-          </select>
-        </label>
-      )}
-
       <div className="metrics three">
         <Metric
           title="Total Portfolio Balance"

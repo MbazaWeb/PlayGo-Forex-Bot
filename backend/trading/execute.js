@@ -1,5 +1,5 @@
+import { isDerivAccount } from './deriv-account.js';
 const API = 'https://api.derivws.com';
-const REAL_WS_PATH = '/trading/v1/options/ws/real';
 
 function codedError(code) {
   const error = Error(code);
@@ -8,8 +8,7 @@ function codedError(code) {
 }
 
 export async function getRealWebSocketUrl({ token, account, appId, fetchImpl = fetch }) {
-  if (!token || account?.account_type !== 'real' ||
-      !/^[A-Za-z0-9_-]{3,80}$/.test(account.account_id || ''))
+  if (!token || !isDerivAccount(account))
     throw codedError('REAL_ACCOUNT_REQUIRED');
 
   const response = await fetchImpl(
@@ -37,7 +36,7 @@ export async function getRealWebSocketUrl({ token, account, appId, fetchImpl = f
     throw codedError('INVALID_REAL_ENDPOINT');
   }
   if (url.protocol !== 'wss:' || url.host !== 'api.derivws.com' ||
-      url.pathname !== REAL_WS_PATH || !url.searchParams.get('otp') ||
+      url.pathname !== `/trading/v1/options/ws/${account.account_type}` || !url.searchParams.get('otp') ||
       url.username || url.password || url.hash)
     throw codedError('INVALID_REAL_ENDPOINT');
   return url.toString();
@@ -126,7 +125,7 @@ async function withRealSocket(options, callback) {
 }
 
 function validIntent(intent, account) {
-  return account?.account_type === 'real' &&
+  return isDerivAccount(account) &&
     /^[A-Za-z0-9_]{2,30}$/.test(intent?.symbol || '') &&
     ['CALL', 'PUT'].includes(intent?.contractType) &&
     /^[A-Z]{3}$/.test(account.currency || '') &&
@@ -181,7 +180,7 @@ function contractIdentifier(value) {
 }
 
 export async function readRealPortfolio({ account, token, appId, fetchImpl = fetch, Socket }) {
-  if (account?.account_type !== 'real') throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
     const response = await sendAndWait(socket, { portfolio: 1 }, 'portfolio', 1);
     const rows = response?.portfolio?.contracts;
@@ -212,7 +211,7 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
 }
 
 export async function readRealHistory({ account, token, appId, fetchImpl = fetch, Socket }) {
-  if (account?.account_type !== 'real') throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
     const response = await sendAndWait(socket, {
       profit_table: 1,
@@ -234,7 +233,7 @@ export async function readRealHistory({ account, token, appId, fetchImpl = fetch
 }
 
 export async function closeRealContracts({ account, token, appId, contractIds, fetchImpl = fetch, Socket }) {
-  if (account?.account_type !== 'real' || !Array.isArray(contractIds))
+  if (!isDerivAccount(account) || !Array.isArray(contractIds))
     throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
     const results = [];

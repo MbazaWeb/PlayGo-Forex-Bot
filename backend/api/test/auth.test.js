@@ -24,7 +24,7 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  const calls=[];
  const request=await fixture(t,async(url,options)=>{
   calls.push({url,options});
-  return new Response(JSON.stringify(url.endsWith('/token')?{access_token:'server-only-secret',expires_in:3600}:{data:[{account_id:'CR123',currency:'USD',balance:'12.50',account_type:'real',private_data:'hidden'}]}));
+  return new Response(JSON.stringify(url.endsWith('/token')?{access_token:'server-only-secret',expires_in:3600}:{data:[{account_id:'CR123',currency:'USD',balance:'12.50',account_type:'real',private_data:'hidden'},{account_id:'DOT123',currency:'USD',balance:1000,account_type:'demo'}]}));
  });
  const start=await request('/api/auth/deriv/start');const auth=new URL(start.headers.get('location'));
  assert.equal(auth.origin,'https://auth.deriv.com');
@@ -36,7 +36,13 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  assert.ok(sessionCookie);assert.match(result.headers.get('set-cookie'),/HttpOnly/);
  assert.equal((await request(callback,{headers:{Cookie:cookie}})).headers.get('location'),'http://localhost:5173/?auth_error=invalid_callback');
  const body=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).text();
+ assert.match(body,/DOT123/);
  assert.match(body,/CR123/);assert.ok(!body.includes('secret')&&!body.includes('hidden'));
+ const agentHeaders={Cookie:sessionCookie,Origin:config.origin,'X-PlayGo-Request':'1'};
+ assert.equal((await request('/api/agent/status',{headers:agentHeaders})).status,400);
+ assert.equal((await request('/api/agent/place?account=DOT999',{method:'POST',headers:agentHeaders})).status,400);
+ const demoStatus=await (await request('/api/agent/status?account=DOT123',{headers:agentHeaders})).json();
+ assert.deepEqual(demoStatus.accounts.map(account=>account.accountId),['DOT123']);
  const verifier=calls[0].options.body.get('code_verifier');
  const {createHash}=await import('node:crypto');
  assert.equal(createHash('sha256').update(verifier).digest('base64url'),auth.searchParams.get('code_challenge'));

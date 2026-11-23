@@ -1,3 +1,4 @@
+import { automaticEntryBlock } from '../../../shared/agent-analysis.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeCandles } from './agentAnalysis.js';
@@ -32,4 +33,12 @@ test('rejects malformed candle values', () => {
   const candles = risingCandles();
   candles[79] = { ...candles[79], close: Number.NaN };
   assert.equal(analyzeCandles(candles, 60).status, 'invalid');
+});
+
+test('automatic entries require a stronger signal and pass the volatility check', () => {
+  const analysis = { status: 'ready', direction: 'bullish', confluenceScore: 85, volatilityRank: 0.8 };
+  assert.equal(automaticEntryBlock(analysis), null);
+  assert.equal(automaticEntryBlock({ ...analysis, confluenceScore: 75 }), 'WEAK_SIGNAL');
+  assert.equal(automaticEntryBlock({ ...analysis, volatilityRank: 0.81 }), 'ELEVATED_VOLATILITY');
+  assert.equal(automaticEntryBlock({ ...analysis, direction: null }), 'WEAK_SIGNAL');
 });

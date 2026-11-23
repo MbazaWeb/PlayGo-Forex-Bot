@@ -111,7 +111,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         <Metric
           title="Realized P&L"
           value={points?.length ? points.reduce((sum, point) => sum + point.value, 0).toFixed(2) + ' ' + currency : '—'}
-          change="From verified closed trades"
+          change="Recent settled trades"
           icon={ShieldCheck}
           positive={!!points?.length && points.reduce((sum, point) => sum + point.value, 0) >= 0}
         />
@@ -119,7 +119,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
 
       {analytics && (
         <section aria-label="Profitability">
-          <div className="panelhead">
+          <div className="panelhead analytics-report-head">
             <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p></div>
             <button type="button" className="outline" disabled={!points?.length}
               onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
@@ -169,32 +169,6 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           </p>
         )}
 
-        {analytics && points?.length > 0 && (
-          <div className="trade-log">
-          <h3>Closed trades</h3>
-          <div className="trade-outcome-summary">
-            <span data-outcome="Win">{wins} wins</span>
-            <span data-outcome="Loss">{losses} losses</span>
-            <span data-outcome="Break-even">{even} break-even</span>
-          </div>
-          <div className="tablewrap"><table>
-            <thead>
-              <tr><th>Settled (EAT)</th><th>Transaction</th><th>Status</th><th className="trade-pnl">Realized P&amp;L</th></tr>
-            </thead>
-            <tbody>
-              {points.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0)).map((t) => (
-                <tr key={t.time}>
-                  <td>{Number.isSafeInteger(t.settledAt) && t.settledAt > 0 && t.settledAt < 1e11
-                    ? <time dateTime={new Date(t.settledAt * 1000).toISOString()}>{settlementFormat.format(t.settledAt * 1000)}</time>
-                    : 'Unavailable'}</td>
-                  <td className="muted">{t.time}</td>
-                  <td><span className="trade-outcome" data-outcome={t.status}>{t.status}</span></td>
-                  <td className="trade-pnl" data-outcome={t.status}>{t.value > 0 ? '+' : ''}{t.value.toFixed(2)} {currency}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div></div>
-        )}
       </section>
 
       {!analytics && (
@@ -202,7 +176,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           <button className="outline" onClick={() => navigate?.('Bot Agents')}>View Bot Agents</button>
         </div>
       )}
-      {id && <AccountActivity key={id} accountId={id} currency={currency} openOnly={analytics} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
+      {id && <AccountActivity key={id} accountId={id} currency={currency} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
     </>
   );
 }

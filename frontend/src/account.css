@@ -12,3 +12,11 @@
 .open-positions li > div { display: grid; align-content: start; gap: .35rem; }
 .open-positions li > div:last-child { justify-items: end; }
 .open-positions small { opacity: .78; }
+
+.analytics-report-head { flex-wrap: wrap; gap: .75rem; }
+.trades-summary { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: .5rem 0 1rem; }
+.account-trades-table { font-variant-numeric: tabular-nums; }
+.account-trades-table th:nth-child(3), .account-trades-table td:nth-child(3) { text-align: right; }
+.account-trades-table td:nth-child(n+2) { white-space: nowrap; }
+.account-trades-table td[data-outcome="Loss"], .account-trades-table strong.loss { color: #ff9898; }
+.account-trades-table .trade-outcome[data-outcome="Open"] { color: var(--brand); }

@@ -5,7 +5,7 @@ const settlementTime = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Africa/Dar_es_Salaam',
 });
 
-export default function AccountActivity({ accountId, currency, openOnly = false, openAnalytics }) {
+export default function AccountActivity({ accountId, currency, openAnalytics }) {
   const [settled, setSettled] = useState(null);
   const [historyError, setHistoryError] = useState(false);
   const historyRefreshRef = useRef(null);
@@ -63,7 +63,6 @@ export default function AccountActivity({ accountId, currency, openOnly = false,
   }, [accountId]);
 
   useEffect(() => {
-    if (openOnly) return;
     const controller = new AbortController();
     const { signal } = controller;
     let timer, busy = false, pending = false;
@@ -100,7 +99,7 @@ export default function AccountActivity({ accountId, currency, openOnly = false,
       historyRefreshRef.current = null;
       window.removeEventListener('playgo:settlement', onSettlement);
     };
-  }, [accountId, openOnly]);
+  }, [accountId]);
 
   async function closeTrade(contract) {
     setClosing(true);
@@ -126,13 +125,13 @@ export default function AccountActivity({ accountId, currency, openOnly = false,
 
   const tone = value => value > 0 ? 'gain' : value < 0 ? 'loss' : '';
   const money = value => (value > 0 ? '+' : '') + value.toFixed(2) + ' ' + currency;
-  const settledIds = new Set(settled?.map(trade => trade.contractId));
+  const settledIds = new Set(settled?.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0)).map(trade => trade.contractId));
   const openRows = (contracts ?? []).filter(contract => !settledIds.has(contract.id));
   const net = openRows.reduce((sum, row) => sum + row.profit, 0);
   return (
     <section className="panel account-panel">
       <div className="panelhead">
-        <div><h2>{openOnly ? 'Open trades' : 'Trades'}</h2>{observedAt && <small>{error ? 'Last available' : 'Updated'} {new Date(observedAt).toLocaleTimeString()}</small>}</div>
+        <div><h2>Trades</h2>{observedAt && <small>{error ? 'Last available' : 'Updated'} {new Date(observedAt).toLocaleTimeString()}</small>}</div>
         <button type="button" className="outline" onClick={() => {
           refreshRef.current?.();
           historyRefreshRef.current?.();
@@ -141,19 +140,23 @@ export default function AccountActivity({ accountId, currency, openOnly = false,
       {notice && <p role="status">{notice}</p>}
       {error && <p role="status">{error}</p>}
       {historyError && <p role="status">{settled ? 'Showing last available settlements.' : 'Closed trades are unavailable.'}</p>}
-      {contracts && <p>{openRows.length} open · Open P&amp;L <strong className={tone(net)}>{money(net)}</strong></p>}
+      <div className="trades-summary">
+        {contracts && <span><strong>{openRows.length}</strong> open</span>}
+        {settled && <span><strong>{settled.length}</strong> recent settlements</span>}
+        {contracts && <span>Open P&amp;L <strong className={tone(net)}>{money(net)}</strong></span>}
+      </div>
       <div className="tablewrap">
-        <table aria-label={openOnly ? 'Open trades' : 'Open trades and recent settlements'}>
-          <thead><tr><th scope="col">Trade</th><th scope="col">Status</th><th scope="col">P&amp;L</th>{!openOnly && <th scope="col">Settled (EAT)</th>}<th scope="col">Action</th></tr></thead>
+        <table className="account-trades-table" aria-label="Open trades and recent settlements">
+          <thead><tr><th scope="col">Trade</th><th scope="col">Status</th><th scope="col">P&amp;L</th><th scope="col">Settled (EAT)</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {openRows.map(contract => (
               <tr key={'open-' + contract.id}>
                 <td><strong>{contract.symbol || 'Contract'} · {({ CALL: 'Rise', PUT: 'Fall' })[contract.contractType] || contract.contractType || 'Open'}</strong><br />
                   <small>#{contract.id} · Stake {contract.stake} {currency}</small><br />
                   <small>Entry {contract.entrySpot ?? '—'} → Now {contract.currentSpot ?? '—'}</small></td>
-                <td>Open</td>
+                <td><span className="trade-outcome" data-outcome="Open">Open</span></td>
                 <td><strong className={tone(contract.profit)}>{money(contract.profit)}</strong></td>
-                {!openOnly && <td>—</td>}
+                <td>—</td>
                 <td>{contract.canSell ? <button type="button" className="outline" disabled={closing || Boolean(error)}
                   onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry</small>}</td>
               </tr>
@@ -164,14 +167,14 @@ export default function AccountActivity({ accountId, currency, openOnly = false,
               const hasTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
               return <tr key={'closed-' + trade.id}>
                 <td>{trade.contractId ? 'Contract #' + trade.contractId : 'Transaction #' + trade.id}</td>
-                <td className={tone(profit)}>Closed · {outcome}</td>
-                <td><strong className={tone(profit)}>{money(profit)}</strong></td>
+                <td><span className="trade-outcome" data-outcome={outcome}>Closed · {outcome}</span></td>
+                <td data-outcome={outcome}><strong className={tone(profit)}>{money(profit)}</strong></td>
                 <td>{hasTime ? <time dateTime={new Date(trade.settledAt * 1000).toISOString()}>{settlementTime.format(trade.settledAt * 1000)}</time> : '—'}</td>
                 <td>—</td>
               </tr>;
             })}
             {openRows.length === 0 && !settled?.length && !error && !historyError &&
-              <tr><td colSpan={openOnly ? 4 : 5}>{contracts && (openOnly || settled) ? 'No trades to display.' : 'Checking trades…'}</td></tr>}
+              <tr><td colSpan={5}>{contracts && settled ? 'No trades to display.' : 'Checking trades…'}</td></tr>}
           </tbody>
         </table>
       </div>

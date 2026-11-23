@@ -17,7 +17,8 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       return;
     }
     const controller = new AbortController();
-    (async () => {
+    let timer;
+    async function refresh() {
       try {
         const res = await fetch('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
         if (!res.ok) throw new Error('history unavailable');
@@ -35,16 +36,20 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
             return { time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
           })
           .filter(Boolean);
-        if (!controller.signal.aborted) setHistory({ id, points });
+        if (!controller.signal.aborted) setHistory({ id, points, today: body.today });
       } catch {
         if (!controller.signal.aborted) setHistory({ id, error: true });
+      } finally {
+        if (analytics && !controller.signal.aborted) timer = setTimeout(refresh, 30_000);
       }
-    })();
-    return () => controller.abort();
-  }, [id]);
+    }
+    void refresh();
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [id, analytics]);
 
   const result = history?.id === id ? history : null;
   const points = result?.points;
+  const today = result?.today;
   const currency = account?.currency ?? '';
   const wins = points?.filter((t) => t.value > 0).length ?? 0;
   const losses = points?.filter(t => t.status === 'Loss').length ?? 0;
@@ -53,6 +58,17 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
 
   return (
     <>
+      {analytics && (
+        <section aria-label="Today's trading results">
+          <div className="panelhead"><div><h2>Today</h2><p>Settled trades · Tanzania time</p></div></div>
+          <div className="metrics three">
+            <Metric title="Today's Wins" value={today?.wins ?? '-'} icon={ShieldCheck} positive />
+            <Metric title="Today's Losses" value={today?.losses ?? '-'} icon={ShieldCheck} positive={false} />
+            <Metric title="Total Trades Today" value={today?.total ?? '-'} icon={ShieldCheck} />
+          </div>
+          {id && result && !today && <p role="status">Today's totals are unavailable.</p>}
+        </section>
+      )}
       <div className="metrics three">
         <Metric
           title="Total Portfolio Balance"

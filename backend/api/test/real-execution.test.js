@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { executeRealOrder, getRealWebSocketUrl, readRealPortfolio } from '../../trading/execute.js';
+import { executeRealOrder, getRealWebSocketUrl, readRealPortfolio, readRealHistory } from '../../trading/execute.js';
 import {
   evaluateEmergencyStop,
   calculateStake,
@@ -618,4 +618,23 @@ test('real execution migration persists controls and rejects over-limit reservat
     ['CR123456'],
   )).rows[0];
   assert.deepEqual(control, { active: false, paused: true, stop_reason: 'DRAWDOWN_LIMIT' });
+});
+
+test('daily analytics counts settled outcomes at Tanzania midnight', async () => {
+  const start = Date.parse('2026-11-22T21:00:00Z') / 1000;
+  class HistorySocket extends BrokerSocket {
+    send(raw) {
+      const request = JSON.parse(raw);
+      if (request.req_id === 2) assert.equal(request.date_from, String(start));
+      const transactions = [[1, 20, start], [2, 0, start + 1], [3, 10, start + 2], [4, 20, start - 1]]
+        .map(([transaction_id, sell_price, sell_time]) => ({ transaction_id, buy_price: 10, sell_price, sell_time }));
+      const response = { req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions } };
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+    }
+  }
+  const history = await readRealHistory({
+    account: realAccount, token: 'fixture', fetchImpl: otpFetch, Socket: HistorySocket,
+    now: () => (start + 60) * 1000,
+  });
+  assert.deepEqual(history.today, { date: '2026-11-23', wins: 1, losses: 1, total: 3 });
 });

@@ -210,25 +210,62 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
   });
 }
 
-export async function readRealHistory({ account, token, appId, fetchImpl = fetch, Socket }) {
+export async function readRealHistory({ account, token, appId, fetchImpl = fetch, Socket, now = Date.now }) {
   if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
-    const response = await sendAndWait(socket, {
-      profit_table: 1,
-      limit: 25,
-      sort: 'DESC',
-    }, 'profit_table', 1);
-    const rows = response?.profit_table?.transactions;
-    if (!Array.isArray(rows)) throw codedError('INVALID_HISTORY_RESPONSE');
-    const transactions = rows.map(row => {
-      const id = contractIdentifier(row.transaction_id);
-      const buy = Number(row.buy_price);
-      const sell = Number(row.sell_price);
-      if (!Number.isFinite(buy) || buy < 0 || !Number.isFinite(sell) || sell < 0)
-        throw codedError('INVALID_HISTORY_RESPONSE');
-      return { id, buy, sell };
-    });
-    return { accountId: account.account_id, transactions, observedAt: new Date().toISOString() };
+    const observedAt = new Date(now());
+    // Tanzania (EAT) is UTC+03:00 year-round.
+    const eatOffset = 3 * 3600;
+    const epoch = Math.floor(observedAt.getTime() / 1000);
+    const start = Math.floor((epoch + eatOffset) / 86400) * 86400 - eatOffset;
+    const date = new Date((start + eatOffset) * 1000).toISOString().slice(0, 10);
+    async function readPage(params, requestId) {
+      const response = await sendAndWait(socket, {
+        profit_table: 1, sort: 'DESC', ...params,
+      }, 'profit_table', requestId);
+      const rows = response?.profit_table?.transactions;
+      if (!Array.isArray(rows)) throw codedError('INVALID_HISTORY_RESPONSE');
+      return rows.map(row => {
+        const id = contractIdentifier(row.transaction_id);
+        const buy = Number(row.buy_price);
+        const sell = Number(row.sell_price);
+        const settledAt = Number(row.sell_time);
+        if (row.buy_price == null || row.sell_price == null ||
+            !Number.isFinite(buy) || buy < 0 || !Number.isFinite(sell) || sell < 0)
+          throw codedError('INVALID_HISTORY_RESPONSE');
+        return { id, buy, sell, settledAt };
+      });
+    }
+
+    const transactions = await readPage({ limit: 25 }, 1);
+    let today = null;
+    try {
+      const daily = new Map();
+      const limit = 500;
+      // Keep the query bounded. Never present a truncated count as a daily total.
+      for (let page = 0; page < 8; page++) {
+        const rows = await readPage({
+          limit, offset: page * limit, date_from: String(start), date_to: String(epoch),
+        }, page + 2);
+        if (rows.some(row => !Number.isSafeInteger(row.settledAt) || row.settledAt <= 0)) break;
+        for (const row of rows) {
+          if (row.settledAt >= start && row.settledAt <= epoch) daily.set(row.id, row);
+        }
+        if (rows.length < limit) {
+          const settled = [...daily.values()];
+          today = {
+            date,
+            wins: settled.filter(row => row.sell > row.buy).length,
+            losses: settled.filter(row => row.sell < row.buy).length,
+            total: settled.length,
+          };
+          break;
+        }
+      }
+    } catch {
+      // The recent log remains available when the daily broker query fails.
+    }
+    return { accountId: account.account_id, transactions, today, observedAt: observedAt.toISOString() };
   });
 }
 

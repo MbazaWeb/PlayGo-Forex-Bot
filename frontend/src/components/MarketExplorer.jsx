@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ProChart from './ProChart';
 import { publicRequest, readCandles, readMarkets } from './derivMarkets';
+
+const CATALOG_REQUEST = { active_symbols: 'brief' };
 
 function useRequest(key, payload, parse) {
   const [result, setResult] = useState({});
@@ -18,7 +20,7 @@ function useRequest(key, payload, parse) {
 }
 
 export function useMarketList(initialSymbol) {
-  const [result, retry] = useRequest('catalog', { active_symbols: 'brief' }, readMarkets);
+  const [result, retry] = useRequest('catalog', CATALOG_REQUEST, readMarkets);
   const [symbol, setSymbol] = useState(initialSymbol || 'R_75');
   const rows = result.rows || [];
   const market = rows.find((row) => row.symbol === symbol) || rows[0] || null;
@@ -57,10 +59,11 @@ export default function MarketExplorer({ catalog, overview }) {
   const [interval, setInterval] = useState(3600);
   const { market, result } = catalog;
 
-  const payload = market ? {
-    ticks_history: market.symbol, style: 'candles', end: 'latest',
+  const symbol = market?.symbol;
+  const payload = useMemo(() => symbol ? {
+    ticks_history: symbol, style: 'candles', end: 'latest',
     adjust_start_time: 1, count: 200, granularity: interval,
-  } : null;
+  } : null, [symbol, interval]);
 
   const [history, reload] = useRequest(market ? market.symbol + '/' + interval : '', payload, readCandles);
   const data = history.rows;

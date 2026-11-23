@@ -164,7 +164,7 @@ export default function App() {
               <h2>Connections</h2>
               <div className="setting-line"><span>Deriv</span><strong>Connected</strong></div>
               <div className="setting-line"><span>MetaTrader 5</span><strong>{mt5?.status || 'Not linked'}</strong></div>
-              <div className="setting-line"><span>Accounts</span><strong>{usableAccounts.length} connected</strong></div>
+              <div className="setting-line"><span>Accounts</span><strong>{accounts?.length ?? 0} connected</strong></div>
             </section>
           )}
         </main>

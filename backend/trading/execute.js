@@ -210,6 +210,9 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
       contracts.push({
         id,
         symbol: typeof contract.underlying_symbol === 'string' ? contract.underlying_symbol : null,
+        contractType: contract.contract_type ?? row.contract_type ?? null,
+        entrySpot: contract.entry_spot_display_value ?? contract.entry_spot ?? contract.entry_tick ?? null,
+        currentSpot: contract.current_spot_display_value ?? contract.current_spot ?? null,
         profit: Number(contract.profit),
         canSell: contract.is_valid_to_sell === 1,
         stake,

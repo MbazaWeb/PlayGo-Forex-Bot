@@ -1,3 +1,4 @@
+import AccountActivity from './AccountActivity';
 import ConfirmDialog from './ConfirmDialog';
 import { AUTOMATIC_SETUP, automaticEntryBlock } from '../../../shared/agent-analysis.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -109,8 +110,9 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   });
 
   const trackContract = useCallback(id => {
+    if (id) window.dispatchEvent(new CustomEvent('playgo:position', { detail: account?.account_id }));
     if (id) setPendingContracts(previous => previous.includes(String(id)) ? previous : [...previous, String(id)]);
-  }, []);
+  }, [account?.account_id]);
 
   const recordActivity = useCallback((message) => {
     setActivities((previous) => [activityEntry(message), ...previous].slice(0, 8));
@@ -543,6 +545,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
         {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}
       </section>
+      {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
       <section aria-label="Bot results">
         <div className="panelhead"><div><h2>Bot results</h2><p>Tracked on this browser</p></div></div>
         <div className="metrics bot-results">

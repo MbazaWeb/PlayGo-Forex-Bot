@@ -68,6 +68,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
         : order.status === 'ordered'
         ? `Deriv accepted contract ${order.contractId}.`
         : `No new order placed. ${(order.reason || order.status).replaceAll('_', ' ')}.`;
+      if (order.status === 'ordered') window.dispatchEvent(new CustomEvent('playgo:position', { detail: account.account_id }));
       setResult(message);
     } catch (error) {
       setResult(error.message || 'Order status unavailable. Check Account Activity before retrying.');

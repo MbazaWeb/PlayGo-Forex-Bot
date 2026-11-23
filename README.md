@@ -11,7 +11,7 @@ PlayGo Trading is a Deriv workspace for Demo and Real accounts. Bot Agents analy
 - "Place Trade Now" performs an immediate server-side analysis and risk check; it does not bypass the signal threshold. If it places an order on an inactive account, Bot Agents stay active there for exit monitoring and later scheduled checks until stopped. Scheduled checks use the selected candle interval and run only while the signed-in Bot Agents page is open.
 - Stop-loss and take-profit percentages are required and stored with each account's persistent agent control. They monitor each contract's floating P&L relative to its stake and submit best-effort sell requests; they are not broker-side guarantees. The current Deriv CALL/PUT path does not support FOK.
 - The Emergency Agent pauses new orders when verified equity reaches 80% of the balance captured when the agent was first started. It then attempts to close open contracts. Broker acceptance and fills are not guaranteed, so this is not a guaranteed maximum-loss cap.
-- Both account types require the execution database migration and a valid Deriv OAuth session. Real-money execution also requires `LIVE_TRADING_ENABLED=true` and `LIVE_TRADING_CONFIRM` set to the exact real account ID. Tests use mock broker responses; they never submit a real order.
+- Both account types require the execution database migration and a valid Deriv OAuth session. Real buys also require both live keys, separately logged human approval and verified settlement qualification. Tests use mocked broker responses.
 
 The database migration is [real_execution.sql](./backend/deriv_execution/real_execution.sql). Apply it only to the intended database after reviewing it. Do not apply it to a hosted database as part of local development.
 

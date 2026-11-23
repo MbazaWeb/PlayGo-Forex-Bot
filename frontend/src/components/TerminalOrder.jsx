@@ -21,7 +21,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
     return () => controller.abort();
   }, [symbol, durationAttempt]);
 
-  const availability = contractOptions?.symbol === symbol && contractOptions.durationAttempt === durationAttempt ? contractOptions : null;
+  const availability = contractOptions && contractOptions.symbol === symbol && contractOptions.durationAttempt === durationAttempt ? contractOptions : null;
   const durations = DURATIONS.filter(minutes =>
     availability?.options?.CALL.includes(minutes) || availability?.options?.PUT.includes(minutes));
   const duration = durations.includes(preferredDuration) ? preferredDuration : durations[0];

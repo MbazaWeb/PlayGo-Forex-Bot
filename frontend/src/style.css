@@ -271,3 +271,11 @@ option{background:#1b2735}
 .terminal-ticket-fields select { width: 100%; min-width: 0; }
 .terminal-order .terminal-order-status { color: #becde0; font-size: .85rem; }
 .terminal-order button:disabled { opacity: .45; cursor: not-allowed; }
+
+.trade-log { margin-top: 18px; }
+.trade-log h3 { margin: 0 0 8px; }
+.trade-outcome-summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.trade-outcome { display: inline-block; padding: 3px 8px; border: 1px solid currentColor; border-radius: 999px; white-space: nowrap; }
+.trade-log [data-outcome="Win"] { color: #64e6a9; }
+.trade-log [data-outcome="Loss"] { color: #ff8397; }
+.trade-log [data-outcome="Break-even"] { color: #aab8c9; }

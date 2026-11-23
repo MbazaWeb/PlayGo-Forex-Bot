@@ -42,11 +42,10 @@ function useRequest(key, payload, parse, refreshMs) {
   return [result.key === key && result.attempt === attempt ? result : {}, () => retry((n) => n + 1)];
 }
 
-export function useMarketList(initialSymbol) {
+export function useMarketList(symbol, setSymbol) {
   const [result, retry] = useRequest('catalog', CATALOG_REQUEST, readMarkets, STATUS_REFRESH_MS);
-  const [symbol, setSymbol] = useState(initialSymbol || 'R_75');
   const rows = result.rows || [];
-  const market = rows.find((row) => row.symbol === symbol) || rows[0] || null;
+  const market = rows.find((row) => row.symbol === (symbol || 'R_75')) || (!symbol ? rows[0] : null) || null;
   return { market, rows, setSymbol, result, retry };
 }
 
@@ -59,11 +58,11 @@ export function InstrumentSelect({ catalog }) {
   return (
     <select
       aria-label="Market"
-      disabled={!catalog.market}
+      disabled={!catalog.rows.length}
       value={catalog.market?.symbol || ''}
       onChange={(e) => catalog.setSymbol(e.target.value)}
     >
-      {!catalog.market && <option value="">Select market</option>}
+      {!catalog.market && <option value="">{catalog.rows.length ? 'Choose an available market' : 'Select market'}</option>}
       {[...groups].map(([group, rows]) => (
         <optgroup key={group} label={group}>
           {rows.map((row) => (

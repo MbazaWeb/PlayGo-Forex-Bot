@@ -27,7 +27,7 @@ function activityEntry(message) {
   return { id: `${Date.now()}-${Math.random()}`, at: new Date().toISOString(), message };
 }
 
-export default function TradeAgent({ account, realExecutionEnabled, initialSymbol }) {
+export default function TradeAgent({ account, realExecutionEnabled, marketSymbol, onMarketChange }) {
   const [markets, setMarkets] = useState([]);
   const [catalogState, setCatalogState] = useState('loading');
   const [catalogAttempt, setCatalogAttempt] = useState(0);
@@ -35,7 +35,7 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
   const [savedSetup] = useState(() => {
     try { return setupKey && JSON.parse(localStorage.getItem(setupKey)); } catch { return null; }
   });
-  const [symbol, setSymbol] = useState(initialSymbol || savedSetup?.symbol || 'R_75');
+  const symbol = marketSymbol || 'R_75';
   const [manual, setManual] = useState(savedSetup?.manual === true);
   const [manualInterval, setCandleInterval] = useState(
     INTERVALS.some(([seconds]) => seconds === savedSetup?.interval) ? savedSetup.interval : 60,
@@ -84,7 +84,7 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
   }, [catalogAttempt, recordActivity]);
 
   const selectedMarket = useMemo(
-    () => markets.find((market) => market.symbol === symbol) || markets[0] || null,
+    () => markets.find((market) => market.symbol === symbol) || null,
     [markets, symbol],
   );
 
@@ -390,7 +390,7 @@ export default function TradeAgent({ account, realExecutionEnabled, initialSymbo
               <select
                 value={selectedMarket?.symbol || ''}
                 disabled={!markets.length || analyzing || agentRunning || agentBusy}
-                onChange={(event) => setSymbol(event.target.value)}
+                onChange={(event) => onMarketChange(event.target.value)}
               >
                 {markets.map((market) => (
                   <option key={market.symbol} value={market.symbol}>{market.name} ({market.symbol})</option>

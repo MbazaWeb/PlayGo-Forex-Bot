@@ -35,8 +35,7 @@ export default function App() {
   const [mt5, setMt5] = useState(null);
   const [page, setPage] = useState('Overview');
   const [mobile, setMobile] = useState(false);
-  const [botSymbol, setBotSymbol] = useState();
-  const [terminalSymbol, setTerminalSymbol] = useState('R_75');
+  const [marketSymbol, setMarketSymbol] = useState('');
 
   async function load() {
     setLoading(true); setError(''); setAccounts(null); setMt5(null);
@@ -91,8 +90,7 @@ export default function App() {
   }
 
   function navigate(next, symbol) {
-    if (next === 'Bot Agents') setBotSymbol(symbol);
-    else if (symbol) setTerminalSymbol(symbol);
+    if (symbol) setMarketSymbol(symbol);
     setPage(next === 'Accounts' || next === 'Portfolio' ? 'Bot Agents' : next);
     setMobile(false);
   }
@@ -157,11 +155,11 @@ export default function App() {
           </div>
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
           {loading && <p role="status">Loading...</p>}
-          {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} />}
-          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} initialSymbol={botSymbol} realExecutionEnabled={session.execution === true} />}
+          {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} />}
+          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} realExecutionEnabled={session.execution === true} />}
           {!loading && page === 'Trading Terminal' && (
             <React.Suspense fallback={<p>Loading...</p>}>
-              <MarketWorkspace page="Trading Terminal" initialSymbol={terminalSymbol} account={selectedAccount} accounts={accounts} onSelectAccount={selectAccount} executionEnabled={session.execution === true} changePage={navigate} />
+              <MarketWorkspace page="Trading Terminal" marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} account={selectedAccount} accounts={accounts} onSelectAccount={selectAccount} executionEnabled={session.execution === true} changePage={navigate} />
             </React.Suspense>
           )}
           {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}

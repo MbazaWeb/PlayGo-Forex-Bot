@@ -6,7 +6,7 @@ import AccountActivity from './AccountActivity';
 const MarketChart = React.lazy(() => import('./MarketChart'));
 const MarketWorkspace = React.lazy(() => import('./MarketWorkspace'));
 
-export default function AccountDashboard({ accounts, mt5, navigate, analytics = false }) {
+export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol, onMarketChange, analytics = false }) {
   const account = accounts?.[0];
   const id = account?.account_id;
   const [history, setHistory] = useState(null);
@@ -27,10 +27,12 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
           .slice()
           .reverse()
           .map((t) => {
-            const sell = Number(t?.sell);
+            if (t?.sell == null || t?.buy == null) return null;
+            const sell = Number(t.sell);
             const buy = Number(t?.buy);
             if (!Number.isFinite(sell) || !Number.isFinite(buy)) return null;
-            return { time: String(t.id), value: Number((sell - buy).toFixed(8)) };
+            const value = Number((sell - buy).toFixed(8));
+            return { time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
           })
           .filter(Boolean);
         if (!controller.signal.aborted) setHistory({ id, points });
@@ -45,6 +47,8 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
   const points = result?.points;
   const currency = account?.currency ?? '';
   const wins = points?.filter((t) => t.value > 0).length ?? 0;
+  const losses = points?.filter(t => t.status === 'Loss').length ?? 0;
+  const even = (points?.length ?? 0) - wins - losses;
   const winRate = points?.length ? (100 * wins / points.length).toFixed(1) + '%' : '—';
 
   return (
@@ -73,7 +77,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
 
       {!analytics && (
         <React.Suspense fallback={<p>Loading markets...</p>}>
-          <MarketWorkspace page="Overview" changePage={navigate} />
+          <MarketWorkspace page="Overview" changePage={navigate} marketSymbol={marketSymbol} onMarketChange={onMarketChange} />
         </React.Suspense>
       )}
 
@@ -87,7 +91,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
 
         {points?.length ? (
           <React.Suspense fallback={<p>Loading chart...</p>}>
-            <MarketChart data={points} />
+            <MarketChart data={points} outcomes label={currency ? `P&L (${currency})` : 'P&L'} />
           </React.Suspense>
         ) : (
           <p role="status">
@@ -102,19 +106,27 @@ export default function AccountDashboard({ accounts, mt5, navigate, analytics = 
         )}
 
         {analytics && points?.length > 0 && (
-          <table>
+          <div className="trade-log">
+          <h3>Closed trades</h3>
+          <div className="trade-outcome-summary">
+            <span data-outcome="Win">{wins} wins</span>
+            <span data-outcome="Loss">{losses} losses</span>
+            <span data-outcome="Break-even">{even} break-even</span>
+          </div>
+          <div className="tablewrap"><table>
             <thead>
-              <tr><th>Transaction</th><th>Realized P&L</th></tr>
+              <tr><th>Transaction</th><th>Status</th><th>Realized P&L</th></tr>
             </thead>
             <tbody>
               {points.slice().reverse().map((t) => (
                 <tr key={t.time}>
                   <td>{t.time}</td>
-                  <td>{t.value.toFixed(2)} {currency}</td>
+                  <td><span className="trade-outcome" data-outcome={t.status}>{t.status}</span></td>
+                  <td data-outcome={t.status}>{t.value > 0 ? '+' : ''}{t.value.toFixed(2)} {currency}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div></div>
         )}
       </section>
 

@@ -3,8 +3,8 @@ import { ArrowUpRight, ChartCandlestick, ChartNoAxesCombined } from 'lucide-reac
 import TerminalOrder from './TerminalOrder';
 import MarketExplorer, { useMarketList } from './MarketExplorer';
 
-export default function MarketWorkspace({ page, changePage, initialSymbol, account, accounts, onSelectAccount, executionEnabled }) {
-  const catalog = useMarketList(initialSymbol);
+export default function MarketWorkspace({ page, changePage, marketSymbol, onMarketChange, account, accounts, onSelectAccount, executionEnabled }) {
+  const catalog = useMarketList(marketSymbol, onMarketChange);
   const go = (next, symbol) => {
     if (typeof changePage === 'function') changePage(next, symbol);
   };

@@ -82,6 +82,27 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     try { localStorage.setItem(pendingKey, JSON.stringify(pendingContracts)); } catch {}
   }, [pendingKey, pendingContracts]);
 
+  const settledKey = pendingKey && pendingKey + ':settled';
+  const [settledTrades, setSettledTrades] = useState(() => {
+    if (!settledKey) return {};
+    try {
+      const stored = JSON.parse(localStorage.getItem(settledKey) || '{}');
+      return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    if (!settledKey) return;
+    try { localStorage.setItem(settledKey, JSON.stringify(settledTrades)); } catch {}
+  }, [settledKey, settledTrades]);
+
+  const trackedAmounts = Object.values(settledTrades).filter(Number.isFinite);
+  const winningAmounts = trackedAmounts.filter(value => value > 0);
+  const losingAmounts = trackedAmounts.filter(value => value < 0);
+  const total = values => values.reduce((sum, value) => sum + value, 0);
+  const botMoney = new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: account?.currency || 'USD', signDisplay: 'exceptZero',
+  });
+
   const trackContract = useCallback(id => {
     if (id) setPendingContracts(previous => previous.includes(String(id)) ? previous : [...previous, String(id)]);
   }, []);
@@ -101,7 +122,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         if (!response.ok) return;
         const body = await response.json();
         if (controller.signal.aborted || body.accountId !== id || !Array.isArray(body.transactions)) return;
-        const settled = new Set();
+        const settled = new Map();
         for (const row of body.transactions) {
           const contractId = row.contractId;
           if (!pendingContracts.includes(contractId) || settled.has(contractId) ||
@@ -112,9 +133,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           }).format(pnl);
           const outcome = pnl > 0 ? 'Win' : pnl < 0 ? 'Loss' : 'Break-even';
           recordActivity(`Closed #${contractId} · ${outcome} ${amount}`);
-          settled.add(contractId);
+          settled.set(contractId, Number(pnl.toFixed(8)));
         }
         if (settled.size) {
+          setSettledTrades(previous => ({ ...previous, ...Object.fromEntries(settled) }));
           setPendingContracts(previous => previous.filter(contractId => !settled.has(contractId)));
           window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: id }));
         }
@@ -131,7 +153,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   useEffect(() => {
     const controller = new AbortController();
     setCatalogState('loading');
-    recordActivity('Loading the live market list.');
     publicRequest({ active_symbols: 'full' }, controller.signal)
       .then(readMarkets)
       .then((rows) => {
@@ -139,7 +160,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         if (!rows.length) throw new Error('No markets returned.');
         setMarkets(rows);
         setCatalogState('ready');
-        recordActivity(`Market list loaded: ${rows.length} symbols.`);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
@@ -158,7 +178,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     if (!selectedMarket) return undefined;
     const controller = new AbortController();
     setAnalysis({ status: 'loading', progress: 15 });
-    recordActivity(`Requesting ${selectedMarket.symbol} candle data.`);
 
     publicRequest({
       ticks_history: selectedMarket.symbol,
@@ -171,7 +190,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       .then(readCandles)
       .then((candles) => {
         if (controller.signal.aborted) return;
-        recordActivity(`Received ${candles.length} valid candles for ${selectedMarket.symbol}.`);
         const result = analyzeCandles(candles, interval);
         setAnalysis({ ...result, progress: 100, symbol: selectedMarket.symbol, interval });
         recordActivity(result.status === 'ready'
@@ -498,12 +516,20 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
         {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}
       </section>
+      <section aria-label="Bot results">
+        <div className="panelhead"><div><h2>Bot results</h2><p>Tracked on this browser</p></div></div>
+        <div className="metrics bot-results">
+          <div className="metric"><small>{winningAmounts.length} wins</small><strong className="gain">{botMoney.format(total(winningAmounts))}</strong></div>
+          <div className="metric"><small>{losingAmounts.length} losses</small><strong className="loss">{botMoney.format(total(losingAmounts))}</strong></div>
+          <div className="metric"><small>{trackedAmounts.length} settled · Net</small><strong>{botMoney.format(total(trackedAmounts))}</strong></div>
+        </div>
+      </section>
       <section className="panel agent-flow" aria-label="Agent workflow">
-        <div className="panelhead"><div><h2>Agent workflow</h2><p>{manual ? 'Manual setup uses the selected market.' : 'Automatic mode checks up to five open markets per cycle.'}</p></div></div>
+        <div className="panelhead"><div><h2>Agent workflow</h2></div></div>
         <ol className="agent-flow-steps">
           <li><strong>Market Scout</strong><small>{scan?.running ? scan.current : scan ? `${scan.checked} market(s) checked` : 'Waiting for next scan'}</small></li>
           <li><strong>Strategy</strong><small>{scan?.rows.at(-1)?.strategy || 'Trend + momentum / breakout'}</small></li>
-          <li><strong>Risk</strong><small>Candle integrity, volatility, exposure and drawdown</small></li>
+          <li><strong>Risk</strong><small>{monitoringActive ? 'Monitoring' : 'Standby'}</small></li>
           <li><strong>Execution</strong><small>{scan?.rows.at(-1)?.status === 'ordered' ? 'Order confirmed' : 'Waiting for eligible signal'}</small></li>
         </ol>
         {scan && <div className="agent-scan">
@@ -615,8 +641,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           </label>
         </div>}
         {accountId && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
-        <p>Stake is automatically 1% of the selected account's verified balance. Entry checks follow the candle interval. Exit checks run about every 15 seconds while this page is open.</p>
-        <p>Exit targets trigger sell requests. The price and execution depend on Deriv.</p>
         {!exitSettingsValid && <p role="status">Enter valid stop-loss and take-profit percentages to enable trading.</p>}
       </section>
 
@@ -626,27 +650,25 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           <strong>{analysis.progress || 0}%</strong>
         </div>
         <progress max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
-        <p>Entry score required {manual ? 75 : AUTOMATIC_SETUP.minimumScore}/100. {!manual && 'Automatic entries also pause during elevated volatility.'}</p>
       </section>
 
       <div className="agent-card-grid">
         <AgentCard title="Risk Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
           {ready
-            ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}% average absolute move per bar.</p>
-            : <p>Waiting for enough valid market candles.</p>}
+            ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}%</p>
+            : <p>Waiting for candles.</p>}
         </AgentCard>
         <AgentCard title="Strategies Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
           {ready
             ? <p>SMA 20 {analysis.sma20.toFixed(5)} · SMA 50 {analysis.sma50.toFixed(5)} · RSI {analysis.rsi.toFixed(1)} · momentum {analysis.momentumPct.toFixed(3)}%.</p>
-            : <p>Trend, momentum, and RSI checks will appear after analysis.</p>}
+            : <p>Waiting for signal.</p>}
         </AgentCard>
         <AgentCard title="Reminder Agent" status={ready ? 'Ready' : 'Waiting'}>
           {ready
-            ? <p>Review after the next {INTERVALS.find(([seconds]) => seconds === interval)?.[1]} candle, around {new Date(analysis.reviewAt * 1000).toLocaleTimeString()}.</p>
-            : <p>Reminder timing is based on the latest retrieved candle.</p>}
+            ? <p>Next check {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p>
+            : <p>Waiting for next check.</p>}
         </AgentCard>
         <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
-          <p>{accountSummary} Stake sizing uses 1% of the broker-reported balance. Account equity includes floating contract P&L.</p>
           {validAccounts?.map((account, index) => {
             const latest = agentStatuses.find(item => item.accountId === account.account_id);
             const equity = latest?.result?.equity ?? latest?.equity;
@@ -664,8 +686,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           })}
         </AgentCard>
         <AgentCard title="Emergency Agent" status={monitoringActive ? 'Monitoring' : agentRunning ? 'Settings required' : 'Standby'}>
-          <p>Stops new orders at 20% drawdown from the starting balance and attempts to close open contracts.</p>
-          <p>Monitoring runs while this page is open.</p>
         </AgentCard>
         <AgentCard title="Bot Agents" status={monitoringActive ? 'Running' : agentRunning ? 'Settings required' : ready ? 'Ready' : analyzing ? 'Analyzing' : 'Waiting'}>
           <p className="agent-recommendation">{recommendation}</p>
@@ -705,7 +725,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           void (confirmation === 'start' ? startAgent() : placeTradeNow());
         }}>
         <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
-        <p>Orders require a qualifying signal. Each order stakes 1% of the balance. The bot may place later qualifying orders until stopped.</p>
+        <p>1% stake per order. Keep Bot Agents open for scheduled checks.</p>
       </ConfirmDialog>}
     </div>
   );

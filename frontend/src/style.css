@@ -261,3 +261,6 @@ td[data-outcome] { font-weight: 650; }
 @keyframes agent-spin { to { transform:rotate(360deg); } }
 @media(max-width:650px) { .agent-flow-steps { grid-template-columns:repeat(2,minmax(0,1fr)); } .agent-flow-steps li:nth-child(even)::after { content:none; } }
 @media(prefers-reduced-motion:reduce) { .agent-card[data-working=true] .agent-state::before { animation:none; } }
+
+.bot-results { margin-bottom: 0; }
+.bot-results .loss { color: var(--loss); }

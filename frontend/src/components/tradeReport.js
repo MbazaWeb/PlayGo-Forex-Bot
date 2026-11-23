@@ -92,6 +92,38 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
       }),
     ]);
   }
+  // Only identify symbol families with known Deriv synthetic-index codes.
+  const synthetic = rows.filter(trade => /^(?:R_(?:10|25|50|75|100)|1HZ(?:10|15|25|30|50|75|90|100|150|200|250)V|(?:BOOM|CRASH)\d+|JD\d+)$/i.test(evidence?.[trade.contractId]?.symbol || ''));
+  const cohorts = new Map();
+  for (const trade of synthetic.slice().reverse()) {
+    const detail = evidence[trade.contractId];
+    const key = detail.symbol + ' | ' + (detail.strategy || 'Strategy unavailable');
+    if (!cohorts.has(key)) cohorts.set(key, []);
+    cohorts.get(key).push(trade);
+  }
+  const net = trades => trades.reduce((sum, trade) => sum + trade.value, 0);
+  const groups = [...cohorts.entries()];
+  for (let offset = 0; offset < groups.length || offset === 0; offset += 10) {
+    pages.push([
+      'Synthetic-index review',
+      synthetic.length + ' identified synthetic-index settlements in this export.',
+      'Recognized families: Volatility, Boom, Crash and Jump.',
+      'Unidentified markets are excluded. Figures use settled P&L.',
+      '',
+      ...groups.slice(offset, offset + 10).flatMap(([name, trades]) => {
+        const midpoint = Math.floor(trades.length / 2);
+        const winCount = trades.filter(trade => trade.value > 0).length;
+        return [
+          name,
+          trades.length + ' trades | ' + winCount + ' wins | Net ' + money(net(trades)),
+          midpoint ? 'Earlier / later net: ' + money(net(trades.slice(0, midpoint))) + ' / ' + money(net(trades.slice(midpoint)))
+            : 'One trade: too little data to compare periods.',
+          '',
+        ];
+      }),
+      ...(!groups.length ? ['No trades with a recognized synthetic-index symbol in this sample.'] : []),
+    ]);
+  }
   const missingStrategy = rows.filter(trade => !evidence?.[trade.contractId]?.strategy).length;
   pages.push([
     'Suggested improvements',
@@ -104,6 +136,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     '',
     '2. Compare strategies on Demo using the same stake, market and test period.',
     '   Compare net P&L, drawdown and average outcome before changing entry rules.',
+    '   Then test any proposed change on a separate Demo period before adopting it.',
     '',
     '3. Check evidence coverage. ' + missingStrategy + ' settlements have no recorded strategy.',
     '   Capture the entry signal and early-sale outcome for trades with missing evidence.',

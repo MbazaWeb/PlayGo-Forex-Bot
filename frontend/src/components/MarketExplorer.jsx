@@ -2,25 +2,48 @@ import React, { useEffect, useMemo, useState } from 'react';
 import ProChart from './ProChart';
 import { publicRequest, readCandles, readMarkets } from './derivMarkets';
 
-const CATALOG_REQUEST = { active_symbols: 'brief' };
+const CATALOG_REQUEST = { active_symbols: 'full' };
+const STATUS_REFRESH_MS = 60_000;
+const STATUS_MARKS = {
+  Open: '\u{1F7E2}',
+  Closed: '\u{1F534}',
+  Suspended: '\u{1F7E1}',
+  Unknown: '\u26AA',
+};
 
-function useRequest(key, payload, parse) {
+function useRequest(key, payload, parse, refreshMs) {
   const [result, setResult] = useState({});
   const [attempt, retry] = useState(0);
   useEffect(() => {
     if (!key || payload == null) return;
     const controller = new AbortController();
-    publicRequest(payload, controller.signal)
-      .then(parse)
-      .then((rows) => { if (!controller.signal.aborted) setResult({ key, attempt, rows }); })
-      .catch(() => { if (!controller.signal.aborted) setResult({ key, attempt, error: true }); });
-    return () => controller.abort();
-  }, [key, payload, parse, attempt]);
+    let timer;
+    async function update() {
+      try {
+        const rows = parse(await publicRequest(payload, controller.signal));
+        if (!controller.signal.aborted) setResult({ key, attempt, rows });
+      } catch {
+        if (!controller.signal.aborted) setResult(previous => ({
+          key, attempt, error: true,
+          rows: refreshMs && previous.key === key
+            ? previous.rows?.map(row => ({ ...row, status: 'Unknown' }))
+            : undefined,
+        }));
+      } finally {
+        if (refreshMs && !controller.signal.aborted) timer = setTimeout(update, refreshMs);
+      }
+    }
+    void update();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [key, payload, parse, attempt, refreshMs]);
   return [result.key === key && result.attempt === attempt ? result : {}, () => retry((n) => n + 1)];
 }
 
 export function useMarketList(initialSymbol) {
-  const [result, retry] = useRequest('catalog', CATALOG_REQUEST, readMarkets);
+  const [result, retry] = useRequest('catalog', CATALOG_REQUEST, readMarkets, STATUS_REFRESH_MS);
   const [symbol, setSymbol] = useState(initialSymbol || 'R_75');
   const rows = result.rows || [];
   const market = rows.find((row) => row.symbol === symbol) || rows[0] || null;
@@ -45,7 +68,7 @@ export function InstrumentSelect({ catalog }) {
         <optgroup key={group} label={group}>
           {rows.map((row) => (
             <option key={row.symbol} value={row.symbol}>
-              {row.name} ({row.symbol})
+              {STATUS_MARKS[row.status]} {row.name} ({row.symbol}) - {row.status}
             </option>
           ))}
         </optgroup>
@@ -89,6 +112,11 @@ export default function MarketExplorer({ catalog, overview }) {
     <section className="panel chart-panel">
       <div className="panelhead">
         <div><h2>{overview ? 'Market Overview' : 'Market Chart'}</h2>{overview && <p>Deriv Options - Live prices</p>}</div>
+        {market && (
+          <span className="market-status" data-status={market.status} role="status">
+            {market.name} {market.status}
+          </span>
+        )}
       </div>
 
       <div className={overview ? 'market-controls' : 'terminal-market-controls'}>

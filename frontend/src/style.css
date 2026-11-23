@@ -240,3 +240,8 @@ option{background:#1b2735}
 .agent-setup-summary div { border: 1px solid #29324a; border-radius: 10px; padding: 12px; }
 .agent-setup-summary dt { font-size: 0.8rem; opacity: 0.75; }
 .agent-setup-summary dd { margin: 6px 0 0; font-weight: 600; }
+
+.market-status { align-self: flex-start; border: 1px solid currentColor; border-radius: 999px; padding: 4px 10px; font-size: 0.8rem; color: #aab8c9; }
+.market-status[data-status="Open"] { color: #64e6a9; }
+.market-status[data-status="Closed"] { color: #ff8397; }
+.market-status[data-status="Suspended"] { color: #ffcf69; }

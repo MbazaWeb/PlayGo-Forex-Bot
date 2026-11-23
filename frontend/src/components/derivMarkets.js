@@ -69,9 +69,13 @@ export function publicRequest(payload, signal) {
 
 export function readMarkets(response) {
   const unique = new Map();
-  for (const row of response?.active_symbols ?? []) {
+  const symbols = response?.active_symbols;
+  for (const row of Array.isArray(symbols) ? symbols : []) {
     if (typeof row?.underlying_symbol !== 'string' || !row.underlying_symbol) continue;
     unique.set(row.underlying_symbol, {
+      status: row.is_trading_suspended === 1 ? 'Suspended'
+        : row.exchange_is_open === 0 ? 'Closed'
+          : row.exchange_is_open === 1 && row.is_trading_suspended === 0 ? 'Open' : 'Unknown',
       symbol: row.underlying_symbol,
       name: row.underlying_symbol_name || row.underlying_symbol,
       group: (row.market || 'Other').replaceAll('_', ' '),

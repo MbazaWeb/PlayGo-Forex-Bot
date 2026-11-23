@@ -47,7 +47,7 @@ test('waits for a connecting WebSocket to open before closing after cancellation
 test('keeps unfamiliar market groups and deduplicates symbols', () => {
   const row = { underlying_symbol: 'X', underlying_symbol_name: 'Example', market: 'new_market' };
   assert.deepEqual(readMarkets({ active_symbols: [row, row, {}] }), [
-    { symbol: 'X', name: 'Example', group: 'new market' },
+    { status: 'Unknown', symbol: 'X', name: 'Example', group: 'new market' },
   ]);
 });
 
@@ -90,4 +90,15 @@ test('deduplicates by epoch and sorts ascending', () => {
 test('returns empty for null payload', () => {
   assert.deepEqual(readCandles(null), []);
   assert.deepEqual(readCandles({}), []);
+});
+test('reads Deriv market status and gives suspension priority', () => {
+  const symbols = [
+    { underlying_symbol: 'A', exchange_is_open: 1, is_trading_suspended: 0 },
+    { underlying_symbol: 'B', exchange_is_open: 0, is_trading_suspended: 0 },
+    { underlying_symbol: 'C', exchange_is_open: 1, is_trading_suspended: 1 },
+    { underlying_symbol: 'D', exchange_is_open: 0, is_trading_suspended: 1 },
+    { underlying_symbol: 'E', exchange_is_open: 1 },
+  ];
+  assert.deepEqual(readMarkets({ active_symbols: symbols }).map(row => row.status),
+    ['Open', 'Closed', 'Suspended', 'Suspended', 'Unknown']);
 });

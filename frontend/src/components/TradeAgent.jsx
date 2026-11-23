@@ -1,4 +1,5 @@
 import { brokerCoolingDown, brokerRequest, pauseBrokerRequests, simpleBotStatus } from './brokerRequest';
+import GoldResearch from './GoldResearch';
 import AccountActivity from './AccountActivity';
 import ConfirmDialog from './ConfirmDialog';
 import { AUTOMATIC_SETUP } from '../../../shared/agent-analysis.js';
@@ -674,6 +675,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           </li>)}</ul>}
         </div>}
       </section>
+      <GoldResearch market={markets.find(market => /^(?:frx)?XAUUSD$/i.test(market.symbol))} catalogLoading={catalogState === "loading"} />
       <section aria-label="Bot results">
         <div className="panelhead"><div><h2>Bot results</h2><p>Tracked on this browser</p></div></div>
         <div className="metrics bot-results">

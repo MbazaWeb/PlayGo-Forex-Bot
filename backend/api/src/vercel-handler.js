@@ -44,7 +44,11 @@ function cookies(req) {
 function cookie(name, value, seconds) {
   return name + '=' + value + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + seconds;
 }
-function respond(res, status, body) { res.status(status).json(body); }
+function respond(res, status, body) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(body));
+}
 function redirect(res, url) { res.writeHead(302, { Location: url }); res.end(); }
 
 export default async function handler(req, res) {
@@ -52,7 +56,9 @@ export default async function handler(req, res) {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  const routedPath = req.query.route ?? new URL(req.url, 'http://localhost').pathname.replace(/^\/api\/?/, '');
+  const url = new URL(req.url, 'http://localhost');
+  const query = req.query ? new URLSearchParams(req.query) : url.searchParams;
+  const routedPath = query.get('route') ?? url.pathname.replace(/^\/api\/?/, '');
   const path = String(routedPath).replace(/^\/+/, '');
   const configured = validConfig();
   const cs = cookies(req);
@@ -76,9 +82,9 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', cookie('__Host-playgo_oauth', '', 0));
     if (!configured) return respond(res, 503, { error: 'OAuth server is not configured' });
     const flow = open(cs['__Host-playgo_oauth']);
-    const state = String(req.query.state || '');
-    const code = typeof req.query.code === 'string' ? req.query.code : '';
-    if (typeof flow?.state !== 'string' || typeof flow.verifier !== 'string' || !state || !code || req.query.error ||
+    const state = query.get('state') || '';
+    const code = query.get('code') || '';
+    if (typeof flow?.state !== 'string' || typeof flow.verifier !== 'string' || !state || !code || query.get('error') ||
       Buffer.byteLength(state) !== Buffer.byteLength(flow.state) ||
       !timingSafeEqual(Buffer.from(state), Buffer.from(flow.state))) return redirect(res, ORIGIN + '/?auth_error=invalid_callback');
     try {
@@ -103,7 +109,7 @@ export default async function handler(req, res) {
 
   if (!session) return respond(res, 401, { error: 'Sign in with Deriv first.' });
 
-  const params = new URLSearchParams(req.query);
+  const params = query;
   const accountId = params.get('account');
   let accounts;
   try {

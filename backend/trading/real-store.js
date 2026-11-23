@@ -84,3 +84,15 @@ export async function transitionRealIntent({
     p_contract_id: contractId ?? null,
   }, { env, fetchImpl });
 }
+
+export async function recordExitCheck({ accountId, checks, env = process.env, fetchImpl = fetch }) {
+  await request(env, 'playgo_real_audit', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      account_id: accountId,
+      event_type: 'EXIT_TARGET_CHECK',
+      event_data: { checks },
+    }),
+  }, fetchImpl);
+}

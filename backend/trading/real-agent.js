@@ -14,6 +14,7 @@ import { marketIntegrityBlock, readMarketCandles } from './market-data.js';
 import {
   pauseRealControl,
   readRealControl,
+  recordExitCheck,
   reserveRealIntent,
   startRealControl,
   stopRealControl,
@@ -156,6 +157,7 @@ export async function placeRealAgentOrders({
             symbol,
             granularity,
             automatic: terminalAction === "bot" || automatic,
+            terminalOrder: Boolean(terminalAction),
             manualDirection: terminalAction === "buy" ? "CALL" : terminalAction === "sell" ? "PUT" : null,
             stopLossPercent,
             takeProfitPercent,
@@ -221,6 +223,7 @@ export async function runRealAgentTick({
   automatic = false,
   exitsOnly = false,
   marketScan = false,
+  terminalOrder = false,
   manualDirection = null,
   env = process.env,
   fetchImpl = fetch,
@@ -277,16 +280,48 @@ export async function runRealAgentTick({
   if (emergency.status !== 'watching')
     return { ...emergency, accountId: account.account_id };
 
-  const useUsdTargets = automatic && (marketScan || exitsOnly) && account.currency === 'USD';
+  const cappedDemo = automatic && !terminalOrder && account.account_type === 'demo' && account.currency === 'USD';
+  const useUsdTargets = cappedDemo || (automatic && (marketScan || exitsOnly) && account.currency === 'USD');
+  const usdBreaches = useUsdTargets ? portfolio.contracts.filter(contract =>
+    contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd
+  ) : [];
   const exitContracts = useUsdTargets
-    ? portfolio.contracts.filter(contract => contract.canSell &&
-        (contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd))
+    ? usdBreaches.filter(contract => contract.canSell)
     : contractsAtExitThresholds(portfolio.contracts, stopLossPercent, takeProfitPercent);
+  let closeResults = [];
   if (exitContracts.length) {
-    const closeResults = await closeRealContracts({
-      ...brokerOptions,
-      contractIds: exitContracts.map(contract => contract.id),
+    try {
+      closeResults = await closeRealContracts({
+        ...brokerOptions,
+        contractIds: exitContracts.map(contract => contract.id),
+      });
+    } catch (error) {
+      closeResults = exitContracts.map(contract => ({
+        contractId: contract.id, closed: false, reason: error.code || 'CLOSE_CONNECTION_FAILED',
+      }));
+    }
+  }
+
+  if (cappedDemo && usdBreaches.length) {
+    const outcomes = new Map(closeResults.map(result => [result.contractId, result]));
+    const checks = usdBreaches.map(contract => {
+      const outcome = outcomes.get(contract.id);
+      return {
+        contractId: contract.id,
+        profit: contract.profit,
+        canSell: contract.canSell,
+        outcome: !contract.canSell ? 'EARLY_SALE_UNAVAILABLE'
+          : outcome?.closed ? 'CLOSED' : outcome?.reason || 'CLOSE_UNCONFIRMED',
+      };
     });
+    try {
+      await recordExitCheck({ accountId: account.account_id, checks, env, fetchImpl });
+    } catch {
+      console.warn('PlayGo exit audit write failed');
+    }
+  }
+
+  if (exitContracts.length) {
     return {
       status: 'exited',
       reason: 'CONTRACT_EXIT_THRESHOLD',
@@ -301,6 +336,9 @@ export async function runRealAgentTick({
     };
   }
 
+  if (exitsOnly && cappedDemo && usdBreaches.length) {
+    return { status: 'watching', reason: 'EARLY_SALE_UNAVAILABLE', accountId: account.account_id };
+  }
   if (exitsOnly) return { status: 'watching', reason: 'EXIT_MONITORING', accountId: account.account_id };
 
   if (portfolio.contracts.length >= MAX_OPEN_CONTRACTS) {
@@ -346,7 +384,8 @@ export async function runRealAgentTick({
     };
   }
 
-  const stake = calculateStake(balance, account.currency);
+  const calculatedStake = calculateStake(balance, account.currency);
+  const stake = cappedDemo ? Math.min(calculatedStake, AUTOMATIC_SETUP.stopLossUsd) : calculatedStake;
   const duration = granularity / 60;
   const idempotencyKey = createHash('sha256')
     .update([account.account_id, symbol, granularity, analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity].join(':'))

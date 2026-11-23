@@ -50,6 +50,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const interval = manual ? manualInterval : AUTOMATIC_SETUP.interval;
   const checkInterval = manual ? manualInterval : AUTOMATIC_SETUP.checkInterval;
   const useUsdTargets = account?.currency === 'USD';
+  const cappedDemoStake = !manual && account?.account_type === 'demo' && useUsdTargets;
   const [refresh, setRefresh] = useState(0);
   const [analysis, setAnalysis] = useState({ status: 'waiting', progress: 0 });
   const [activities, setActivities] = useState([]);
@@ -437,11 +438,13 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         setAgentFeedback(`Opened ${confirmedCount} contract(s).${outcome?.reason === 'OPEN_CONTRACT_LIMIT' ? ' Open contract limit reached.' : ''}`);
         return;
       }
-      const reason = outcome?.reason?.replaceAll('_', ' ');
+      const reason = outcome?.reason === 'EARLY_SALE_UNAVAILABLE'
+        ? 'Exit target reached. Deriv is not offering an early sale for this position.'
+        : outcome?.reason?.replaceAll('_', ' ');
       setAgentFeedback(outcome?.status === 'ordered'
         ? `Order opened on ${outcome.symbol}.`
         : outcome?.status === 'watching' || outcome?.status === 'error'
-          ? `No order placed. ${reason || 'No qualifying setup.'}`
+          ? exitsOnly ? reason || 'Position check complete.' : `No order placed. ${reason || 'No qualifying setup.'}`
           : reason || (outcome ? 'Position check complete.' : 'No account result was returned.'));
     } catch (error) {
       if (requestGeneration !== generation.current) return;
@@ -684,8 +687,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           <dl className="agent-setup-summary">
             <div><dt>Markets</dt><dd>Up to {AUTOMATIC_SETUP.marketsPerScan} open markets</dd></div>
             <div><dt>Check interval</dt><dd>{checkInterval} seconds</dd></div>
-            <div><dt>Stop-loss target</dt><dd>{useUsdTargets ? '-$' + AUTOMATIC_SETUP.stopLossUsd + ' per position' : stopLossValue + '% of stake'}</dd></div>
-            <div><dt>Take-profit target</dt><dd>{useUsdTargets ? '+$' + AUTOMATIC_SETUP.takeProfitUsd + ' per position' : takeProfitValue + '% of stake'}</dd></div>
+            <div><dt>{cappedDemoStake ? 'Maximum stake' : 'Stop-loss target'}</dt><dd>{useUsdTargets ? (cappedDemoStake ? '$' : '-$') + AUTOMATIC_SETUP.stopLossUsd + ' per position' : stopLossValue + '% of stake'}</dd></div>
+            <div><dt>Early take-profit trigger</dt><dd>{useUsdTargets ? '+$' + AUTOMATIC_SETUP.takeProfitUsd + ' per position' : takeProfitValue + '% of stake'}</dd></div>
           </dl>
         )}
         {catalogState === 'error' ? (
@@ -783,7 +786,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             const equity = latest?.result?.equity ?? latest?.equity;
             const balance = Number(account.balance);
             const nextStake = Number.isFinite(balance) && balance > 0
-              ? Math.floor(balance * 0.01 * 1e8) / 1e8
+              ? Math.min(Math.floor(balance * 0.01 * 1e8) / 1e8, cappedDemoStake ? AUTOMATIC_SETUP.stopLossUsd : Infinity)
               : null;
             return (
               <p key={account.account_id}>
@@ -834,7 +837,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           void (confirmation === 'start' ? startAgent() : placeTradeNow());
         }}>
         <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
-        <p>1% stake per order. Keep Bot Agents open for scheduled checks.</p>
+        <p>{cappedDemoStake ? 'Up to $10 stake per order.' : 'Up to 1% stake per order.'} Keep Bot Agents open for scheduled checks.</p>
       </ConfirmDialog>}
     </div>
   );

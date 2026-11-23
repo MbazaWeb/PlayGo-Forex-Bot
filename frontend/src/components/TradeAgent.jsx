@@ -216,6 +216,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
 
   const validAccounts = useMemo(() => account ? [account] : [], [account]);
   const accountId = account?.account_id;
+  const [controlLoaded, setControlLoaded] = useState(false);
+  const [manuallyStopped, setManuallyStopped] = useState(() => {
+    try { return localStorage.getItem('playgo-agent-stop:' + accountId) === '1'; }
+    catch { return false; }
+  });
+  const autoStartDemo = account?.account_type === 'demo' && !manual;
   const accountLabel = account?.account_type === 'real' ? 'Real' : 'Demo';
   const executionAvailable = Boolean(accountId) && (accountLabel === 'Demo' || realExecutionEnabled);
   const accountSummary = accountId
@@ -250,7 +256,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const response = await fetch(`/api/agent/${path}${query.size ? `?${query}` : ''}`, {
       method: 'POST',
       headers: { 'X-PlayGo-Request': '1' },
-    }).catch(() => { throw new Error('Could not reach PlayGo. Check your connection.'); });
+      signal: AbortSignal.timeout(30_000),
+    }).catch(error => {
+      throw new Error(error.name === 'TimeoutError'
+        ? 'PlayGo request timed out. Checking again on the next scheduled run.'
+        : 'Could not reach PlayGo. Check your connection.');
+    });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
       const reason = typeof body?.error === 'string' ? body.error : 'Agent request failed';
@@ -269,7 +280,11 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       return undefined;
     }
     const controller = new AbortController();
-    fetch(`/api/agent/status?account=${encodeURIComponent(accountId)}`, { signal: controller.signal })
+    let retry;
+    function loadControl() {
+      fetch(`/api/agent/status?account=${encodeURIComponent(accountId)}`, {
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
+      })
       .then(async response => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body?.error || 'Agent status unavailable.');
@@ -278,6 +293,9 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       .then(body => {
         if (controller.signal.aborted) return;
         const statuses = Array.isArray(body.accounts) ? body.accounts : [];
+        const status = statuses.find(item => item.accountId === accountId);
+        if (!status || status.error) throw Error(status?.error || 'Account status unavailable.');
+        setControlLoaded(true);
         setAgentStatuses(statuses);
         setAgentRunning(statuses.some(item =>
           item.control?.active === true || item.control?.stop_reason === 'DRAWDOWN_LIMIT',
@@ -303,9 +321,16 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setAgentFeedback('Emergency Agent status unavailable.');
+        if (controller.signal.aborted) return;
+        setAgentFeedback('Bot status unavailable. Retrying automatically.');
+        retry = setTimeout(loadControl, 15000);
       });
-    return () => controller.abort();
+    }
+    loadControl();
+    return () => {
+      clearTimeout(retry);
+      controller.abort();
+    };
   }, [accountId]);
 
   const runAgent = useCallback(async (exitsOnly = false) => {
@@ -321,7 +346,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       if (scanning) {
         stage = 'Deriv market list';
         setScan({ checked: 0, total: 0, running: true, current: 'Refreshing open markets', rows: [] });
-        const currentMarkets = readMarkets(await publicRequest({ active_symbols: 'full' }));
+        const currentMarkets = readMarkets(await publicRequest({ active_symbols: 'full' }, AbortSignal.timeout(15_000)));
         if (requestGeneration !== generation.current || stopPending.current) return;
         const open = currentMarkets.filter(market => market.status === 'Open');
         const preferred = [activeMarket.current, selectedMarket.symbol];
@@ -460,8 +485,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     return () => clearInterval(timer);
   }, [agentRunning, emergencyRetry, exitSettingsValid, checkInterval, schedulerReady]);
 
+  const startPending = useRef(false);
   async function startAgent() {
-    if (agentBusy || !executionAvailable || !exitSettingsValid) return;
+    if (startPending.current || stopPending.current || agentBusy || !executionAvailable || !exitSettingsValid) return;
+    startPending.current = true;
     setAgentBusy(true);
     setAgentFeedback('');
     try {
@@ -473,6 +500,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       setAgentStatuses(statuses);
       const active = statuses.some(item => item.active === true);
       setAgentRunning(active);
+      if (active) {
+        setManuallyStopped(false);
+        try { localStorage.removeItem('playgo-agent-stop:' + accountId); } catch {}
+      }
       setAgentFeedback(active ? 'Bot Agents started.' : statuses[0]?.error || 'The selected account could not be started.');
       recordActivity(active
         ? `Bot Agents started on ${accountLabel} account ${accountId}.`
@@ -480,9 +511,22 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     } catch (error) {
       setAgentFeedback(error.message || 'Could not start Bot Agents.');
     } finally {
+      startPending.current = false;
       setAgentBusy(false);
     }
   }
+
+  const latestStart = useRef(startAgent);
+  useEffect(() => { latestStart.current = startAgent; }, [startAgent]);
+  const riskPaused = agentStatuses.some(item => item.control?.paused || item.paused || item.control?.stop_reason);
+  useEffect(() => {
+    if (!autoStartDemo || !controlLoaded || !schedulerReady || !exitSettingsValid ||
+        agentRunning || manuallyStopped || riskPaused) return;
+    const start = () => { void latestStart.current(); };
+    start();
+    const retry = setInterval(start, 15000);
+    return () => clearInterval(retry);
+  }, [autoStartDemo, controlLoaded, schedulerReady, exitSettingsValid, agentRunning, manuallyStopped, riskPaused]);
 
   async function placeTradeNow() {
     if (agentBusy || !executionAvailable || !selectedMarket || !ready ||
@@ -534,6 +578,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   async function stopAgent() {
     if (!accountId || stopPending.current) return;
     stopPending.current = true;
+    setManuallyStopped(true);
+    try { localStorage.setItem('playgo-agent-stop:' + accountId, '1'); } catch {}
     generation.current++;
     setStopping(true);
     try {

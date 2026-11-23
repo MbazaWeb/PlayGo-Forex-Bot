@@ -59,6 +59,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const [scan, setScan] = useState(null);
   const [nextScanSeconds, setNextScanSeconds] = useState(null);
   const activeMarket = useRef(null);
+  const fallbackOffset = useRef(0);
+  const [completedScans, setCompletedScans] = useState(0);
+  const [lastScanAt, setLastScanAt] = useState(null);
+  useEffect(() => () => { generation.current++; }, []);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatuses, setAgentStatuses] = useState([]);
   const [agentFeedback, setAgentFeedback] = useState('');
@@ -309,9 +313,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         if (requestGeneration !== generation.current || stopPending.current) return;
         const open = currentMarkets.filter(market => market.status === 'Open');
         const preferred = [activeMarket.current, selectedMarket.symbol];
-        candidates = [...open.filter(market => preferred.includes(market.symbol))
-          .sort((a, b) => preferred.indexOf(a.symbol) - preferred.indexOf(b.symbol)),
-          ...open.filter(market => !preferred.includes(market.symbol))].slice(0, 5);
+        const primary = open.filter(market => preferred.includes(market.symbol))
+          .sort((a, b) => preferred.indexOf(a.symbol) - preferred.indexOf(b.symbol));
+        const backups = open.filter(market => !preferred.includes(market.symbol));
+        const offset = fallbackOffset.current % Math.max(backups.length, 1);
+        candidates = [...primary, ...backups.slice(offset), ...backups.slice(0, offset)].slice(0, 5);
+        fallbackOffset.current += Math.max(1, 5 - primary.length);
         if (!candidates.length) {
           setScan({ checked: 0, total: 0, running: false, rows: [] });
           setAgentFeedback('No open markets are available for an entry check.');
@@ -347,6 +354,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           if (canContinue) continue;
         }
         break;
+      }
+      if (scanning && requestGeneration === generation.current) {
+        setCompletedScans(count => count + 1);
+        setLastScanAt(Date.now());
       }
       if (results.some(item => item.closeResults?.some(contract => contract.closed))) {
         window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
@@ -550,10 +561,18 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         </ol>
         {scan && <div className="agent-scan">
           <div className="agent-progress-heading">
-            <strong>{scan.running ? 'Checking with Deriv' : 'Scan finished'}</strong>
+            <strong>{scan.running ? 'Checking with Deriv' : `Scan ${completedScans || 1} complete`}</strong>
             <span>{scan.total ? Math.round(scan.checked / scan.total * 100) : 0}% · {scan.checked}/{scan.total}</span>
           </div>
           <progress aria-label="Markets checked" max={scan.total || 1} value={scan.checked} />
+          {!scan.running && <p>
+            {lastScanAt && `Last scan ${new Date(lastScanAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT. `}
+            {agentRunning && nextScanSeconds !== null
+              ? nextScanSeconds > 0
+                ? `Next scan in ${Math.floor(nextScanSeconds / 60)}:${String(nextScanSeconds % 60).padStart(2, '0')}.`
+                : 'Next scan is due.'
+              : agentRunning ? 'Waiting for the entry scheduler.' : 'Bot is stopped.'}
+          </p>}
           {scan.rows.length > 0 && <ul>{scan.rows.map(row => <li key={row.symbol}>
             <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : (row.reason || row.status || 'No response').replaceAll('_', ' ')}</span>
             {Number.isFinite(row.score) && <small>{row.score}/100 signal score</small>}

@@ -1,4 +1,4 @@
-import { evaluateLiveGate, LIVE_GATE } from '../../../shared/live-gate.js';
+import { evaluateLiveGate } from '../../../shared/live-gate.js';
 
 const xml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
@@ -71,7 +71,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     buy: trade.buy,
     sell: trade.sell,
     strategy: evidence?.[trade.contractId]?.strategy ?? null,
-    reconciled: Boolean(trade.contractId) && Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0,
+    reconciled: false,
   })));
   const interval = wilsonInterval(wins, points.length);
   const breakEven = gate.summary.breakEven;
@@ -92,7 +92,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
       (interval ? ' (95% interval ' + pct(interval[0]) + ' to ' + pct(interval[1]) + ')' : ''),
     'Break-even win rate at these payouts: ' + pct(breakEven),
     windowText,
-    'Net P&L: ' + money(performance.net) + ' | Average per trade: ' + money(performance.average),
+    'Settlement P&L (costs unverified): ' + money(performance.net) + ' | Average per trade: ' + money(performance.average),
     'Profit factor: ' + (performance.profitFactor?.toFixed(2) ?? 'Unavailable'),
     'Average win: ' + money(performance.averageWin) + ' | Average loss: ' + money(performance.averageLoss),
     'Maximum drawdown: ' + money(performance.drawdown),
@@ -205,7 +205,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
       '   Early sale was often unavailable. The stop-loss cannot limit a binary loss below the stake.',
     ] : ['1. Review the largest losing positions and their recorded exit checks.']),
     '',
-    '2. Do not treat signal score as a win probability. Scores in this export were not predictive.',
+    '2. Do not treat signal score as a win probability. Validate the score on held-out trades.',
     '   Validate any entry rule out-of-sample on at least 500 settled trades across 3+ weeks.',
     '',
     '3. Check evidence coverage. ' + missingStrategy + ' settlements have no recorded strategy.',

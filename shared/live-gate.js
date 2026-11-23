@@ -31,9 +31,15 @@ export function breakEvenWinRate(averageWin, averageLoss) {
 }
 
 // trades: [{ settledAt: unix seconds, buy: number, sell: number, strategy: string|null, reconciled: boolean }]
-export function evaluateLiveGate(trades) {
-  const list = Array.isArray(trades) ? trades : [];
-  const ordered = list.slice().sort((a, b) => a.settledAt - b.settledAt);
+export function evaluateLiveGate(trades, { verified = false, holdoutStart = null } = {}) {
+  const list = (Array.isArray(trades) ? trades : []).filter(t =>
+    Number.isSafeInteger(t?.settledAt) && t.settledAt > 0 && t.settledAt < 1e11 &&
+    Number.isFinite(t.buy) && t.buy >= 0 && Number.isFinite(t.sell) && t.sell >= 0);
+  const validEvidence = verified && list.length === trades.length && Number.isSafeInteger(holdoutStart) &&
+    list.every(t => typeof t.tradeId === 'string' && t.tradeId && typeof t.strategy === 'string' &&
+      t.strategy.trim() && typeof t.signal === 'string' && t.signal.trim() && t.reconciled === true &&
+      Number.isFinite(t.costs) && t.costs >= 0) && new Set(list.map(t => t.tradeId)).size === list.length;
+  const ordered = (validEvidence ? list.map(t => ({ ...t, buy: t.buy + t.costs })) : list).sort((a, b) => a.settledAt - b.settledAt);
   const net = ordered.reduce((sum, t) => sum + (t.sell - t.buy), 0);
   const wins = ordered.filter(t => t.sell > t.buy);
   const losses = ordered.filter(t => t.sell < t.buy);
@@ -49,7 +55,12 @@ export function evaluateLiveGate(trades) {
   for (const t of ordered) dayCounts.set(eatDayKey(t.settledAt), (dayCounts.get(eatDayKey(t.settledAt)) || 0) + 1);
   const largestDayShare = ordered.length ? Math.max(...dayCounts.values()) / ordered.length : null;
   const outStart = Math.floor(ordered.length * (1 - LIVE_GATE.outOfSampleShare));
-  const outOfSample = ordered.slice(outStart);
+  const outOfSample = validEvidence ? ordered.filter(t => t.settledAt >= holdoutStart) : ordered.slice(outStart);
+  const holdoutWins = outOfSample.filter(t => t.sell > t.buy);
+  const holdoutLosses = outOfSample.filter(t => t.sell < t.buy);
+  const holdoutGains = holdoutWins.reduce((sum, t) => sum + t.sell - t.buy, 0);
+  const holdoutLoss = holdoutLosses.reduce((sum, t) => sum + t.buy - t.sell, 0);
+  const holdoutBreakEven = breakEvenWinRate(holdoutGains / holdoutWins.length, holdoutLoss / holdoutLosses.length);
   const outOfSampleNet = outOfSample.reduce((s, t) => s + (t.sell - t.buy), 0);
   const strategyRecorded = ordered.filter(t => t.strategy).length;
   const reconciled = ordered.filter(t => t.reconciled === true).length;
@@ -61,22 +72,26 @@ export function evaluateLiveGate(trades) {
       actual: weeks.size, passed: weeks.size >= LIVE_GATE.minDistinctWeeks },
     { id: 'sessions', label: `No single day holds more than ${LIVE_GATE.maxShareOnSingleDay * 100}% of trades`,
       actual: largestDayShare, passed: largestDayShare !== null && largestDayShare <= LIVE_GATE.maxShareOnSingleDay },
-    { id: 'net', label: 'Net P&L after all costs is positive',
-      actual: net, passed: net > 0 },
+    { id: 'net', label: 'Verified after-cost net P&L is positive',
+      actual: validEvidence ? net : null, passed: validEvidence && net > 0 },
     { id: 'profitFactor', label: `Profit factor at least ${LIVE_GATE.minProfitFactor}`,
       actual: profitFactor, passed: profitFactor !== null && profitFactor >= LIVE_GATE.minProfitFactor },
     { id: 'breakEven', label: 'Win rate above break-even win rate',
       actual: winRate, threshold: breakEven,
       passed: winRate !== null && breakEven !== null && winRate > breakEven },
-    { id: 'outOfSample', label: `Most recent ${LIVE_GATE.outOfSampleShare * 100}% of trades (at least ${LIVE_GATE.minOutOfSampleTrades}) are net positive`,
-      actual: outOfSampleNet, passed: outOfSample.length >= LIVE_GATE.minOutOfSampleTrades && outOfSampleNet > 0 },
+    { id: 'outOfSample', label: 'Verified holdout has positive net P&L, sufficient trades and predictive win rate',
+      actual: validEvidence ? outOfSampleNet : null,
+      passed: validEvidence && outOfSample.length >= LIVE_GATE.minOutOfSampleTrades &&
+        outOfSample.length < ordered.length && outOfSampleNet > 0 && holdoutLoss > 0 &&
+        holdoutGains / holdoutLoss >= LIVE_GATE.minProfitFactor && holdoutBreakEven !== null &&
+        holdoutWins.length / outOfSample.length > holdoutBreakEven },
     { id: 'strategy', label: 'Every trade has a recorded strategy',
       actual: strategyRecorded, passed: ordered.length > 0 && strategyRecorded === ordered.length },
-    { id: 'reconciled', label: 'Every trade has a broker settlement record',
+    { id: 'reconciled', label: 'Every trade has a verified broker reconciliation',
       actual: reconciled, passed: ordered.length > 0 && reconciled === ordered.length },
   ];
   return {
-    passed: checks.every(c => c.passed),
+    passed: validEvidence && checks.every(c => c.passed),
     checks,
     summary: { trades: ordered.length, net, winRate, breakEven, profitFactor, averageWin, averageLoss, weeks: weeks.size },
   };

@@ -175,3 +175,13 @@ async function* auditRows(query, env, fetchImpl) {
     cursor = next;
   }
 }
+
+export async function readLiveQualification({ accountId, env = process.env, fetchImpl = fetch }) {
+  const query = new URLSearchParams({
+    account_id: 'eq.' + accountId, limit: '1',
+    select: 'account_id,approved_by,approved_at,expires_at,holdout_start,settlements',
+  });
+  const rows = await request(env, 'playgo_live_qualification?' + query, {}, fetchImpl);
+  if (!Array.isArray(rows) || rows.length !== 1 || rows[0].account_id !== accountId) return null;
+  return rows[0];
+}

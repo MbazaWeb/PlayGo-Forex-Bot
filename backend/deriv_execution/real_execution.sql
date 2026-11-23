@@ -277,7 +277,7 @@ begin
     where account_id = account and status = 'confirmed' and updated_at >= snapshot_started_at;
   end if;
 
-  if open_count >= 10 then
+  if open_count >= 5 then
     return jsonb_build_object('accepted', false, 'reason', 'OPEN_CONTRACT_LIMIT');
   end if;
 

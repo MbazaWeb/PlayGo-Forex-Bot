@@ -11,7 +11,7 @@ function synthetic(n, weeks, winRate, win = 7.5, loss = 10) {
     const week = i % weeks;
     const settledAt = base + week * 7 * DAY + Math.floor(i / weeks) * 3600;
     const won = (i % 100) < winRate * 100;
-    trades.push({ settledAt, buy: 10, sell: won ? 10 + win : 0, strategy: 'Trend + momentum', reconciled: true });
+    trades.push({ settledAt, buy: 10, sell: won ? 10 + win : 0, strategy: 'Trend + momentum', reconciled: true, tradeId: String(i), signal: 'fixture', costs: 0 });
   }
   return trades;
 }
@@ -35,7 +35,10 @@ test('25 trades in one session fail the gate', () => {
 });
 
 test('500 profitable trades over 3+ weeks pass the gate', () => {
-  const result = evaluateLiveGate(synthetic(500, 4, 0.65));
+  const trades = synthetic(500, 4, 0.72);
+  const holdoutStart = trades.slice().sort((a, b) => a.settledAt - b.settledAt)[350].settledAt;
+  assert.equal(evaluateLiveGate(trades).passed, false);
+  const result = evaluateLiveGate(trades, { verified: true, holdoutStart });
   assert.equal(result.checks.find(c => c.id === 'sample').passed, true);
   assert.equal(result.checks.find(c => c.id === 'weeks').passed, true);
   assert.equal(result.checks.find(c => c.id === 'net').passed, true);

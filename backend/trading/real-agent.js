@@ -459,6 +459,7 @@ export async function runRealAgentTick({
   try {
     const order = await executeRealOrder({
       ...brokerOptions,
+      env,
       intent: { symbol, contractType, stake, duration, durationUnit: 'm' },
       beforeBuy: async () => {
         beforeBuyStarted = true;

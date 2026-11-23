@@ -1,4 +1,6 @@
-import { isDerivAccount } from './deriv-account.js';
+import { evaluateLiveGate } from '../../shared/live-gate.js';
+import { readLiveQualification } from './real-store.js';
+import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 const API = 'https://api.derivws.com';
 
 function codedError(code) {
@@ -143,9 +145,11 @@ function validIntent(intent, account) {
 }
 
 export async function executeRealOrder({
-  account, token, appId, intent, beforeBuy, fetchImpl = fetch, Socket,
+  account, token, appId, intent, beforeBuy, env = process.env, fetchImpl = fetch, Socket,
 }) {
   if (!validIntent(intent, account)) throw codedError('INVALID_REAL_ORDER');
+  if (env.TRADING_ENABLED === 'false') throw codedError('TRADING_DISABLED');
+  if (!canTradeAccount(account, env)) throw codedError('LIVE_TRADING_DISABLED');
   if (typeof beforeBuy !== 'function') throw codedError('PERSISTED_SUBMISSION_REQUIRED');
 
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
@@ -165,7 +169,21 @@ export async function executeRealOrder({
         !Number.isFinite(ask) || ask <= 0 || ask > intent.stake)
       throw codedError('INVALID_BROKER_PROPOSAL');
 
+    if (account.account_type === 'real') {
+      const qualification = await readLiveQualification({ accountId: account.account_id, env, fetchImpl })
+        .catch(() => null);
+      const now = Date.now();
+      if (!qualification || !qualification.approved_by?.trim() ||
+          !(Date.parse(qualification.approved_at) <= now && Date.parse(qualification.expires_at) > now) ||
+          !Array.isArray(qualification.settlements) || qualification.settlements.length > 10_000 ||
+          !evaluateLiveGate(qualification.settlements, {
+            verified: true, holdoutStart: qualification.holdout_start,
+          }).passed) throw codedError('LIVE_READINESS_NOT_VERIFIED');
+    }
+    if (env.TRADING_ENABLED === 'false' || !canTradeAccount(account, env)) throw codedError('TRADING_DISABLED');
     await beforeBuy();
+    if (env.TRADING_ENABLED === 'false' || !canTradeAccount(account, env))
+      throw codedError('BROKER_ORDER_OUTCOME_UNKNOWN');
     let result;
     try {
       result = await sendAndWait(socket, { buy: proposalId, price: ask }, 'buy', 2);

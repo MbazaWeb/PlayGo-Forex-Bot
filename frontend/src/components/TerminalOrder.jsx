@@ -34,8 +34,13 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       const order = body.accounts?.[0];
       if (!response.ok || !order) throw Error(body.error || 'Trade request failed.');
       const databaseError = /^REAL_EXECUTION_DATABASE_/.test(order.reason || '');
-      const message = databaseError
+      const rejection = /^DERIV_([A-Z_]+?)_REJECTED(?:_([A-Za-z0-9_]+))?$/.exec(order.reason || '');
+      const message = rejection
+        ? `Deriv rejected the ${rejection[1].toLowerCase().replaceAll('_', ' ')} request${rejection[2] ? ' (' + rejection[2] + ')' : ''}. No order placed.`
+        : databaseError
         ? 'The trading database is unavailable. Check Account Activity before retrying.'
+        : order.reason === 'ORDER_OUTCOME_UNKNOWN'
+        ? 'Deriv did not confirm the order outcome. Check Open Trades before trying again.'
         : order.status === 'ordered'
         ? `Deriv accepted contract ${order.contractId}.`
         : `No new order placed. ${(order.reason || order.status).replaceAll('_', ' ')}.`;

@@ -645,3 +645,19 @@ test('daily analytics counts settled outcomes at Tanzania midnight', async () =>
   });
   assert.deepEqual(history.today, { date: '2026-11-23', wins: 1, losses: 1, total: 3 });
 });
+
+test('reports the Deriv proposal rejection code without entering the buy stage', async () => {
+  class RejectedProposalSocket extends BrokerSocket {
+    send(raw) {
+      const request = JSON.parse(raw);
+      assert.equal(request.proposal, 1);
+      const response = { req_id: request.req_id, error: { code: 'ContractCreationFailure', message: 'broker detail' } };
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+    }
+  }
+  await assert.rejects(executeRealOrder({
+    account: realAccount, token: 'fixture', fetchImpl: otpFetch, Socket: RejectedProposalSocket,
+    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
+    beforeBuy: () => assert.fail('rejected proposal must never submit a buy'),
+  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure' });
+});

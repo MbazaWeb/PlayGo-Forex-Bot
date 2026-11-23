@@ -93,7 +93,12 @@ function sendAndWait(socket, payload, expectedType, reqId) {
       }
       if (response.req_id !== reqId) return;
       if (response.error) {
-        finish(codedError('BROKER_REQUEST_REJECTED'));
+        const brokerCode = response.error.code;
+        const stage = expectedType === 'proposal' ? 'PROPOSAL' : expectedType.toUpperCase();
+        const suffix = typeof brokerCode === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(brokerCode)
+          ? '_' + brokerCode
+          : '';
+        finish(codedError('DERIV_' + stage + '_REJECTED' + suffix));
         return;
       }
       if (response.msg_type !== expectedType) {

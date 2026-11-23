@@ -57,6 +57,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const generation = useRef(0);
   const tickPending = useRef(false);
   const [scan, setScan] = useState(null);
+  const [nextScanSeconds, setNextScanSeconds] = useState(null);
   const activeMarket = useRef(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatuses, setAgentStatuses] = useState([]);
@@ -376,9 +377,13 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         }
       }
       if (exitsOnly && results.every(item => item.reason === 'EXIT_MONITORING')) return;
-      setAgentFeedback(results.length
-        ? `Checked Deriv ${accountLabel} account ${accountId}.`
-        : 'No account result was returned.');
+      const outcome = results[0];
+      const reason = outcome?.reason?.replaceAll('_', ' ');
+      setAgentFeedback(outcome?.status === 'ordered'
+        ? `Order opened on ${outcome.symbol}.`
+        : outcome?.status === 'watching' || outcome?.status === 'error'
+          ? `No order placed. ${reason || 'No qualifying setup.'}`
+          : reason || (outcome ? 'Position check complete.' : 'No account result was returned.'));
     } catch (error) {
       if (requestGeneration !== generation.current) return;
       setAgentFeedback(error.message || 'Agent run failed.');
@@ -391,15 +396,21 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts, trackContract, manual]);
 
   const latestRun = useRef(runAgent);
-  useEffect(() => { latestRun.current = runAgent; }, [runAgent]);
+  const latestBusy = useRef(agentBusy);
+  useEffect(() => { latestRun.current = runAgent; latestBusy.current = agentBusy; }, [runAgent, agentBusy]);
+  const schedulerReady = Boolean(executionAvailable && selectedMarket);
   useEffect(() => {
-    if (!agentRunning || (!exitSettingsValid && !emergencyRetry)) return undefined;
-    let entryDue = Date.now() + interval * 1000;
+    if (!agentRunning || !schedulerReady || (!exitSettingsValid && !emergencyRetry)) {
+      setNextScanSeconds(null);
+      return;
+    }
+    let entryDue = Date.now();
     let exitDue = Date.now() + 15_000;
     const timer = setInterval(() => {
-      if (stopPending.current || tickPending.current) return;
       const time = Date.now();
-      if (time >= entryDue) {
+      setNextScanSeconds(emergencyRetry ? null : Math.max(0, Math.ceil((entryDue - time) / 1000)));
+      if (stopPending.current || tickPending.current || latestBusy.current) return;
+      if (!emergencyRetry && time >= entryDue) {
         entryDue = time + interval * 1000;
         exitDue = time + 15_000;
         void latestRun.current();
@@ -409,7 +420,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [agentRunning, emergencyRetry, exitSettingsValid, interval]);
+  }, [agentRunning, emergencyRetry, exitSettingsValid, interval, schedulerReady]);
 
   async function startAgent() {
     if (agentBusy || !executionAvailable || !exitSettingsValid) return;
@@ -512,6 +523,11 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         </p></div>
         <button type="button" className="outline agent-stop" disabled={!agentRunning || stopping}
           onClick={stopAgent}><span aria-hidden="true" className="stop-mark" /> Stop Bot</button>
+        {agentRunning && nextScanSeconds !== null && <p className="agent-command-feedback">
+          {scan?.running ? 'Scanning open markets...' : nextScanSeconds === 0
+            ? 'Scan due; waiting for the current check.'
+            : `Next entry scan in ${Math.floor(nextScanSeconds / 60)}:${String(nextScanSeconds % 60).padStart(2, '0')}`}
+        </p>}
         {agentFeedback && <p className="agent-command-feedback" role="status">{agentFeedback}</p>}
         {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
         {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}

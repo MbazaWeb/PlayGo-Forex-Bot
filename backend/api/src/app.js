@@ -157,7 +157,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
           env:process.env,fetchImpl:fetcher
         }));
       }catch(error){
-        results.push({accountId:row.account_id,status:'error',reason:error.code||error.message||'AGENT_RUN_FAILED'});
+        results.push({accountId:row.account_id,status:'error',reason:error.code||'AGENT_RUN_FAILED'});
       }
     }
     return json(res,200,{accounts:results});
@@ -184,6 +184,6 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
    if(path==='/api/mt5/status'&&req.method==='GET')return json(res,200,{status:'not_linked',execution:false});
    if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Route not available.'});
    return json(res,404,{error:'Route not found'});
-  }catch(err){console.error('[playgo] request failed:',err&&err.message);return json(res,500,{error:'Request failed'});}
+  }catch{console.error('[playgo] request failed');return json(res,500,{error:'Request failed'});}
  };
 }

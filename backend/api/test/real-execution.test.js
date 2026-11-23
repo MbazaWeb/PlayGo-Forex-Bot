@@ -667,7 +667,7 @@ test('reports the Deriv proposal rejection code without entering the buy stage',
     env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id },
     intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
     beforeBuy: () => assert.fail('rejected proposal must never submit a buy'),
-  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure', proposalDetail: 'broker detail' });
+  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure' });
 });
 
 test('the real order path fails closed without stored qualification even with both keys', async () => {

@@ -32,7 +32,7 @@ function balanceOf(account) {
 }
 
 function publicStatus(error) {
-  return error?.code || error?.message || 'AGENT_OPERATION_FAILED';
+  return error?.code || 'AGENT_OPERATION_FAILED';
 }
 
 function agentError(code) {

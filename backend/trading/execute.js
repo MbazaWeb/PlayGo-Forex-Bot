@@ -38,7 +38,7 @@ export async function getRealWebSocketUrl({ token, account, appId, fetchImpl = f
     throw codedError('INVALID_REAL_ENDPOINT');
   }
   if (url.protocol !== 'wss:' || url.host !== 'api.derivws.com' ||
-      url.pathname !== `/trading/v1/options/ws/${account.account_type}` || !url.searchParams.get('otp') ||
+      url.pathname !== `/trading/v1/options/ws/${account.account_type}` || (!url.searchParams.get('otp') || url.searchParams.getAll('otp').length !== 1) ||
       url.username || url.password || url.hash)
     throw codedError('INVALID_REAL_ENDPOINT');
   return url.toString();
@@ -101,8 +101,6 @@ function sendAndWait(socket, payload, expectedType, reqId) {
           ? '_' + brokerCode
           : '';
         const error = codedError('DERIV_' + stage + '_REJECTED' + suffix);
-        if (stage === 'PROPOSAL' && typeof response.error.message === 'string')
-          error.proposalDetail = response.error.message.replace(/https?:\/\/\S+/gi, '[link]').replace(/\s+/g, ' ').trim().slice(0, 240);
         finish(error);
         return;
       }

@@ -56,7 +56,7 @@ const server = createServer(async (req, res) => {
   try {
     await handler(req, res);
   } catch (err) {
-    console.error('Vercel API dev handler failed:', err && err.message);
+    console.error('Vercel API dev handler failed');
     if (!res.headersSent) {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');

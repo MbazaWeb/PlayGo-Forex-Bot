@@ -22,11 +22,13 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
   }, [symbol, durationAttempt]);
 
   const availability = contractOptions && contractOptions.symbol === symbol && contractOptions.durationAttempt === durationAttempt ? contractOptions : null;
-  const durations = DURATIONS.filter(minutes =>
+  const listedDurations = DURATIONS.filter(minutes =>
     availability?.options?.CALL.includes(minutes) || availability?.options?.PUT.includes(minutes));
+  const useQuoteFallback = Boolean(symbol && availability && !listedDurations.length);
+  const durations = useQuoteFallback ? DURATIONS : listedDurations;
   const duration = durations.includes(preferredDuration) ? preferredDuration : durations[0];
-  const buyAvailable = availability?.options?.CALL.includes(duration);
-  const sellAvailable = availability?.options?.PUT.includes(duration);
+  const buyAvailable = useQuoteFallback || availability?.options?.CALL.includes(duration);
+  const sellAvailable = useQuoteFallback || availability?.options?.PUT.includes(duration);
   const actionAvailable = action => action === 'buy' ? buyAvailable : action === 'sell' ? sellAvailable : buyAvailable && sellAvailable;
   const [review, setReview] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -96,9 +98,10 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       </label>
       </div>
       {blocker && <p className="terminal-order-status" role="status">{blocker}</p>}
-      {!blocker && !durations.length && <p role="status" className="terminal-order-status">
-        {availability?.error ? 'Could not load durations.' : availability ? 'Deriv offers none of the supported durations for this market.' : 'Loading contract durations...'}
-        {availability?.error && <button type="button" className="textlink" onClick={() => retryDurations(value => value + 1)}>Retry</button>}
+      {!blocker && !availability && <p role="status" className="terminal-order-status">Loading contract durations...</p>}
+      {!blocker && useQuoteFallback && <p role="status" className="terminal-order-status">
+        Try 5 minutes or choose another duration. Deriv will confirm availability when you request a quote.
+        <button type="button" className="textlink" disabled={Boolean(busy)} onClick={() => retryDurations(value => value + 1)}>Refresh durations</button>
       </p>}
       {!blocker && durations.length > 0 && !(buyAvailable && sellAvailable) &&
         <p role="status" className="terminal-order-status">Only {buyAvailable ? 'Rise' : 'Fall'} is offered at this duration.</p>}

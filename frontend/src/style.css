@@ -233,7 +233,6 @@ td[data-outcome] { font-weight: 650; }
 
 .topbar { flex-wrap: wrap; }
 .header-clock { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.page-stop { margin-bottom: 14px; }
 .trade-log tbody tr:nth-child(even) { background: var(--field); }
 .trade-log .trade-pnl { text-align: right; }
 @media (max-width: 760px) {

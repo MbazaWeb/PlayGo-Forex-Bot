@@ -175,7 +175,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           <button className="outline" onClick={() => navigate?.('Bot Agents')}>View Bot Agents</button>
         </div>
       )}
-      {!analytics && id && <AccountActivity key={id} accountId={id} currency={currency} openAnalytics={() => navigate('Analytics')} />}
+      {id && <AccountActivity key={id} accountId={id} currency={currency} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
     </>
   );
 }

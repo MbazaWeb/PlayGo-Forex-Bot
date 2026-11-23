@@ -73,7 +73,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
           </tr>)}</tbody>
         </table>
       </div> : !loading && !error && <p>No open trades.</p>}
-      <button type="button" className="textlink" onClick={openAnalytics}>View Analytics</button>
+      {openAnalytics && <button type="button" className="textlink" onClick={openAnalytics}>View Analytics</button>}
       {review && <ConfirmDialog title="Close trade" confirmLabel="Close at market"
         onCancel={() => setReview(null)}
         onConfirm={() => { setReview(null); void closeTrade(review); }}>

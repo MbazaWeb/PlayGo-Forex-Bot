@@ -41,9 +41,6 @@ async function fetchJSON(url, opts) {
 
 export default function App() {
   const [session, setSession] = useState(null);
-  const [stopReview, setStopReview] = useState(null);
-  const [stoppingBot, setStoppingBot] = useState(false);
-  const [stopNotice, setStopNotice] = useState('');
   const [accounts, setAccounts] = useState(null);
   const [pendingAccountId, setPendingAccountId] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -117,24 +114,6 @@ export default function App() {
   async function logout() {
     try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'X-PlayGo-Request': '1' } }); } catch {}
     setSelectedAccountId(''); setAccounts(null); load();
-  }
-
-  async function stopSelectedBot(accountId) {
-    setStoppingBot(true);
-    setStopNotice('');
-    try {
-      const { res, body } = await fetchJSON('/api/agent/stop?account=' + encodeURIComponent(accountId), {
-        method: 'POST', headers: { 'X-PlayGo-Request': '1' },
-      });
-      const state = body?.accounts?.find(item => item.accountId === accountId);
-      if (!res.ok || state?.error || state?.active !== false)
-        throw Error(state?.error === 'REAL_CONTROL_NOT_FOUND' ? 'No bot is running for this account.' : 'Bot stop could not be confirmed.');
-      setStopNotice('Bot stopped. Open trades remain in Overview.');
-    } catch (error) {
-      setStopNotice(error.message || 'Bot stop could not be confirmed.');
-    } finally {
-      setStoppingBot(false);
-    }
   }
 
   if (!session?.authenticated) {
@@ -215,14 +194,8 @@ export default function App() {
           <div className="heading">
             <div>
               <h1>{page}</h1>
-              {stopNotice && <p role="status">{stopNotice}</p>}
             </div>
           </div>
-          {selectedAccount && page !== 'Bot Agents' &&
-            <button className="outline agent-stop page-stop" type="button" disabled={stoppingBot}
-              onClick={() => { setStopNotice(''); setStopReview(selectedAccount.account_id); }}>
-              <span aria-hidden="true" className="stop-mark" /> {stoppingBot ? 'Stopping...' : 'Stop Bot'}
-            </button>}
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
           {loading && <p role="status">Loading...</p>}
           {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} />}
@@ -251,11 +224,6 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {stopReview && <ConfirmDialog title="Stop Bot" confirmLabel="Stop Bot"
-        onCancel={() => setStopReview(null)}
-        onConfirm={() => { setStopReview(null); void stopSelectedBot(stopReview); }}>
-        <p>Stop new automated orders for {stopReview}. Open trades remain in your account.</p>
-      </ConfirmDialog>}
       {pendingAccountId && <ConfirmDialog title="Switch Deriv account" confirmLabel="Switch account"
         onCancel={() => setPendingAccountId('')}
         onConfirm={() => { setSelectedAccountId(pendingAccountId); setPendingAccountId(''); }}>

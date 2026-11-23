@@ -1,3 +1,4 @@
+import AccountActivity from './AccountActivity';
 import React from 'react';
 import { ArrowUpRight, ChartCandlestick, ChartNoAxesCombined } from 'lucide-react';
 import TerminalOrder from './TerminalOrder';
@@ -50,10 +51,14 @@ export default function MarketWorkspace({ page, changePage, marketSymbol, onMark
   }
 
   return (
+    <>
     <div className="terminal-workspace">
       <MarketExplorer catalog={catalog} />
       <TerminalOrder key={account?.account_id} account={account} accounts={accounts} onSelectAccount={onSelectAccount} market={catalog.market}
         executionEnabled={executionEnabled} openBot={() => go('Bot Agents', catalog.market?.symbol)} />
     </div>
+    {account && <AccountActivity key={account.account_id} accountId={account.account_id}
+      currency={account.currency} openAnalytics={() => go('Analytics')} />}
+    </>
   );
 }

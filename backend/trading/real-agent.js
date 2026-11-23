@@ -219,6 +219,7 @@ export async function runRealAgentTick({
   symbol,
   granularity,
   automatic = false,
+  exitsOnly = false,
   manualDirection = null,
   env = process.env,
   fetchImpl = fetch,
@@ -297,6 +298,8 @@ export async function runRealAgentTick({
       closeResults,
     };
   }
+
+  if (exitsOnly) return { status: 'watching', reason: 'EXIT_MONITORING', accountId: account.account_id };
 
   if (portfolio.contracts.length >= MAX_OPEN_CONTRACTS) {
     return {

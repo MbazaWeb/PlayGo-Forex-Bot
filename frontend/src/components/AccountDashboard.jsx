@@ -18,7 +18,12 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
     }
     const controller = new AbortController();
     let timer;
+    let refreshing = false;
+    let refreshPending = false;
     async function refresh() {
+      if (refreshing) { refreshPending = true; return; }
+      clearTimeout(timer);
+      refreshing = true;
       try {
         const res = await fetch('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
         if (!res.ok) throw new Error('history unavailable');
@@ -40,12 +45,25 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       } catch {
         if (!controller.signal.aborted) setHistory({ id, error: true });
       } finally {
-        if (analytics && !controller.signal.aborted) timer = setTimeout(refresh, 30_000);
+        refreshing = false;
+        if (!controller.signal.aborted) {
+          const delay = refreshPending ? 0 : 15_000;
+          refreshPending = false;
+          timer = setTimeout(refresh, delay);
+        }
       }
     }
+    function onSettlement(event) {
+      if (event.detail === id) void refresh();
+    }
+    window.addEventListener('playgo:settlement', onSettlement);
     void refresh();
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [id, analytics]);
+    return () => {
+      window.removeEventListener('playgo:settlement', onSettlement);
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [id]);
 
   const result = history?.id === id ? history : null;
   const points = result?.points;
@@ -58,8 +76,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
 
   return (
     <>
-      {analytics && (
-        <section aria-label="Today's trading results">
+      <section aria-label="Today's trading results">
           <div className="panelhead"><div><h2>Today</h2><p>Settled trades · Tanzania time</p></div></div>
           <div className="metrics three">
             <Metric title="Today's Wins" value={today?.wins ?? '-'} icon={ShieldCheck} positive />
@@ -67,8 +84,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
             <Metric title="Total Trades Today" value={today?.total ?? '-'} icon={ShieldCheck} />
           </div>
           {id && result && !today && <p role="status">Today's totals are unavailable.</p>}
-        </section>
-      )}
+      </section>
       <div className="metrics three">
         <Metric
           title="Total Portfolio Balance"

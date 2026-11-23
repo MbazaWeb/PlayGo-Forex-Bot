@@ -10,7 +10,7 @@ import {
   validExitSettings,
 } from '../../trading/execution-risk.js';
 import { runEmergencyCheck } from '../../trading/emergency-agent.js';
-import { placeRealAgentOrders } from '../../trading/real-agent.js';
+import { placeRealAgentOrders, runRealAgentTick } from '../../trading/real-agent.js';
 
 const realAccount = {
   account_id: 'CR123456',
@@ -353,6 +353,13 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
   assert.equal(control.active, true);
   assert.ok(events.includes('buy-request'));
   assert.ok(!events.includes('stop-control'));
+
+  events.length = 0;
+  const exitCheck = await runRealAgentTick({ ...request, account: realAccount, exitsOnly: true });
+  assert.equal(exitCheck.reason, 'EXIT_MONITORING');
+  assert.ok(!events.includes('read-candles'));
+  assert.ok(!events.includes('reserve-intent'));
+  assert.ok(!events.includes('buy-request'));
 
   for (const [terminalAction, contractType] of [['buy', 'CALL'], ['sell', 'PUT']]) {
     control = null;

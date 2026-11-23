@@ -189,6 +189,7 @@ export default async function handler(req, res) {
           symbol: params.get('symbol'),
           granularity: Number(params.get('granularity')),
           automatic: params.get('mode') === 'automatic',
+          exitsOnly: params.get('exitsOnly') === '1',
           env: process.env,
           fetchImpl: fetch,
         }));

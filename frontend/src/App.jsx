@@ -61,6 +61,42 @@ export default function App() {
 
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    if (!session?.authenticated || !selectedAccountId) return;
+    const controller = new AbortController();
+    let checking = false;
+    let pending = false;
+    async function refreshBalances() {
+      if (controller.signal.aborted) return;
+      if (checking) { pending = true; return; }
+      checking = true;
+      try {
+        const { res, body } = await fetchJSON('/api/accounts', { signal: controller.signal });
+        if (!res.ok || !Array.isArray(body?.accounts) || controller.signal.aborted) return;
+        const balances = new Map(body.accounts.map(row => [row.account_id, row.balance]));
+        setAccounts(previous => previous?.map(row =>
+          balances.has(row.account_id) && balances.get(row.account_id) !== row.balance
+            ? { ...row, balance: balances.get(row.account_id) }
+            : row));
+      } catch {
+        // Preserve the last verified balance while the broker is unavailable.
+      } finally {
+        checking = false;
+        if (pending) { pending = false; void refreshBalances(); }
+      }
+    }
+    const timer = setInterval(refreshBalances, 15_000);
+    function onSettlement(event) {
+      if (event.detail === selectedAccountId) void refreshBalances();
+    }
+    window.addEventListener('playgo:settlement', onSettlement);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener('playgo:settlement', onSettlement);
+    };
+  }, [session?.authenticated, selectedAccountId]);
+
   async function logout() {
     try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'X-PlayGo-Request': '1' } }); } catch {}
     setSelectedAccountId(''); setAccounts(null); load();

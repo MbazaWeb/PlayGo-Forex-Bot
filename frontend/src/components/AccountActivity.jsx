@@ -41,7 +41,10 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       });
       const body = await response.json();
       setNotice(response.ok && body.closed ? 'Trade closed. View settlement in Analytics.' : body.error || 'Close status unavailable.');
-      if (response.ok && body.closed) setContracts(rows => rows?.filter(row => row.id !== contract.id) ?? []);
+      if (response.ok && body.closed) {
+        setContracts(rows => rows?.filter(row => row.id !== contract.id) ?? []);
+        window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
+      }
     } catch {
       setNotice('Close status unavailable. Check open trades before retrying.');
     } finally {

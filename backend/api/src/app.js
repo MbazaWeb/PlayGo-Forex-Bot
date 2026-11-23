@@ -152,6 +152,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
         results.push(await runRealAgentTick({
           account:row,token:session.token,appId:config.clientId,symbol,granularity,
           automatic:params.get('mode')==='automatic',
+          exitsOnly: params.get('exitsOnly') === '1',
           env:process.env,fetchImpl:fetcher
         }));
       }catch(error){

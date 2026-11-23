@@ -1,3 +1,4 @@
+import { summarizeClosedTrades } from './tradePerformance';
 import React, { useEffect, useState } from 'react';
 import { Wallet, ShieldCheck } from 'lucide-react';
 import Metric from './Metric';
@@ -73,7 +74,10 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   const result = history?.id === id ? history : null;
   const points = result?.points;
   const today = result?.today;
+  const performance = points?.length ? summarizeClosedTrades(points) : null;
   const currency = account?.currency ?? '';
+  const signedMoney = value => value == null ? '-'
+    : (value >= 0.005 ? '+' : '') + (Math.abs(value) < 0.005 ? '0.00' : value.toFixed(2)) + (currency ? ' ' + currency : '');
   const wins = points?.filter((t) => t.value > 0).length ?? 0;
   const losses = points?.filter(t => t.status === 'Loss').length ?? 0;
   const even = (points?.length ?? 0) - wins - losses;
@@ -111,6 +115,22 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           positive={!!points?.length && points.reduce((sum, point) => sum + point.value, 0) >= 0}
         />
       </div>
+
+      {analytics && (
+        <section aria-label="Profitability">
+          <div className="panelhead">
+            <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p></div>
+          </div>
+          <div className="metrics performance-metrics">
+            <Metric title="Net P&L" value={signedMoney(performance?.net)} change="Total gains minus losses" positive={performance?.net > 0} />
+            <Metric title="Average per trade" value={signedMoney(performance?.average)} change="Net P&L divided by settled trades" positive={performance?.average > 0} />
+            <Metric title="Profit factor" value={performance?.profitFactor == null ? '-' : performance.profitFactor.toFixed(2) + '×'}
+              change={performance && losses === 0 ? 'No losses in this sample' : 'Gross gains ÷ gross losses'} />
+            <Metric title="Maximum drawdown" value={performance ? performance.drawdown.toFixed(2) + (currency ? ' ' + currency : '') : '-'}
+              change="Largest drop in cumulative closed P&L" />
+          </div>
+        </section>
+      )}
 
       {!analytics && (
         <React.Suspense fallback={<p>Loading markets...</p>}>

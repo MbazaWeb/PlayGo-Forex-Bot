@@ -6,7 +6,6 @@ const settlementTime = new Intl.DateTimeFormat('en-GB', {
 });
 
 export default function AccountActivity({ accountId, currency, openAnalytics }) {
-  const [view, setView] = useState('open');
   const [settled, setSettled] = useState(null);
   const [historyError, setHistoryError] = useState(false);
   const historyRefreshRef = useRef(null);
@@ -64,7 +63,6 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
   }, [accountId]);
 
   useEffect(() => {
-    if (view !== 'closed') return;
     const controller = new AbortController();
     const { signal } = controller;
     let timer, busy = false, pending = false;
@@ -101,7 +99,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       historyRefreshRef.current = null;
       window.removeEventListener('playgo:settlement', onSettlement);
     };
-  }, [view, accountId]);
+  }, [accountId]);
 
   async function closeTrade(contract) {
     setClosing(true);
@@ -112,69 +110,70 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
         method: 'POST', headers: { 'X-PlayGo-Request': '1' },
       });
       const body = await response.json();
-      setNotice(response.ok && body.closed ? 'Trade closed. View the settlement under Closed.' : body.error || 'Close status unavailable.');
+      setNotice(response.ok && body.closed ? 'Trade closed. Waiting for Deriv settlement.' : body.error || 'Close status unavailable.');
       if (response.ok && body.closed) {
         setContracts(rows => rows?.filter(row => row.id !== contract.id) ?? []);
         window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
+        return;
       }
     } catch {
       setNotice('Close status unavailable. Check open trades before retrying.');
     } finally {
-      refreshRef.current?.();
       setClosing(false);
     }
   }
 
-  const net = contracts?.reduce((sum, row) => sum + row.profit, 0) ?? 0;
   const tone = value => value > 0 ? 'gain' : value < 0 ? 'loss' : '';
   const money = value => (value > 0 ? '+' : '') + value.toFixed(2) + ' ' + currency;
+  const settledIds = new Set(settled?.map(trade => trade.contractId));
+  const openRows = (contracts ?? []).filter(contract => !settledIds.has(contract.id));
+  const net = openRows.reduce((sum, row) => sum + row.profit, 0);
   return (
     <section className="panel account-panel">
       <div className="panelhead">
-        <div><h2>Trades</h2>{view === 'open' && observedAt && <small>{error ? 'Last available' : 'Updated'} {new Date(observedAt).toLocaleTimeString()}</small>}</div>
-        <button type="button" className="outline" onClick={() => view === 'open' ? refreshRef.current?.() : historyRefreshRef.current?.()} disabled={closing || (view === 'open' && loading)}>
-          {view === 'open' && loading ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
-      <div className="panelhead" role="group" aria-label="Trade status">
-        <div>
-          <button type="button" className={view === 'open' ? 'primary' : 'outline'} aria-pressed={view === 'open'} onClick={() => setView('open')}>
-            Open{contracts && ' (' + contracts.length + ')'}
-          </button>{' '}
-          <button type="button" className={view === 'closed' ? 'primary' : 'outline'} aria-pressed={view === 'closed'} onClick={() => setView('closed')}>
-            Closed{settled && ' (' + settled.length + ')'}
-          </button>
-        </div>
+        <div><h2>Trades</h2>{observedAt && <small>{error ? 'Last available' : 'Updated'} {new Date(observedAt).toLocaleTimeString()}</small>}</div>
+        <button type="button" className="outline" onClick={() => {
+          refreshRef.current?.();
+          historyRefreshRef.current?.();
+        }} disabled={loading || closing}>Refresh</button>
       </div>
       {notice && <p role="status">{notice}</p>}
-      {view === 'open' && error && <p role="status">{error}</p>}
-      {view === 'open' && (contracts?.length ? <>
-        <p>Total open P&amp;L <strong className={tone(net)}>{money(net)}</strong></p>
-        <ul className="open-positions">{contracts.map(contract => <li key={contract.id}>
-          <div><strong>{contract.symbol || 'Contract'} · {({ CALL: 'Rise', PUT: 'Fall' })[contract.contractType] || contract.contractType || 'Open'}</strong>
-            <small>#{contract.id} · Stake {contract.stake} {currency}</small>
-            <span>Entry {contract.entrySpot ?? '—'} → Now {contract.currentSpot ?? '—'}</span></div>
-          <div><strong className={tone(contract.profit)}>{money(contract.profit)}</strong>
-            {contract.canSell ? <button type="button" className="outline" disabled={closing || Boolean(error)}
-              onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry</small>}</div>
-        </li>)}</ul>
-      </> : !error && <p>{contracts ? 'No open trades.' : 'Checking open trades…'}</p>)}
-      {view === 'closed' && <>
-        {historyError && <p role="status">{settled ? 'Showing last available settlements. Retrying…' : 'Closed trades are unavailable. Retrying…'}</p>}
-        {settled?.length ? <ul className="open-positions" aria-label="Recent closed trades">
-          {settled.map(trade => {
-            const profit = trade.sell - trade.buy;
-            const outcome = profit > 0 ? 'Win' : profit < 0 ? 'Loss' : 'Break-even';
-            const hasTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
-            return <li key={trade.id}>
-              <div><strong>{trade.contractId ? 'Contract #' + trade.contractId : 'Transaction #' + trade.id}</strong>
-                {hasTime && <small><time dateTime={new Date(trade.settledAt * 1000).toISOString()}>{settlementTime.format(trade.settledAt * 1000)} EAT</time></small>}
-              </div>
-              <div><strong className={tone(profit)}>{money(profit)}</strong><small>{outcome}</small></div>
-            </li>;
-          })}
-        </ul> : !historyError && <p>{settled ? 'No closed trades.' : 'Checking closed trades…'}</p>}
-      </>}
+      {error && <p role="status">{error}</p>}
+      {historyError && <p role="status">{settled ? 'Showing last available settlements.' : 'Closed trades are unavailable.'}</p>}
+      {contracts && <p>{openRows.length} open · Open P&amp;L <strong className={tone(net)}>{money(net)}</strong></p>}
+      <div className="tablewrap">
+        <table aria-label="Open trades and recent settlements">
+          <thead><tr><th scope="col">Trade</th><th scope="col">Status</th><th scope="col">P&amp;L</th><th scope="col">Settled (EAT)</th><th scope="col">Action</th></tr></thead>
+          <tbody>
+            {openRows.map(contract => (
+              <tr key={'open-' + contract.id}>
+                <td><strong>{contract.symbol || 'Contract'} · {({ CALL: 'Rise', PUT: 'Fall' })[contract.contractType] || contract.contractType || 'Open'}</strong><br />
+                  <small>#{contract.id} · Stake {contract.stake} {currency}</small><br />
+                  <small>Entry {contract.entrySpot ?? '—'} → Now {contract.currentSpot ?? '—'}</small></td>
+                <td>Open</td>
+                <td><strong className={tone(contract.profit)}>{money(contract.profit)}</strong></td>
+                <td>—</td>
+                <td>{contract.canSell ? <button type="button" className="outline" disabled={closing || Boolean(error)}
+                  onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry</small>}</td>
+              </tr>
+            ))}
+            {settled?.map(trade => {
+              const profit = trade.sell - trade.buy;
+              const outcome = profit > 0 ? 'Win' : profit < 0 ? 'Loss' : 'Break-even';
+              const hasTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
+              return <tr key={'closed-' + trade.id}>
+                <td>{trade.contractId ? 'Contract #' + trade.contractId : 'Transaction #' + trade.id}</td>
+                <td className={tone(profit)}>Closed · {outcome}</td>
+                <td><strong className={tone(profit)}>{money(profit)}</strong></td>
+                <td>{hasTime ? <time dateTime={new Date(trade.settledAt * 1000).toISOString()}>{settlementTime.format(trade.settledAt * 1000)}</time> : '—'}</td>
+                <td>—</td>
+              </tr>;
+            })}
+            {openRows.length === 0 && !settled?.length && !error && !historyError &&
+              <tr><td colSpan={5}>{contracts && settled ? 'No trades to display.' : 'Checking trades…'}</td></tr>}
+          </tbody>
+        </table>
+      </div>
       {openAnalytics && <button type="button" className="textlink" onClick={openAnalytics}>View Analytics</button>}
       {review && <ConfirmDialog title="Close trade" confirmLabel="Close at market"
         onCancel={() => setReview(null)}

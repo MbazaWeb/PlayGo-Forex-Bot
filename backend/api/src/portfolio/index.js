@@ -1,3 +1,4 @@
+import { readTradeEvidence } from '../../../trading/real-store.js';
 import { isDerivAccount, canTradeAccount } from '../../../trading/deriv-account.js';
 import { closeRealContracts, readRealHistory, readRealPortfolio } from '../../../trading/execute.js';
 
@@ -8,9 +9,16 @@ export async function readPortfolio({ account, token, appId, fetchImpl = fetch }
   return { status: 200, body };
 }
 
-export async function readHistory({ account, token, appId, fetchImpl = fetch }) {
+export async function readHistory({ account, token, appId, includeEvidence = false, fetchImpl = fetch }) {
   if (!isDerivAccount(account)) return { status: 403, body: { error: 'REAL_ACCOUNT_REQUIRED' } };
   const body = await readRealHistory({ account, token, appId, fetchImpl });
+  if (includeEvidence) {
+    try {
+      body.evidence = await readTradeEvidence({ accountId: account.account_id, contractIds: body.transactions.map(row => row.contractId), fetchImpl });
+    } catch {
+      body.evidence = null;
+    }
+  }
   return { status: 200, body };
 }
 

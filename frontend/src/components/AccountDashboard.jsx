@@ -18,6 +18,8 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   const account = accounts?.[0];
   const id = account?.account_id;
   const [history, setHistory] = useState(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState('');
 
   useEffect(() => {
     if (!id) {
@@ -85,6 +87,27 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   const even = (points?.length ?? 0) - wins - losses;
   const winRate = points?.length ? (100 * wins / points.length).toFixed(1) + '%' : '—';
 
+  async function exportPdf() {
+    setPdfBusy(true);
+    setPdfNotice('');
+    let evidence = null;
+    try {
+      const response = await brokerRequest('/api/history?report=1&account=' + encodeURIComponent(id));
+      if (response.ok) {
+        const data = await response.json();
+        if (data.accountId === id) evidence = data.evidence;
+      }
+    } catch {
+      // The dashboard snapshot can still be exported when the audit lookup fails.
+    }
+    try {
+      downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence });
+      if (!evidence) setPdfNotice('PDF downloaded with settlement data. Trade audit records were unavailable.');
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
     <>
       <section aria-label="Today's trading results">
@@ -127,12 +150,13 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
               onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
               Download Excel report
             </button>
-            <button type="button" className="outline" disabled={!points?.length}
-              onClick={() => downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
-              Download PDF report
+            <button type="button" className="outline" disabled={!points?.length || pdfBusy}
+              onClick={exportPdf}>
+              {pdfBusy ? "Preparing PDF…" : "Download PDF report"}
             </button>
             </div>
           </div>
+          {pdfNotice && <p role="status">{pdfNotice}</p>}
           <div className="metrics performance-metrics">
             <Metric title="Net P&L" value={signedMoney(performance?.net)} change="Total gains minus losses" positive={performance?.net > 0} />
             <Metric title="Expectancy per trade" value={signedMoney(performance?.average)} change="Net P&L divided by settled trades" positive={performance?.average > 0} />

@@ -220,6 +220,7 @@ export default async function handler(req, res) {
     const result = await read({
       account,
       token: session.token,
+      includeEvidence: params.get('report') === '1',
       appId: CLIENT,
       fetchImpl: fetch,
     });

@@ -15,6 +15,7 @@ import {
   pauseRealControl,
   readRealControl,
   recordExitCheck,
+  recordOrderStrategy,
   reserveRealIntent,
   startRealControl,
   stopRealControl,
@@ -452,6 +453,15 @@ export async function runRealAgentTick({
       env,
       fetchImpl,
     });
+    try {
+      await recordOrderStrategy({
+        accountId: account.account_id, intentId: reservation.intentId,
+        strategy: manualDirection ? 'Manual direction' : strategy,
+        score: analysis?.confluenceScore ?? null, env, fetchImpl,
+      });
+    } catch {
+      console.warn('PlayGo order strategy audit write failed');
+    }
     return {
       status: 'ordered',
       strategy,

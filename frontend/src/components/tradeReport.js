@@ -48,7 +48,7 @@ function saveReport(data, type, filename) {
 
 const pdfText = value => String(value).replace(/[^ -~]/g, ' ').replace(/[\\()]/g, '\\$&');
 
-export function downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat }) {
+export function downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence }) {
   const money = value => Number.isFinite(value) ? value.toFixed(2) + ' ' + currency : 'Unavailable';
   const fullLosses = points.filter(trade => trade.value < 0 && trade.sell === 0);
   const rows = points.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
@@ -66,26 +66,48 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     'Maximum drawdown: ' + money(performance.drawdown),
     'Zero-proceeds losses: ' + fullLosses.length + ' | P&L: ' + money(fullLosses.reduce((sum, trade) => sum + trade.value, 0)),
     '',
-    'OPERATIONS REVIEW',
-    'Zero proceeds on a loss means the full stake was lost.',
-    'Settlement records do not identify the entry strategy, signal, or close attempt.',
-    'Match contract IDs with bot entry and exit audit records before assigning causes.',
-    'Check whether Deriv offered early sale and whether a close attempt was confirmed.',
-    'Compare results by strategy on Demo using the same stake and evaluation period.',
+    evidence ? 'Evidence includes entries and recent exit checks recorded by PlayGo.'
+      : 'PlayGo audit data was unavailable at the time of export.',
   ]];
-  for (let start = 0; start < rows.length; start += 12) {
+  for (let start = 0; start < rows.length; start += 6) {
     pages.push(['Closed trades | EAT', 'Buy price, proceeds and net P&L in ' + currency, '',
-      ...rows.slice(start, start + 12).flatMap(trade => {
+      ...rows.slice(start, start + 6).flatMap(trade => {
         const validTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
+        const detail = evidence?.[trade.contractId];
+        const exit = detail?.exit;
         return [
           (validTime ? settlementFormat.format(trade.settledAt * 1000) : 'Time unavailable') + ' | ' + trade.status,
           'Transaction ' + trade.time + ' | Contract ' + (trade.contractId || 'Unavailable'),
           'Buy ' + money(trade.buy) + ' | Proceeds ' + money(trade.sell) + ' | Net ' + money(trade.value),
+          'Strategy: ' + (detail?.strategy || 'Unavailable') + (Number.isFinite(detail?.score) ? ' | Signal score: ' + detail.score + '/100' : ''),
+          'Market: ' + (detail?.symbol || 'Unavailable') + ' | Direction: ' +
+            ({ CALL: 'Rise', PUT: 'Fall' }[detail?.direction] || 'Unavailable') + (detail?.duration ? ' | ' + detail.duration + ' min' : ''),
+          ...(trade.value < 0 ? [trade.sell === 0 ? 'Loss: zero proceeds; the full stake was lost.' : 'Loss: sale proceeds were below the stake.'] : []),
+          exit?.outcome === 'CLOSED' ? 'Exit audit: Deriv confirmed an early close.'
+            : exit?.canSell === false ? 'Exit audit: Deriv did not offer early sale at the recorded check.'
+              : exit ? 'Exit audit: PlayGo did not receive close confirmation.'
+                : 'Exit audit: unavailable. Exact exit cause cannot be established.',
           '',
         ];
       }),
     ]);
   }
+  const missingStrategy = rows.filter(trade => !evidence?.[trade.contractId]?.strategy).length;
+  pages.push([
+    'Suggested improvements',
+    'Based on the settlements and evidence included in this report.',
+    '',
+    ...(fullLosses.length ? [
+      '1. Review the ' + fullLosses.length + ' zero-proceeds losses first.',
+      '   On Demo, compare stake caps and record when early sale is available.',
+    ] : ['1. Review the largest losing positions and their recorded exit checks.']),
+    '',
+    '2. Compare strategies on Demo using the same stake, market and test period.',
+    '   Compare net P&L, drawdown and average outcome before changing entry rules.',
+    '',
+    '3. Check evidence coverage. ' + missingStrategy + ' settlements have no recorded strategy.',
+    '   Capture the entry signal and early-sale outcome for trades with missing evidence.',
+  ]);
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Count ' + pages.length + ' /Kids [' + pages.map((_, i) => (4 + i * 2) + ' 0 R').join(' ') + '] >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];

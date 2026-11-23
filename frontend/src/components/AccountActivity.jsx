@@ -1,3 +1,4 @@
+import { tradeStats } from './tradeReview.js';
 import React, { useRef, useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -123,6 +124,17 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
     }
   }
 
+  const [exporting, setExporting] = useState(false);
+  async function exportReport() {
+    setExporting(true);
+    try {
+      const { downloadTradeWorkbook } = await import('./tradeWorkbook.js');
+      await downloadTradeWorkbook(accountId, currency, settled, openRows);
+    } catch { setNotice('Download failed. Please try again.'); }
+    finally { setExporting(false); }
+  }
+
+  const stats = tradeStats((settled || []).map(row => row.sell - row.buy));
   const tone = value => value > 0 ? 'gain' : value < 0 ? 'loss' : '';
   const money = value => (value > 0 ? '+' : '') + value.toFixed(2) + ' ' + currency;
   const settledIds = new Set(settled?.map(trade => trade.contractId));
@@ -137,6 +149,11 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
           historyRefreshRef.current?.();
         }} disabled={loading || closing}>Refresh</button>
       </div>
+      <button type="button" className="outline" disabled={!settled || !contracts || exporting || historyError || Boolean(error)} onClick={exportReport}>
+        {exporting ? 'Preparing report…' : 'Download Excel report'}
+      </button>
+      {stats.count > 0 && <p>Latest {stats.count} settled · {stats.wins} wins ({(stats.winRate * 100).toFixed(1)}%) · {stats.losses} losses ({(stats.lossRate * 100).toFixed(1)}%)
+        {stats.flat > 0 && ` · ${stats.flat} break-even`} · Net <strong className={tone(stats.net)}>{money(stats.net)}</strong></p>}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="status">{error}</p>}
       {historyError && <p role="status">{settled ? 'Showing last available settlements.' : 'Closed trades are unavailable.'}</p>}

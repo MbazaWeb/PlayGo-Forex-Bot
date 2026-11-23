@@ -1,3 +1,4 @@
+import { explainDecision, recordDecision } from './tradeReview.js';
 import AccountActivity from './AccountActivity';
 import ConfirmDialog from './ConfirmDialog';
 import { AUTOMATIC_SETUP, automaticEntryBlock } from '../../../shared/agent-analysis.js';
@@ -63,6 +64,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const [nextScanSeconds, setNextScanSeconds] = useState(null);
   const activeMarket = useRef(null);
   const fallbackOffset = useRef(0);
+  const rejectedUntil = useRef(new Map());
   const [completedScans, setCompletedScans] = useState(0);
   const [lastScanAt, setLastScanAt] = useState(null);
   useEffect(() => () => { generation.current++; }, []);
@@ -348,7 +350,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         setScan({ checked: 0, total: 0, running: true, current: 'Refreshing open markets', rows: [] });
         const currentMarkets = readMarkets(await publicRequest({ active_symbols: 'full' }, AbortSignal.timeout(15_000)));
         if (requestGeneration !== generation.current || stopPending.current) return;
-        const open = currentMarkets.filter(market => market.status === 'Open');
+        const open = currentMarkets.filter(market => market.status === 'Open' && (rejectedUntil.current.get(market.symbol) || 0) <= Date.now());
         const preferred = [activeMarket.current, selectedMarket.symbol];
         const primary = open.filter(market => preferred.includes(market.symbol))
           .sort((a, b) => preferred.indexOf(a.symbol) - preferred.indexOf(b.symbol));
@@ -358,7 +360,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         fallbackOffset.current += Math.max(1, AUTOMATIC_SETUP.marketsPerScan - primary.length);
         if (!candidates.length) {
           setScan({ checked: 0, total: 0, running: false, rows: [] });
-          setAgentFeedback('No open markets are available for an entry check.');
+          setAgentFeedback('Waiting for an available market. Recently declined markets get a short break.');
           return;
         }
       }
@@ -375,7 +377,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           ...(scanning && { marketScan: '1' }),
         });
         results = Array.isArray(body.accounts) ? body.accounts : [];
+        if (!exitsOnly) results.forEach(item => recordDecision(accountId, market.symbol, item));
         if (scanning) {
+          if (results[0]?.reason === 'DERIV_PROPOSAL_REJECTED_ContractBuyValidationError')
+            rejectedUntil.current.set(market.symbol, Date.now() + 60_000);
           const outcome = results[0];
           trace.push({ symbol: market.symbol, name: market.name, ...outcome });
           if (outcome?.status === 'ordered') activeMarket.current = market.symbol;
@@ -424,10 +429,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           const exits = result.closeResults || [];
           const confirmed = exits.filter(contract => contract.closed).length;
           recordActivity(`Exit trigger reached. Deriv confirmed ${confirmed} of ${exits.length} closes.`);
-        } else if (result.status === 'stopped') {
-          recordActivity(`Emergency Agent stopped trading: ${result.reason}. Close requests were attempted where applicable.`);
-        } else if (result.status === 'error') {
-          recordActivity(`Agent could not complete its run: ${result.reason}.`);
+        } else if (result.status === 'stopped' || result.status === 'error') {
+          recordActivity(explainDecision(result));
         }
       }
       if (exitsOnly && results.every(item => item.reason === 'EXIT_MONITORING')) return;
@@ -437,15 +440,15 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         setAgentFeedback(`Opened ${confirmedCount} contract(s).${outcome?.reason === 'OPEN_CONTRACT_LIMIT' ? ' Open contract limit reached.' : ''}`);
         return;
       }
-      const reason = outcome?.reason?.replaceAll('_', ' ');
+      const reason = outcome && explainDecision(outcome);
       setAgentFeedback(outcome?.status === 'ordered'
         ? `Order opened on ${outcome.symbol}.`
-        : outcome?.status === 'watching' || outcome?.status === 'error'
+        : outcome?.status === 'watching' || outcome?.reason?.startsWith('DERIV_PROPOSAL_REJECTED')
           ? `No order placed. ${reason || 'No qualifying setup.'}`
           : reason || (outcome ? 'Position check complete.' : 'No account result was returned.'));
-    } catch (error) {
+    } catch {
       if (requestGeneration !== generation.current) return;
-      const message = `${stage} failed. ${error.message || 'Unexpected error.'}`;
+      const message = `${stage} could not finish. Check the connection and trade history.`;
       setAgentFeedback(message);
       recordActivity(message);
       if (!exitsOnly && stage.startsWith('Entry check')) {
@@ -504,12 +507,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         setManuallyStopped(false);
         try { localStorage.removeItem('playgo-agent-stop:' + accountId); } catch {}
       }
-      setAgentFeedback(active ? 'Bot Agents started.' : statuses[0]?.error || 'The selected account could not be started.');
+      setAgentFeedback(active ? 'Bot Agents started.' : 'The account could not start trading. Check the account connection.');
       recordActivity(active
         ? `Bot Agents started on ${accountLabel} account ${accountId}.`
         : 'Bot Agents did not start; check account and database configuration.');
-    } catch (error) {
-      setAgentFeedback(error.message || 'Could not start Bot Agents.');
+    } catch {
+      setAgentFeedback('Could not start the bot. Check the account connection.');
     } finally {
       startPending.current = false;
       setAgentBusy(false);
@@ -541,6 +544,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         takeProfitPercent: String(takeProfitValue),
       });
       const results = Array.isArray(body.accounts) ? body.accounts : [];
+      results.forEach(item => recordDecision(accountId, selectedMarket.symbol, item));
       const active = results.some(item =>
         item.automationActive === true ||
         item.automationActive === null ||
@@ -561,14 +565,14 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           const confirmed = exits.filter(contract => contract.closed).length;
           recordActivity(`Exit trigger reached. Deriv confirmed ${confirmed} of ${exits.length} closes.`);
         } else {
-          recordActivity(`One-time trade not placed: ${result.reason || result.status}.`);
+          recordActivity(explainDecision(result));
         }
       }
       setAgentFeedback(results.length
-        ? `Trade check completed for ${accountLabel} account ${accountId}. Bot Agents remain active after a successful order.`
+        ? explainDecision(results[0])
         : 'No account result was returned.');
-    } catch (error) {
-      setAgentFeedback(error.message || 'Could not place the one-time trade.');
+    } catch {
+      setAgentFeedback('Order status unavailable. Check trade history before trying again.');
       recordActivity('One-time trade request failed; no success was assumed.');
     } finally {
       setAgentBusy(false);
@@ -591,8 +595,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       setAgentRunning(false);
       setAgentFeedback('Bot stopped. Open contracts remain in Overview.');
       recordActivity('Bot Agents stopped.');
-    } catch (error) {
-      setAgentFeedback(error.message || 'Could not stop Bot Agents.');
+    } catch {
+      setAgentFeedback('Stop was not confirmed. Check the account connection and try again.');
     } finally {
       stopPending.current = false;
       setStopping(false);
@@ -614,7 +618,6 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         </p>}
         {agentFeedback && <p className="agent-command-feedback" role="status">{agentFeedback}</p>}
         {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} bot contract(s) awaiting settlement</p>}
-        {activities[0] && <p className="agent-command-feedback" role="status">{activities[0].message}</p>}
       </section>
       {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
       <section aria-label="Bot results">
@@ -648,7 +651,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
               : agentRunning ? 'Waiting for the entry scheduler.' : 'Bot is stopped.'}
           </p>}
           {scan.rows.length > 0 && <ul>{scan.rows.map(row => <li key={row.symbol}>
-            <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : (row.reason || row.status || 'No response').replaceAll('_', ' ')}</span>
+            <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : explainDecision(row)}</span>
             {Number.isFinite(row.score) && <small>{row.score}/100 signal score</small>}
           </li>)}</ul>}
         </div>}
@@ -783,7 +786,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             const equity = latest?.result?.equity ?? latest?.equity;
             const balance = Number(account.balance);
             const nextStake = Number.isFinite(balance) && balance > 0
-              ? Math.floor(balance * 0.01 * 1e8) / 1e8
+              ? Math.floor(balance * 0.01 * (account.currency === 'USD' ? 100 : 1e8)) / (account.currency === 'USD' ? 100 : 1e8)
               : null;
             return (
               <p key={account.account_id}>

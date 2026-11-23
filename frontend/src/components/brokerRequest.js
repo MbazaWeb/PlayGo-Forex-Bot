@@ -37,6 +37,7 @@ export function simpleBotStatus(raw) {
   if (/429|RATE[ _]LIMIT|rate limit/i.test(message)) return 'Deriv is busy. PlayGo will wait before checking again.';
   if (/PROPOSAL[ _]REJECTED|ContractBuyValidationError/i.test(message)) return 'Deriv declined the trade quote. No order was placed.';
   if (/WEAK[ _]SIGNAL/i.test(message)) return 'Waiting for a stronger signal.';
+  if (/OPEN[ _]EXPOSURE[ _]LIMIT/i.test(message)) return 'Open trades are using the available risk budget.';
   if (/OPEN_CONTRACT_LIMIT/i.test(message)) return 'Open position limit reached.';
   if (/MARKET_ALREADY_OPEN/i.test(message)) return 'A position is already open on this market.';
   if (/EARLY_SALE_UNAVAILABLE/i.test(message)) return 'Deriv is not offering an early sale for this position.';

@@ -93,7 +93,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     ]);
   }
   // Only identify symbol families with known Deriv synthetic-index codes.
-  const synthetic = rows.filter(trade => /^(?:R_(?:10|25|50|75|100)|1HZ(?:10|15|25|30|50|75|90|100|150|200|250)V|(?:BOOM|CRASH)\d+|JD\d+)$/i.test(evidence?.[trade.contractId]?.symbol || ''));
+  const synthetic = rows.filter(trade => /^(?:R_(?:10|25|50|75|100)|1HZ(?:10|15|25|30|50|75|90|100|150|200|250)V|(?:BOOM|CRASH)\d+|JD\d+|stpRNG\d*|RD(?:BULL|BEAR))$/i.test(evidence?.[trade.contractId]?.symbol || ''));
   const cohorts = new Map();
   for (const trade of synthetic.slice().reverse()) {
     const detail = evidence[trade.contractId];
@@ -107,7 +107,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     pages.push([
       'Synthetic-index review',
       synthetic.length + ' identified synthetic-index settlements in this export.',
-      'Recognized families: Volatility, Boom, Crash and Jump.',
+      'Recognized families: Volatility, Boom, Crash, Jump, Step and Range Break.',
       'Unidentified markets are excluded. Figures use settled P&L.',
       '',
       ...groups.slice(offset, offset + 10).flatMap(([name, trades]) => {
@@ -122,6 +122,26 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
         ];
       }),
       ...(!groups.length ? ['No trades with a recognized synthetic-index symbol in this sample.'] : []),
+    ]);
+  }
+  const scoreGroups = new Map();
+  for (const trade of synthetic) {
+    const detail = evidence?.[trade.contractId];
+    if (!detail?.strategy || !Number.isFinite(detail.score)) continue;
+    const label = detail.strategy + ' | ' + detail.score + '/100';
+    if (!scoreGroups.has(label)) scoreGroups.set(label, []);
+    scoreGroups.get(label).push(trade);
+  }
+  const scoreRows = [...scoreGroups.entries()];
+  for (let offset = 0; offset < scoreRows.length; offset += 18) {
+    pages.push([
+      'Synthetic-index signal review',
+      'Observed outcomes in this export. Signal scores are not win probabilities.',
+      '',
+      ...scoreRows.slice(offset, offset + 18).flatMap(([label, trades]) => [
+        label,
+        trades.filter(trade => trade.value > 0).length + '/' + trades.length + ' wins | Net ' + money(net(trades)),
+      ]),
     ]);
   }
   const missingStrategy = rows.filter(trade => !evidence?.[trade.contractId]?.strategy).length;

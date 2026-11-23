@@ -281,8 +281,8 @@ export async function runRealAgentTick({
   if (emergency.status !== 'watching')
     return { ...emergency, accountId: account.account_id };
 
-  const cappedDemo = automatic && !terminalOrder && account.account_type === 'demo' && account.currency === 'USD';
-  const useUsdTargets = cappedDemo || (automatic && (marketScan || exitsOnly) && account.currency === 'USD');
+  const cappedAutomaticUsd = automatic && !terminalOrder && account.currency === 'USD';
+  const useUsdTargets = cappedAutomaticUsd || (automatic && (marketScan || exitsOnly) && account.currency === 'USD');
   const usdBreaches = useUsdTargets ? portfolio.contracts.filter(contract =>
     contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd
   ) : [];
@@ -303,7 +303,7 @@ export async function runRealAgentTick({
     }
   }
 
-  if (cappedDemo && usdBreaches.length) {
+  if (cappedAutomaticUsd && usdBreaches.length) {
     const outcomes = new Map(closeResults.map(result => [result.contractId, result]));
     const checks = usdBreaches.map(contract => {
       const outcome = outcomes.get(contract.id);
@@ -337,7 +337,7 @@ export async function runRealAgentTick({
     };
   }
 
-  if (exitsOnly && cappedDemo && usdBreaches.length) {
+  if (exitsOnly && cappedAutomaticUsd && usdBreaches.length) {
     return { status: 'watching', reason: 'EARLY_SALE_UNAVAILABLE', accountId: account.account_id };
   }
   if (exitsOnly) return { status: 'watching', reason: 'EXIT_MONITORING', accountId: account.account_id };
@@ -386,7 +386,14 @@ export async function runRealAgentTick({
   }
 
   const calculatedStake = calculateStake(balance, account.currency);
-  const stake = cappedDemo ? Math.min(calculatedStake, AUTOMATIC_SETUP.stopLossUsd) : calculatedStake;
+  const stake = cappedAutomaticUsd ? Math.min(calculatedStake, AUTOMATIC_SETUP.stopLossUsd) : calculatedStake;
+  if (cappedAutomaticUsd) {
+    const openStake = portfolio.contracts.reduce((sum, contract) => sum + Math.round(contract.stake * 100), 0);
+    const budget = Math.floor(Math.min(balance, emergency.equity));
+    if (openStake + Math.round(stake * 100) > budget) {
+      return { status: 'watching', reason: 'OPEN_EXPOSURE_LIMIT', accountId: account.account_id, symbol };
+    }
+  }
   const duration = granularity / 60;
   const idempotencyKey = createHash('sha256')
     .update([account.account_id, symbol, granularity, analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity].join(':'))

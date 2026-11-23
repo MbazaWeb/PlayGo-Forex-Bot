@@ -1,10 +1,10 @@
-.signin { min-height: 100dvh; background: #101419; }
-.signin > header { padding: 16px clamp(14px, 5vw, 64px); border-bottom: 1px solid var(--border); background: #14191e; }
+.signin { min-height: 100dvh; background: #0c121e; }
+.signin > header { padding: 16px clamp(14px, 5vw, 64px); border-bottom: 1px solid var(--border); background: #101a29; }
 .signin-main { width: min(440px, calc(100% - 24px)); margin: clamp(32px, 12dvh, 130px) auto 24px; padding: clamp(16px, 5vw, 28px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .signin-main h1 { margin-bottom: 7px; }
 .signin-main p { margin-bottom: 12px; }
-.signin-action { display: flex; justify-content: space-between; width: 100%; background: var(--brand); color: #272317; }
-.signin-action:hover { background: #ffdda0; }
+.signin-action { display: flex; justify-content: space-between; width: 100%; background: var(--brand); color: #142140; }
+.signin-action:hover { background: #c9d6ff; }
 .signin-error button { color: #ffd0d0; text-decoration: underline; }
 
 .open-positions { list-style: none; padding: 0; margin: 0; }
@@ -26,3 +26,7 @@
 .progress-active { animation: playgo-scan-pulse 1.4s ease-in-out infinite alternate; }
 @keyframes playgo-scan-pulse { from { opacity: .55; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .progress-active { animation: none; } }
+
+.signin-main { border-top: 3px solid var(--accent); box-shadow: 0 20px 64px #0003; }
+.signin-monogram { display: inline-grid; place-items: center; width: 54px; height: 54px; margin-bottom: 22px; color: var(--brand); background: var(--field); border-radius: 14px; }
+.signin-action { margin-top: 22px; }

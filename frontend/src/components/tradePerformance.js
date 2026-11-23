@@ -1,4 +1,8 @@
-export function summarizeClosedTrades(trades) {
+export function summarizeClosedTrades(input) {
+  // Drawdown is only meaningful in settlement order, oldest first.
+  const trades = input.every(t => Number.isFinite(t.settledAt))
+    ? input.slice().sort((a, b) => a.settledAt - b.settledAt)
+    : input;
   let winCount = 0;
   let lossCount = 0;
   let gains = 0;

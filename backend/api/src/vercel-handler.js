@@ -88,7 +88,7 @@ export default async function handler(req, res) {
       Buffer.byteLength(state) !== Buffer.byteLength(flow.state) ||
       !timingSafeEqual(Buffer.from(state), Buffer.from(flow.state))) return redirect(res, ORIGIN + '/?auth_error=invalid_callback');
     try {
-      const response = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      const response = await fetch(TOKEN_URL, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'authorization_code', client_id: CLIENT, code, code_verifier: flow.verifier, redirect_uri: REDIRECT }),
         signal: AbortSignal.timeout(15000) });
       if (!response.ok) throw new Error('token exchange failed');
@@ -198,7 +198,7 @@ export default async function handler(req, res) {
         results.push({
           accountId: row.account_id,
           status: 'error',
-          reason: error.code || error.message || 'AGENT_RUN_FAILED',
+          reason: error.code || 'AGENT_RUN_FAILED',
         });
       }
     }
@@ -221,6 +221,7 @@ export default async function handler(req, res) {
       account,
       token: session.token,
       includeEvidence: params.get('report') === '1',
+      range: params.has('range') ? { mode: params.get('range'), from: params.get('from'), to: params.get('to') } : null,
       appId: CLIENT,
       fetchImpl: fetch,
     });

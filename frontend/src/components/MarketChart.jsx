@@ -8,6 +8,9 @@ export default function MarketChart({ data, tall, line = false, outcomes = false
     return <div className={'chart ' + (tall ? 'tall' : '')}><p role="status">No data.</p></div>;
   }
 
+  const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Dar_es_Salaam', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const labelFor = new Map(outcomes ? safe.map(row => [row.time, Number.isSafeInteger(row.settledAt) && row.settledAt > 0 && row.settledAt < 1e11
+    ? clock.format(row.settledAt * 1000) : row.time]) : []);
   const Chart = outcomes ? BarChart : line ? LineChart : AreaChart;
 
   return (
@@ -21,15 +24,15 @@ export default function MarketChart({ data, tall, line = false, outcomes = false
             </linearGradient>
           </defs>
           <CartesianGrid stroke="#253040" strokeDasharray="3 5" vertical={false} />
-          <XAxis dataKey="time" tick={{ fill: '#7f8c9e', fontSize: 11 }} minTickGap={24} axisLine={false} tickLine={false} />
+          <XAxis dataKey="time" tickFormatter={value => labelFor.get(value) ?? value} tick={{ fill: '#7f8c9e', fontSize: 11 }} minTickGap={24} axisLine={false} tickLine={false} />
           <YAxis domain={outcomes ? [min => Math.min(0, min), max => Math.max(0, max)] : ['auto', 'auto']} tick={{ fill: '#7f8c9e', fontSize: 11 }} axisLine={false} tickLine={false} orientation="right" />
-          <Tooltip
+          <Tooltip labelFormatter={value => outcomes && labelFor.get(value) !== value ? labelFor.get(value) + ' EAT' : value}
             contentStyle={{ background: '#18212e', border: '1px solid #344051', borderRadius: 12, color: '#fff' }}
             formatter={(v) => [Number(v).toLocaleString(undefined, { maximumFractionDigits: 5 }), label]}
           />
           {outcomes && <ReferenceLine y={0} stroke="#69798d" />}
           {outcomes ? (
-            <Bar dataKey="value" maxBarSize={36}>
+            <Bar isAnimationActive={false} dataKey="value" maxBarSize={36}>
               {safe.map(row => <Cell key={row.time} fill={row.value > 0 ? '#64e6a9' : row.value < 0 ? '#ff8397' : '#aab8c9'} />)}
             </Bar>
           ) : line ? (
@@ -38,7 +41,7 @@ export default function MarketChart({ data, tall, line = false, outcomes = false
             <Area type="monotone" dataKey="value" stroke="#45d5c5" strokeWidth={2.3} fill="url(#area)" dot={false} activeDot={{ r: 5, fill: '#45d5c5' }} />
           )}
           {/* BRUSH: Hii inaongeza uwezo wa kuzoom na kusogeza */}
-          <Brush dataKey="time" height={30} stroke="#45d5c5" fill="#131c28" travellerWidth={10} />
+          <Brush tickFormatter={value => labelFor.get(value) ?? value} dataKey="time" height={20} stroke="#45d5c5" fill="#131c28" travellerWidth={10} />
         </Chart>
       </ResponsiveContainer>
     </div>

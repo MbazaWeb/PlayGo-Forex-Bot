@@ -1,7 +1,7 @@
 import ConfirmDialog from './components/ConfirmDialog';
 import React, { useEffect, useState } from 'react';
 import {
-  Activity, ArrowRight, Bot, LogOut, LayoutDashboard, Link2,
+  ArrowRight, Bot, LogOut, LayoutDashboard, Link2,
   ChartCandlestick, ChartNoAxesCombined, Settings,
 } from 'lucide-react';
 import AccountDashboard from './components/AccountDashboard';
@@ -122,13 +122,14 @@ export default function App() {
       <div className="signin">
         <header>
           <div className="brand">
-            <span className="brandicon"><Activity size={22} aria-hidden="true" /></span>
+            <span className="brandicon"><ChartCandlestick size={22} aria-hidden="true" /></span>
             <div><b>PlayGo</b><small>Forex Bot</small></div>
           </div>
         </header>
         <main className="signin-main">
+          <span className="signin-monogram" aria-hidden="true"><ChartCandlestick size={30} /></span>
           <h1>Sign in to PlayGo</h1>
-          <p>Sign in with Deriv to access your trading accounts.</p>
+          <p>Access your trading workspace with your Deriv account.</p>
           {error && <p role="alert" className="signin-error">Sign-in unavailable. <button onClick={load}>Try again</button></p>}
           {loading ? <p role="status">Checking session...</p>
             : session?.configured
@@ -155,9 +156,10 @@ export default function App() {
 
   return (
     <div className="app">
+      <a className="skip-nav" href="#workspace">Skip to workspace</a>
       <aside className="sidebar">
         <div className="brand">
-          <span className="brandicon"><Activity size={22} aria-hidden="true" /></span>
+          <span className="brandicon"><ChartCandlestick size={22} aria-hidden="true" /></span>
           <div><b>PlayGo</b><small>Forex Bot</small></div>
         </div>
         <nav aria-label="Main navigation">
@@ -174,9 +176,10 @@ export default function App() {
       <div className="main">
         <header className="topbar">
           <div className="top-left">
-            <span className="mobile-brand"><Activity size={18} aria-hidden="true" /> PlayGo</span><span className="workspace-label">Trading workspace</span>
+            <span className="mobile-brand"><ChartCandlestick size={18} aria-hidden="true" /> PlayGo</span><span className="workspace-label">PlayGo <span aria-hidden="true">/</span> {page}</span>
           </div>
                     <div className="top-right">
+            <HeaderClock />
             {!!accounts?.length && (
               <select className="outline" aria-label="Deriv trading account" value={selectedAccount?.account_id || ''}
                 onChange={event => selectAccount(event.target.value)}>
@@ -190,9 +193,9 @@ export default function App() {
             )}
             <button type="button" className="outline signout" aria-label="Sign out" onClick={logout}><LogOut size={17} aria-hidden="true" /><span>Sign out</span></button>
           </div>
-          <HeaderClock />
+
         </header>
-        <main className="content">
+        <main className="content" id="workspace" tabIndex={-1}>
           <div className="heading">
             <div>
               <h1>{page}</h1>

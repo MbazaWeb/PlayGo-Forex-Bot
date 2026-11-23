@@ -1,5 +1,9 @@
 export const MAX_STAKE_PERCENT = 0.01;
-export const MAX_OPEN_CONTRACTS = 10;
+export const MAX_OPEN_CONTRACTS = 5; // matches docs/RISK_CONTROLS_REVIEW.md
+export const MAX_DAILY_LOSS_PERCENT = 5; // of starting balance, resets at 00:00 EAT
+export const MAX_CONSECUTIVE_LOSSES = 3;
+export const LOSS_STREAK_COOLDOWN_SECONDS = 1800;
+const EAT_OFFSET_SECONDS = 3 * 3600;
 export const MAX_DRAWDOWN_PERCENT = 0.20;
 export const SIGNAL_THRESHOLD = 75;
 export const MAX_STOP_LOSS_PERCENT_OF_STAKE = 100;
@@ -56,4 +60,34 @@ export function qualifyingDirection(analysis) {
   if (analysis.direction === 'bullish') return 'CALL';
   if (analysis.direction === 'bearish') return 'PUT';
   return null;
+}
+
+export function startOfEatDay(epochSeconds) {
+  return Math.floor((epochSeconds + EAT_OFFSET_SECONDS) / 86400) * 86400 - EAT_OFFSET_SECONDS;
+}
+
+// transactions: newest first, [{ buy, sell, settledAt }] with settledAt in unix seconds.
+// Halts only while the streak is recent, so the bot cannot stay halted forever without trading.
+export function consecutiveLossHalt(transactions, nowEpoch) {
+  let run = 0;
+  let newestLossAt = null;
+  for (const row of transactions) {
+    if (!(Number(row.sell) < Number(row.buy))) break;
+    run++;
+    if (newestLossAt === null) newestLossAt = Number(row.settledAt);
+  }
+  return run >= MAX_CONSECUTIVE_LOSSES && Number.isFinite(newestLossAt) &&
+    nowEpoch - newestLossAt < LOSS_STREAK_COOLDOWN_SECONDS;
+}
+
+// complete is false when the fetched page may not reach the start of the EAT day.
+export function dailyRiskState(transactions, { nowEpoch, fetchLimit, startingBalance }) {
+  const dayStart = startOfEatDay(nowEpoch);
+  const oldest = transactions.length ? Number(transactions[transactions.length - 1].settledAt) : null;
+  const complete = transactions.length < fetchLimit || (Number.isFinite(oldest) && oldest < dayStart);
+  const todayNet = transactions
+    .filter(row => Number(row.settledAt) >= dayStart)
+    .reduce((sum, row) => sum + (Number(row.sell) - Number(row.buy)), 0);
+  const limit = startingBalance > 0 ? -startingBalance * MAX_DAILY_LOSS_PERCENT / 100 : null;
+  return { complete, todayNet, breached: complete && limit !== null && todayNet <= limit };
 }

@@ -109,48 +109,79 @@ export async function recordOrderStrategy({ accountId, intentId, strategy, score
 }
 
 export async function readTradeEvidence({ accountId, contractIds, env = process.env, fetchImpl = fetch }) {
-  const ids = [...new Set(contractIds.filter(id => typeof id === 'string' && /^[0-9]{1,30}$/.test(id)))].slice(0, 25);
+  const ids = [...new Set(contractIds.filter(id => typeof id === 'string' && /^[0-9]{1,30}$/.test(id)))];
   if (!ids.length) return {};
-  const intentQuery = new URLSearchParams({
-    account_id: 'eq.' + accountId, broker_contract_id: 'in.(' + ids.join(',') + ')',
-    select: 'id,broker_contract_id,symbol,contract_type,duration',
-  });
-  const exitQuery = new URLSearchParams({
-    account_id: 'eq.' + accountId, event_type: 'eq.EXIT_TARGET_CHECK',
-    select: 'created_at,event_data', order: 'created_at.desc,id.desc', limit: '500',
-  });
-  const [intents, exits] = await Promise.all([
-    request(env, 'playgo_real_intents?' + intentQuery, {}, fetchImpl),
-    request(env, 'playgo_real_audit?' + exitQuery, {}, fetchImpl),
-  ]);
+  if (ids.length > 10_000) throw Error('TRADE_EVIDENCE_LIMIT');
   const evidence = Object.fromEntries(ids.map(id => [id, {}]));
-  const intentById = new Map();
-  for (const row of intents) {
-    if (!Object.hasOwn(evidence, row.broker_contract_id)) continue;
-    const entry = evidence[row.broker_contract_id];
-    Object.assign(entry, { symbol: row.symbol, direction: row.contract_type, duration: row.duration });
-    intentById.set(row.id, entry);
-  }
-  if (intentById.size) {
-    const strategyQuery = new URLSearchParams({
-      account_id: 'eq.' + accountId, event_type: 'eq.ORDER_STRATEGY',
-      intent_id: 'in.(' + [...intentById.keys()].join(',') + ')',
-      select: 'intent_id,event_data',
+  const accountFilter = { account_id: 'eq.' + accountId };
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const batch = ids.slice(offset, offset + 100);
+    const intentQuery = new URLSearchParams({
+      ...accountFilter, broker_contract_id: 'in.(' + batch.join(',') + ')',
+      select: 'id,broker_contract_id,symbol,contract_type,duration',
     });
-    const strategies = await request(env, 'playgo_real_audit?' + strategyQuery, {}, fetchImpl);
-    for (const row of strategies) {
+    const intents = await request(env, 'playgo_real_intents?' + intentQuery, {}, fetchImpl);
+    const intentById = new Map();
+    for (const row of intents) {
+      if (!Object.hasOwn(evidence, row.broker_contract_id)) continue;
+      const entry = evidence[row.broker_contract_id];
+      Object.assign(entry, { symbol: row.symbol, direction: row.contract_type, duration: row.duration });
+      intentById.set(row.id, entry);
+    }
+    if (!intentById.size) continue;
+    const strategyQuery = new URLSearchParams({
+      ...accountFilter, event_type: 'eq.ORDER_STRATEGY',
+      intent_id: 'in.(' + [...intentById.keys()].join(',') + ')',
+      select: 'intent_id,event_data', order: 'id.asc',
+    });
+    for await (const row of auditRows(strategyQuery, env, fetchImpl)) {
       const entry = intentById.get(row.intent_id);
       if (entry) Object.assign(entry, { strategy: row.event_data?.strategy, score: row.event_data?.score });
     }
   }
-  for (const row of exits) {
+  const exitQuery = new URLSearchParams({
+    ...accountFilter, event_type: 'eq.EXIT_TARGET_CHECK',
+    select: 'created_at,event_data', order: 'id.desc',
+  });
+  const confirmed = new Set();
+  for await (const row of auditRows(exitQuery, env, fetchImpl)) {
     for (const check of row.event_data?.checks ?? []) {
       if (!Object.hasOwn(evidence, check.contractId)) continue;
       const entry = evidence[check.contractId];
       if (!entry.exit || (check.outcome === 'CLOSED' && entry.exit.outcome !== 'CLOSED')) {
         entry.exit = { outcome: check.outcome, profit: check.profit, canSell: check.canSell, checkedAt: row.created_at };
       }
+      if (check.outcome === 'CLOSED') confirmed.add(check.contractId);
     }
+    if (confirmed.size === ids.length) break;
   }
   return evidence;
+}
+
+async function* auditRows(query, env, fetchImpl) {
+  const ascending = query.get('order') === 'id.asc';
+  query.set('select', query.get('select') + ',id');
+  query.set('limit', '500');
+  let cursor;
+  for (;;) {
+    if (cursor !== undefined) query.set('id', (ascending ? 'gt.' : 'lt.') + cursor);
+    const rows = await request(env, 'playgo_real_audit?' + query, {}, fetchImpl);
+    if (!Array.isArray(rows)) throw Error('INVALID_TRADE_AUDIT');
+    if (!rows.length) return;
+    const next = rows.at(-1).id;
+    if (!Number.isSafeInteger(next) || next <= 0 ||
+        (cursor !== undefined && (ascending ? next <= cursor : next >= cursor))) throw Error('INVALID_AUDIT_CURSOR');
+    yield* rows;
+    cursor = next;
+  }
+}
+
+export async function readLiveQualification({ accountId, env = process.env, fetchImpl = fetch }) {
+  const query = new URLSearchParams({
+    account_id: 'eq.' + accountId, limit: '1',
+    select: 'account_id,approved_by,approved_at,expires_at,holdout_start,settlements',
+  });
+  const rows = await request(env, 'playgo_live_qualification?' + query, {}, fetchImpl);
+  if (!Array.isArray(rows) || rows.length !== 1 || rows[0].account_id !== accountId) return null;
+  return rows[0];
 }

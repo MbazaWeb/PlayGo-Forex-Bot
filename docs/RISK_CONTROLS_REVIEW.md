@@ -1,19 +1,22 @@
-# Real execution risk controls
+# Execution risk controls
 
-## Configured limits
+## Entry controls
 
-- Per-order stake: at most 1% of the latest authenticated account balance.
-- Open contracts: at most five per real account.
-- Per-contract stop-loss and take-profit: required user inputs, persisted with each account control and used as the authority for scheduled checks. They use monitored floating P&L and best-effort sell requests, not broker-side guarantees.
-- Emergency threshold: pause new orders when verified equity is at or below 80% of the stored starting balance.
-- Emergency action: persist the pause first, then attempt to sell each broker-reported open contract. While the Bot Agents page remains active, later checks retry contracts still reported open.
-- Scheduling: selected candle interval, page-active only. The one-time order action reruns server-side analysis and does not bypass the signal threshold.
-- Fill policy: Deriv CALL/PUT proposal/buy does not offer FOK; execution buys at no more than the quoted proposal price.
+- Demo is the default. Real buys require both server-side keys and a current, account-specific qualification record with separate logged human approval.
+- The buy adapter checks TRADING_ENABLED=false before connecting and at the broker buy boundary. In a deployment, the flag must reach each active process.
+- Per-order stake is at most 1% of authenticated balance and at most 10 USD for automatic USD entries. The automatic USD portfolio snapshot caps total stake at 1% of the lower of balance or equity. The broker and database checks cap open positions at five.
+- Daily settlement P&L is measured from 00:00 EAT. The entry check blocks when net settlement P&L is at or below minus 5% of the starting balance. The bot declines entries when the 50-row lookback cannot establish coverage for the day.
+- Three consecutive losses block new entries for 30 minutes from the latest loss. There is no loss-based stake increase. These are entry checks on broker snapshots, with no guarantee of a maximum realized loss.
+- The position-count SQL change must be applied to the target database before relying on that database limit. The database and broker are separate systems, so portfolio snapshots are not an atomic broker exposure cap.
 
-Starting balance is captured when an account is first started and remains unchanged across ordinary stop/start actions. A risk-triggered pause cannot be cleared by starting again. Unknown order outcomes also pause the account to prevent duplicate submissions.
+## Exit handling
 
-These controls do not guarantee a maximum loss. Market movement, network interruptions, broker rejection, gaps, or execution price can prevent or worsen a close. Monitoring is page-active, not continuous after the browser/session stops.
+A losing CALL/PUT can settle at zero proceeds. Early sale depends on Deriv allowing a sale and confirming the request. Stop-loss and take-profit thresholds are monitoring triggers. Monitoring is browser-page active. An unknown buy outcome blocks subsequent reservations. The existing drawdown control pauses entries at 80% of starting balance and tries to close broker-reported positions. Complete close/statement reconciliation and a persistent zero-proceeds-loss halt remain separate work.
 
-## Validation status
+## Qualification evidence
 
-The migration and execution logic are tested with an embedded PostgreSQL implementation and mocked broker WebSockets. Tests do not call live buy or sell endpoints. The migration has not been applied to a hosted database, and no live-account acceptance run has been performed.
+The execution role has read-only access to the qualification table. A separate trusted reviewer must supply the candidate account, approver, validity interval, predetermined holdout boundary, and unique settlement records with strategy, signal, verified reconciliation and explicit costs. No public write route or automatic approval exists. Missing data, an expired approval, or a failed check blocks a real buy. Reviewers are responsible for validating the dataset provenance, cost accounting and holdout boundary before recording approval.
+
+The gate requires 500 settlements across three Monday-start EAT weeks, no single day above 50% of settlements, positive cost-adjusted results, profit factor of at least 1.2 and win rate above break-even. The holdout must contain at least 100 trades, have positive cost-adjusted P&L, profit factor of at least 1.2 and win rate above break-even. The PDF reports descriptive settlement metrics and cannot authorize live mode.
+
+See VALIDATION.md for what was run.

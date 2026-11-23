@@ -1,4 +1,6 @@
-import { isDerivAccount } from './deriv-account.js';
+import { evaluateLiveGate } from '../../shared/live-gate.js';
+import { readLiveQualification } from './real-store.js';
+import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 const API = 'https://api.derivws.com';
 
 function codedError(code) {
@@ -36,7 +38,7 @@ export async function getRealWebSocketUrl({ token, account, appId, fetchImpl = f
     throw codedError('INVALID_REAL_ENDPOINT');
   }
   if (url.protocol !== 'wss:' || url.host !== 'api.derivws.com' ||
-      url.pathname !== `/trading/v1/options/ws/${account.account_type}` || !url.searchParams.get('otp') ||
+      url.pathname !== `/trading/v1/options/ws/${account.account_type}` || (!url.searchParams.get('otp') || url.searchParams.getAll('otp').length !== 1) ||
       url.username || url.password || url.hash)
     throw codedError('INVALID_REAL_ENDPOINT');
   return url.toString();
@@ -99,8 +101,6 @@ function sendAndWait(socket, payload, expectedType, reqId) {
           ? '_' + brokerCode
           : '';
         const error = codedError('DERIV_' + stage + '_REJECTED' + suffix);
-        if (stage === 'PROPOSAL' && typeof response.error.message === 'string')
-          error.proposalDetail = response.error.message.replace(/https?:\/\/\S+/gi, '[link]').replace(/\s+/g, ' ').trim().slice(0, 240);
         finish(error);
         return;
       }
@@ -143,9 +143,11 @@ function validIntent(intent, account) {
 }
 
 export async function executeRealOrder({
-  account, token, appId, intent, beforeBuy, fetchImpl = fetch, Socket,
+  account, token, appId, intent, beforeBuy, env = process.env, fetchImpl = fetch, Socket,
 }) {
   if (!validIntent(intent, account)) throw codedError('INVALID_REAL_ORDER');
+  if (env.TRADING_ENABLED === 'false') throw codedError('TRADING_DISABLED');
+  if (!canTradeAccount(account, env)) throw codedError('LIVE_TRADING_DISABLED');
   if (typeof beforeBuy !== 'function') throw codedError('PERSISTED_SUBMISSION_REQUIRED');
 
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
@@ -165,7 +167,21 @@ export async function executeRealOrder({
         !Number.isFinite(ask) || ask <= 0 || ask > intent.stake)
       throw codedError('INVALID_BROKER_PROPOSAL');
 
+    if (account.account_type === 'real') {
+      const qualification = await readLiveQualification({ accountId: account.account_id, env, fetchImpl })
+        .catch(() => null);
+      const now = Date.now();
+      if (!qualification || !qualification.approved_by?.trim() ||
+          !(Date.parse(qualification.approved_at) <= now && Date.parse(qualification.expires_at) > now) ||
+          !Array.isArray(qualification.settlements) || qualification.settlements.length > 10_000 ||
+          !evaluateLiveGate(qualification.settlements, {
+            verified: true, holdoutStart: qualification.holdout_start,
+          }).passed) throw codedError('LIVE_READINESS_NOT_VERIFIED');
+    }
+    if (env.TRADING_ENABLED === 'false' || !canTradeAccount(account, env)) throw codedError('TRADING_DISABLED');
     await beforeBuy();
+    if (env.TRADING_ENABLED === 'false' || !canTradeAccount(account, env))
+      throw codedError('BROKER_ORDER_OUTCOME_UNKNOWN');
     let result;
     try {
       result = await sendAndWait(socket, { buy: proposalId, price: ask }, 'buy', 2);
@@ -304,5 +320,67 @@ export async function closeRealContracts({ account, token, appId, contractIds, f
       }
     }
     return results;
+  });
+}
+
+function parseSettlement(row) {
+  if (row?.buy_price == null || row.sell_price == null) throw codedError('INVALID_HISTORY_RESPONSE');
+  const buy = Number(row.buy_price);
+  const sell = Number(row.sell_price);
+  const settledAt = Number(row.sell_time);
+  if (!Number.isFinite(buy) || buy < 0 || !Number.isFinite(sell) || sell < 0 ||
+      !Number.isSafeInteger(settledAt) || settledAt <= 0)
+    throw codedError('INVALID_HISTORY_RESPONSE');
+  const contractId = typeof row.contract_id === 'string' || Number.isSafeInteger(row.contract_id)
+    ? String(row.contract_id) : null;
+  return { id: contractIdentifier(row.transaction_id), contractId, buy, sell, settledAt };
+}
+
+// One bounded profit_table call, newest first. Used by per-tick risk checks.
+export async function readRecentSettlements({ account, token, appId, fetchImpl = fetch, Socket, limit = 50 }) {
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw codedError('INVALID_HISTORY_LIMIT');
+  return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
+    const response = await sendAndWait(socket, { profit_table: 1, sort: 'DESC', limit }, 'profit_table', 1);
+    const rows = response?.profit_table?.transactions;
+    if (!Array.isArray(rows)) throw codedError('INVALID_HISTORY_RESPONSE');
+    return { transactions: rows.map(parseSettlement), fetchLimit: limit };
+  });
+}
+
+// Pages every settlement in [from, to] (unix seconds), oldest first, for the trade report.
+// complete is false when maxRows was reached; the report must then say the sample is partial.
+export async function readSettlementRange({
+  account, token, appId, fetchImpl = fetch, Socket, from, to, maxRows = 5000,
+}) {
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to < from || to >= 1e11)
+    throw codedError('INVALID_HISTORY_RANGE');
+  if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000)
+    throw codedError('INVALID_HISTORY_LIMIT');
+  return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
+    const pageSize = 100;
+    const byId = new Map();
+    let reqId = 1;
+    for (let offset = 0; offset < maxRows; offset += pageSize) {
+      const limit = Math.min(pageSize, maxRows - offset);
+      const response = await sendAndWait(socket, {
+        profit_table: 1, sort: 'ASC', limit, offset,
+        date_from: String(from), date_to: String(to),
+      }, 'profit_table', reqId++);
+      const page = response?.profit_table?.transactions;
+      if (!Array.isArray(page) || page.length > limit) throw codedError('INVALID_HISTORY_RESPONSE');
+      for (const row of page) {
+        const parsed = parseSettlement(row);
+        if (parsed.settledAt < from || parsed.settledAt > to) throw codedError('INVALID_HISTORY_RESPONSE');
+        const previous = byId.get(parsed.id);
+        if (previous && JSON.stringify(previous) !== JSON.stringify(parsed)) throw codedError('INVALID_HISTORY_RESPONSE');
+        byId.set(parsed.id, parsed);
+      }
+      if (page.length < limit) {
+        return { transactions: [...byId.values()], complete: true, observedAt: new Date().toISOString() };
+      }
+    }
+    return { transactions: [...byId.values()], complete: false, observedAt: new Date().toISOString() };
   });
 }

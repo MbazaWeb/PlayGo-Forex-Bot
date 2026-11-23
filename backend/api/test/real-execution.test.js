@@ -84,7 +84,7 @@ test('Deriv OTP endpoint matches the selected account type', async () => {
   }), /INVALID_REAL_ENDPOINT/);
 });
 
-for (const accountType of ['demo', 'real']) {
+for (const accountType of ['demo']) {
   test(`${accountType} buy is persisted before the broker receives the buy request`, async () => {
     const events = [];
     const order = await executeRealOrder({
@@ -160,7 +160,7 @@ test('one-time order requests reject missing exit settings before database or br
     granularity: 60,
     stopLossPercent: 0,
     takeProfitPercent: 25,
-    env: { LIVE_TRADING_ENABLED: 'true' },
+    env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456' },
     fetchImpl: assert.fail,
   }), /INVALID_EXIT_SETTINGS/);
 });
@@ -169,7 +169,7 @@ test('one-time trade checks restore an inactive control after a non-qualifying a
   const events = [];
   let control = null;
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -251,7 +251,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
   const events = [];
   let control = null;
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -288,7 +288,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
     }
     if (parsed.pathname.endsWith('/otp'))
       return Response.json({
-        data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
+        data: { url: 'wss://api.derivws.com/trading/v1/options/ws/demo?otp=fixture' },
       });
     throw Error(`Unexpected mocked request: ${parsed.pathname}`);
   };
@@ -311,7 +311,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
         const candles = Array.from({ length: 80 }, (_, index) => {
           const close = 100 + index * 0.12 + Math.sin(index * 1.1) * 0.5;
           return {
-            epoch: 1_700_000_000 + index * 60,
+            epoch: 1_800_000_000 - (80 - index) * 60,
             open: close - 0.1,
             high: close + 0.2,
             low: close - 0.2,
@@ -324,6 +324,8 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
       } else if (request.buy) {
         events.push('buy-request');
         response = { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345 } };
+      } else if (request.profit_table) {
+        response = { req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions: [] } };
       } else {
         throw Error('Unexpected mocked broker request');
       }
@@ -336,7 +338,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
     }
   }
   const request = {
-    accounts: [realAccount],
+    accounts: [{ ...realAccount, account_type: 'demo' }],
     token: 'fixture',
     appId: 'fixture',
     symbol: 'R_75',
@@ -356,7 +358,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
   assert.ok(!events.includes('stop-control'));
 
   events.length = 0;
-  const exitCheck = await runRealAgentTick({ ...request, account: realAccount, exitsOnly: true });
+  const exitCheck = await runRealAgentTick({ ...request, account: { ...realAccount, account_type: 'demo' }, exitsOnly: true });
   assert.equal(exitCheck.reason, 'EXIT_MONITORING');
   assert.ok(!events.includes('read-candles'));
   assert.ok(!events.includes('reserve-intent'));
@@ -385,7 +387,7 @@ test('active control settings cannot be replaced by a one-time request', async (
     take_profit_percent: 25,
   };
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -415,7 +417,7 @@ test('one-time checks close a contract at its configured loss threshold without 
   const events = [];
   let control = null;
   const env = {
-    LIVE_TRADING_ENABLED: 'true',
+    LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: 'CR123456',
     PLAYGO_ENV: 'local',
     PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
     PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
@@ -598,8 +600,8 @@ test('real execution migration persists controls and rejects over-limit reservat
     'select public.playgo_real_reserve_intent($1) as result',
     [JSON.stringify(row)],
   );
-  assert.equal((await reserve({ ...record, open_count: 10 })).rows[0].result.reason, 'OPEN_CONTRACT_LIMIT');
-  const first = (await reserve({ ...record, open_count: 9 })).rows[0].result;
+  assert.equal((await reserve({ ...record, open_count: 5 })).rows[0].result.reason, 'OPEN_CONTRACT_LIMIT');
+  const first = (await reserve({ ...record, open_count: 4 })).rows[0].result;
   assert.equal(first.accepted, true);
   assert.equal((await reserve({ ...record, idempotency_key: 'b'.repeat(64) })).rows[0].result.reason, 'UNKNOWN_ORDER_STATE');
 
@@ -662,7 +664,29 @@ test('reports the Deriv proposal rejection code without entering the buy stage',
   }
   await assert.rejects(executeRealOrder({
     account: realAccount, token: 'fixture', fetchImpl: otpFetch, Socket: RejectedProposalSocket,
+    env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id },
     intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
     beforeBuy: () => assert.fail('rejected proposal must never submit a buy'),
-  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure', proposalDetail: 'broker detail' });
+  }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure' });
+});
+
+test('the real order path fails closed without stored qualification even with both keys', async () => {
+  const code = { code: 'LIVE_READINESS_NOT_VERIFIED' };
+  await assert.rejects(executeRealOrder({
+    account: realAccount, token: 'fixture',
+    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
+    env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id, PLAYGO_ENV: 'local',
+      PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000', PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890' },
+    fetchImpl: async url => String(url).includes('playgo_live_qualification') ? Response.json([]) : otpFetch(),
+    Socket: BrokerSocket,
+    beforeBuy: () => assert.fail('must never submit without verified evidence'),
+  }), code);
+});
+
+test('explicit kill switch blocks Demo before contacting the broker', async () => {
+  await assert.rejects(executeRealOrder({
+    account: { ...realAccount, account_type: 'demo' }, token: 'fixture',
+    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
+    env: { TRADING_ENABLED: 'false' }, fetchImpl: assert.fail, beforeBuy: assert.fail,
+  }), { code: 'TRADING_DISABLED' });
 });

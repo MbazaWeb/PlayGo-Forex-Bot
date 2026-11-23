@@ -1,51 +1,8 @@
-.account-shell{min-height:100vh;background:#0b1019;color:#eff5ff}
-.account-header{display:flex;justify-content:space-between;align-items:center;padding:28px 5vw;border-bottom:1px solid #253040}
-.account-header .brand{padding:0}
-.account-content{max-width:1000px;margin:auto;padding:70px 24px}
-.account-content h1{font-size:clamp(30px,5vw,48px);margin:14px 0}
-.login-panel{margin:35px 0;padding:36px;max-width:620px;display:flex;flex-direction:column;gap:20px;align-items:flex-start}
-.login-panel p{line-height:1.7}
-.login-panel a{text-decoration:none}
-.account-panel{padding:28px;margin-top:28px}
-.account-panel p{line-height:1.7}
-.account-foot{display:flex;gap:12px;color:#8fa0b5;line-height:1.7;margin-top:30px}
-.preview-banner{position:sticky;top:0;z-index:1000;background:#22433d;color:white;display:flex;justify-content:center;align-items:center;gap:20px;padding:12px;font-size:12px}
-.preview-banner button{background:transparent;color:white;border:1px solid #7eb7aa;padding:6px 12px;border-radius:5px}
-.outline{display:inline-flex;align-items:center;gap:8px}
-.account-content .setting-line{gap:20px;overflow-wrap:anywhere}
-
-.signin{min-height:100svh;background:#101720;color:#f3f6fb}
-.signin>header{padding:24px clamp(22px,5vw,72px);border-bottom:1px solid #283341}
-.signin .brand{padding:0}
-.signin .brandicon{background:#60d8ce;color:#101720;box-shadow:none}
-.signin-main{width:min(100% - 44px,400px);margin:0 auto;padding:clamp(50px,15vh,154px) 0 48px}
-.signin-main h1{font-size:clamp(29px,6vw,36px);font-weight:650;letter-spacing:-.035em;margin:0 0 12px}
-.signin-main p{font-size:15px;line-height:1.55;color:#aab8c9;margin:0 0 26px}
-.signin-action{display:flex;align-items:center;justify-content:space-between;min-height:48px;padding:0 16px;background:#60d8ce;color:#101720;border-radius:7px;text-decoration:none;font-weight:650}
-.signin-action:hover{background:#83e6dd}
-.signin-main :focus-visible{outline:2px solid #f3f6fb;outline-offset:4px}
-.signin-main .signin-error{padding:12px 14px;border:1px solid #644943;border-radius:7px;color:#f6ccbf}
-.signin-error button{background:none;border:0;color:inherit;text-decoration:underline}
-
-.account-menu-backdrop{display:none}
-@media(max-width:700px){
-  .account-menu-backdrop{display:block;position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.65);border:0}
-  .top-right .outline{padding:8px 10px}
-  .content>.panel{margin-bottom:18px}
-}
-@media(max-width:600px){
-  .account-header{padding:20px}
-  .account-content{padding-top:35px}
-  .login-panel{padding:25px}
-  .preview-banner{flex-wrap:wrap;gap:8px}
-  .account-panel{padding:20px}
-  .account-panel .panelhead{flex-wrap:wrap}
-}
-
-.signin-mt5{width:100%;margin-top:12px;background:#1c2c3b;color:#e5f3f8;border:1px solid #3b5366;text-align:left}
-.signin-mt5:hover{background:#243b4c}
-.mt5-guide{margin:16px 0;padding:18px;border:1px solid #385063;border-radius:10px;background:#172330}
-.mt5-guide h2{margin-bottom:10px}
-.mt5-guide p{margin:10px 0;line-height:1.6;overflow-wrap:anywhere}
-.mt5-guide a{color:#6de2d1}
-.mt5-guide code{overflow-wrap:anywhere}
+.signin { min-height: 100dvh; background: #101419; }
+.signin > header { padding: 16px clamp(14px, 5vw, 64px); border-bottom: 1px solid var(--border); background: #14191e; }
+.signin-main { width: min(440px, calc(100% - 24px)); margin: clamp(32px, 12dvh, 130px) auto 24px; padding: clamp(16px, 5vw, 28px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.signin-main h1 { margin-bottom: 7px; }
+.signin-main p { margin-bottom: 12px; }
+.signin-action { display: flex; justify-content: space-between; width: 100%; background: var(--brand); color: #272317; }
+.signin-action:hover { background: #ffdda0; }
+.signin-error button { color: #ffd0d0; text-decoration: underline; }

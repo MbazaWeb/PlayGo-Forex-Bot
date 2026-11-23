@@ -106,12 +106,13 @@ export default function ProChart({ data, type = 'Candlestick', height = 400, sho
     chart.timeScale().fitContent();
 
     const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
+      if (!containerRef.current) return;
+      const width = containerRef.current.clientWidth;
+      chart.applyOptions({ width, height: tools && width < 480 ? 300 : height });
     };
     const observer = new ResizeObserver(handleResize);
     observer.observe(containerRef.current);
+    handleResize();
 
     return () => {
       observer.disconnect();

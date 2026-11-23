@@ -1,8 +1,8 @@
 import ConfirmDialog from './components/ConfirmDialog';
 import React, { useEffect, useState } from 'react';
 import {
-  Activity, LogOut, ShieldCheck, LayoutDashboard, Wallet,
-  ChartCandlestick, ChartNoAxesCombined, Settings, Menu, X,
+  Activity, ArrowRight, Bot, LogOut, LayoutDashboard, Link2,
+  ChartCandlestick, ChartNoAxesCombined, Settings,
 } from 'lucide-react';
 import AccountDashboard from './components/AccountDashboard';
 import TradeAgent from './components/TradeAgent';
@@ -10,11 +10,11 @@ import TradeAgent from './components/TradeAgent';
 const MarketWorkspace = React.lazy(() => import('./components/MarketWorkspace'));
 
 const NAV = [
-  ['Overview', LayoutDashboard],
-  ['Trading Terminal', ChartCandlestick],
-  ['Bot Agents', Wallet],
-  ['Analytics', ChartNoAxesCombined],
-  ['Settings', Settings],
+  ['Overview', LayoutDashboard, 'Overview'],
+  ['Trading Terminal', ChartCandlestick, 'Trade'],
+  ['Bot Agents', Bot, 'Bots'],
+  ['Analytics', ChartNoAxesCombined, 'Analytics'],
+  ['Settings', Settings, 'Settings'],
 ];
 
 async function fetchJSON(url, opts) {
@@ -34,7 +34,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [mt5, setMt5] = useState(null);
   const [page, setPage] = useState('Overview');
-  const [mobile, setMobile] = useState(false);
   const [marketSymbol, setMarketSymbol] = useState('');
 
   async function load() {
@@ -72,8 +71,8 @@ export default function App() {
       <div className="signin">
         <header>
           <div className="brand">
-            <span className="brandicon"><Activity size={21} /></span>
-            <div><b>PLAYGO</b><small>TRADING TERMINAL</small></div>
+            <span className="brandicon"><Activity size={22} aria-hidden="true" /></span>
+            <div><b>PlayGo</b><small>Forex Bot</small></div>
           </div>
         </header>
         <main className="signin-main">
@@ -82,7 +81,7 @@ export default function App() {
           {error && <p role="alert" className="signin-error">Sign-in unavailable. <button onClick={load}>Try again</button></p>}
           {loading ? <p role="status">Checking session...</p>
             : session?.configured
-              ? <a className="signin-action" href="/api/auth/deriv/start">Continue with Deriv <span aria-hidden="true">&rarr;</span></a>
+              ? <a className="signin-action" href="/api/auth/deriv/start">Continue with Deriv <ArrowRight size={18} aria-hidden="true" /></a>
               : !error && <p role="status" className="signin-error">Deriv sign-in is not configured.</p>}
         </main>
       </div>
@@ -92,7 +91,6 @@ export default function App() {
   function navigate(next, symbol) {
     if (symbol) setMarketSymbol(symbol);
     setPage(next === 'Accounts' || next === 'Portfolio' ? 'Bot Agents' : next);
-    setMobile(false);
   }
 
   const selectedAccount = accounts?.find(account => account.account_id === selectedAccountId);
@@ -105,30 +103,26 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className={'sidebar ' + (mobile ? 'show' : '')}>
+      <aside className="sidebar">
         <div className="brand">
-          <span className="brandicon"><Activity size={22} /></span>
-          <div><b>PLAYGO</b><small>TRADING TERMINAL</small></div>
-          <button className="mobile-close" onClick={() => setMobile(false)} aria-label="Close menu"><X size={20} /></button>
+          <span className="brandicon"><Activity size={22} aria-hidden="true" /></span>
+          <div><b>PlayGo</b><small>Forex Bot</small></div>
         </div>
-        <p className="nav-label">WORKSPACE</p>
         <nav aria-label="Main navigation">
           {NAV.map(([name, Icon]) => (
             <button key={name} className={page === name ? 'selected' : ''} aria-current={page === name ? 'page' : undefined} onClick={() => navigate(name)}>
-              <Icon size={19} />{name}
+              <Icon size={19} aria-hidden="true" />{name}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="connection"><span className="dot" /> Deriv connected <ShieldCheck size={16} /></div>
+          <div className="connection"><span className="dot" /> Deriv connected</div>
         </div>
       </aside>
-      {mobile && <button className="account-menu-backdrop" aria-label="Close navigation" onClick={() => setMobile(false)} />}
       <div className="main">
         <header className="topbar">
           <div className="top-left">
-            <button className="hamburger" aria-label="Open navigation" onClick={() => setMobile(true)}><Menu size={23} /></button>
-            <span className="breadcrumb">Workspace</span><span className="slash">/</span><b>{page}</b>
+            <span className="mobile-brand"><Activity size={18} aria-hidden="true" /> PlayGo</span><span className="workspace-label">Trading workspace</span>
           </div>
                     <div className="top-right">
             {!!accounts?.length && (
@@ -142,15 +136,13 @@ export default function App() {
                 ))}
               </select>
             )}
-            <button className="outline" onClick={logout}><LogOut size={16} /> Sign out</button>
+            <button type="button" className="outline signout" aria-label="Sign out" onClick={logout}><LogOut size={17} aria-hidden="true" /><span>Sign out</span></button>
           </div>
         </header>
         <main className="content">
           <div className="heading">
             <div>
-              <div className="eyebrow">PLAYGO TRADING WORKSPACE</div>
               <h1>{page}</h1>
-              <p>Connected Deriv session</p>
             </div>
           </div>
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
@@ -164,8 +156,8 @@ export default function App() {
           )}
           {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}
           {!loading && page === 'Settings' && (
-            <section className="panel">
-              <h2>Connections</h2>
+            <section className="panel settings-panel">
+              <div className="panelhead"><h2><Link2 size={17} aria-hidden="true" /> Connections</h2></div>
               <div className="setting-line"><span>Deriv</span><strong>Connected</strong></div>
               <div className="setting-line"><span>MetaTrader 5</span><strong>{mt5?.status || 'Not linked'}</strong></div>
               <div className="setting-line"><span>Accounts</span><strong>{accounts?.length ?? 0} connected</strong></div>
@@ -173,6 +165,14 @@ export default function App() {
           )}
         </main>
       </div>
+      <nav className="mobile-nav" aria-label="Mobile navigation">
+        {NAV.map(([name, Icon, shortLabel]) => (
+          <button type="button" key={name} aria-label={name} aria-current={page === name ? 'page' : undefined}
+            onClick={() => navigate(name)}>
+            <Icon size={20} aria-hidden="true" /><span>{shortLabel}</span>
+          </button>
+        ))}
+      </nav>
       {pendingAccountId && <ConfirmDialog title="Switch Deriv account" confirmLabel="Switch account"
         onCancel={() => setPendingAccountId('')}
         onConfirm={() => { setSelectedAccountId(pendingAccountId); setPendingAccountId(''); }}>

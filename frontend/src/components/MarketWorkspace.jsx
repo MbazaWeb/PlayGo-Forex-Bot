@@ -27,7 +27,7 @@ export default function MarketWorkspace({ page, changePage, marketSymbol, onMark
         <section className="panel">
           <div className="panelhead">
             <div><h2>Markets</h2><p>Live Deriv symbols</p></div>
-            <button className="textlink" onClick={() => go('Trading Terminal')}>Open terminal →</button>
+            <button className="textlink" onClick={() => go('Trading Terminal')}>Open terminal <ArrowUpRight size={15} aria-hidden="true" /></button>
           </div>
           <div className="tablewrap">
             <table>

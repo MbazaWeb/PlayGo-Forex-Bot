@@ -76,3 +76,20 @@ export async function readMarketCandles({ symbol, granularity, Socket = globalTh
     };
   });
 }
+
+export function marketIntegrityBlock(candles, granularity, nowMs) {
+  const recent = candles.slice(-50);
+  if (recent.length < 50) return 'INSUFFICIENT';
+  const latestClosedStart = Math.floor(nowMs / 1000 / granularity) * granularity - granularity;
+  if (recent.at(-1).epoch < latestClosedStart - granularity) return 'STALE_MARKET_DATA';
+  const seen = new Set();
+  for (let index = 0; index < recent.length; index++) {
+    const { epoch } = recent[index];
+    if (epoch % granularity !== 0 || epoch > latestClosedStart) return 'UNALIGNED_MARKET_DATA';
+    if (seen.has(epoch)) return 'DUPLICATE_MARKET_DATA';
+    seen.add(epoch);
+  }
+  if (recent.some((row, index) => index && row.epoch - recent[index - 1].epoch !== granularity))
+    return 'MARKET_DATA_GAP';
+  return null;
+}

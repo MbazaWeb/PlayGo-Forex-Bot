@@ -5,7 +5,7 @@ import { analyzeCandles } from './agentAnalysis.js';
 import { publicRequest, readCandles, readMarkets } from './derivMarkets.js';
 
 const retryMarketReasons = new Set([
-  'STALE_MARKET_DATA', 'WEAK_SIGNAL', 'ELEVATED_VOLATILITY', 'BREAKOUT_NOT_CONFIRMED',
+  'STALE_MARKET_DATA', 'UNALIGNED_MARKET_DATA', 'DUPLICATE_MARKET_DATA', 'MARKET_DATA_GAP', 'WEAK_SIGNAL', 'ELEVATED_VOLATILITY', 'BREAKOUT_NOT_CONFIRMED',
   'NO_QUALIFYING_SIGNAL', 'INSUFFICIENT', 'INVALID', 'MARKET_DATA_TIMEOUT',
   'MARKET_DATA_DISCONNECTED', 'MARKET_DATA_UNAVAILABLE', 'MARKET_DATA_SEND_FAILED',
 ]);
@@ -503,7 +503,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         <ol className="agent-flow-steps">
           <li><strong>Market Scout</strong><small>{scan?.running ? scan.current : scan ? `${scan.checked} market(s) checked` : 'Waiting for next scan'}</small></li>
           <li><strong>Strategy</strong><small>{scan?.rows.at(-1)?.strategy || 'Trend + momentum / breakout'}</small></li>
-          <li><strong>Risk</strong><small>Volatility, exposure and drawdown</small></li>
+          <li><strong>Risk</strong><small>Candle integrity, volatility, exposure and drawdown</small></li>
           <li><strong>Execution</strong><small>{scan?.rows.at(-1)?.status === 'ordered' ? 'Order confirmed' : 'Waiting for eligible signal'}</small></li>
         </ol>
         {scan && <div className="agent-scan">

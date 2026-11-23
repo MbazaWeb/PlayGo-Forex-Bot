@@ -123,11 +123,13 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           </div>
           <div className="metrics performance-metrics">
             <Metric title="Net P&L" value={signedMoney(performance?.net)} change="Total gains minus losses" positive={performance?.net > 0} />
-            <Metric title="Average per trade" value={signedMoney(performance?.average)} change="Net P&L divided by settled trades" positive={performance?.average > 0} />
+            <Metric title="Expectancy per trade" value={signedMoney(performance?.average)} change="Net P&L divided by settled trades" positive={performance?.average > 0} />
             <Metric title="Profit factor" value={performance?.profitFactor == null ? '-' : performance.profitFactor.toFixed(2) + '×'}
               change={performance && losses === 0 ? 'No losses in this sample' : 'Gross gains ÷ gross losses'} />
             <Metric title="Maximum drawdown" value={performance ? performance.drawdown.toFixed(2) + (currency ? ' ' + currency : '') : '-'}
               change="Largest drop in cumulative closed P&L" />
+            <Metric title="Average win" value={signedMoney(performance?.averageWin)} positive />
+            <Metric title="Average loss" value={signedMoney(performance?.averageLoss)} />
           </div>
         </section>
       )}

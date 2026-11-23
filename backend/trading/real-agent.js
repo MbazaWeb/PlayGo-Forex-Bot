@@ -10,7 +10,7 @@ import {
   contractsAtExitThresholds,
   validExitSettings,
 } from './execution-risk.js';
-import { readMarketCandles } from './market-data.js';
+import { marketIntegrityBlock, readMarketCandles } from './market-data.js';
 import {
   pauseRealControl,
   readRealControl,
@@ -319,8 +319,7 @@ export async function runRealAgentTick({
   let automaticBlock = automatic && analysis ? automaticEntryBlock(analysis) : null;
   let strategy = automatic ? 'Trend + momentum' : 'Manual rules';
   if (automatic && marketScan && analysis?.status === 'ready') {
-    if (Math.floor(now() / 1000) - analysis.last.epoch > granularity * 3)
-      automaticBlock = 'STALE_MARKET_DATA';
+    automaticBlock = marketIntegrityBlock(candles, granularity, now()) || automaticBlock;
     if (analysis.volatilityRank < 0.2) {
       strategy = 'Low-volatility breakout';
       const prior = candles.slice(-11, -1);

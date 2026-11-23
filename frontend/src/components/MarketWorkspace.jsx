@@ -1,13 +1,14 @@
+import DailyMarkets from './DailyMarkets';
 import AccountActivity from './AccountActivity';
 import React from 'react';
 import { ArrowUpRight, ChartCandlestick, ChartNoAxesCombined } from 'lucide-react';
 import TerminalOrder from './TerminalOrder';
 import MarketExplorer, { useMarketList } from './MarketExplorer';
 
-export default function MarketWorkspace({ page, changePage, marketSymbol, onMarketChange, account, accounts, onSelectAccount, executionEnabled }) {
+export default function MarketWorkspace({ page, changePage, marketSymbol, onMarketChange, account, accounts, onSelectAccount, executionEnabled, initialDuration }) {
   const catalog = useMarketList(marketSymbol, onMarketChange);
-  const go = (next, symbol) => {
-    if (typeof changePage === 'function') changePage(next, symbol);
+  const go = (next, symbol, duration) => {
+    if (typeof changePage === 'function') changePage(next, symbol, duration);
   };
   const rows = catalog.rows || [];
 
@@ -25,6 +26,7 @@ export default function MarketWorkspace({ page, changePage, marketSymbol, onMark
             <button onClick={() => go('Analytics')}><ChartNoAxesCombined size={20} /> View Performance <ArrowUpRight size={16} /></button>
           </section>
         </div>
+        <DailyMarkets rows={rows} go={go} />
         <section className="panel">
           <div className="panelhead">
             <div><h2>Markets</h2><p>Live Deriv symbols</p></div>
@@ -54,7 +56,7 @@ export default function MarketWorkspace({ page, changePage, marketSymbol, onMark
     <>
     <div className="terminal-workspace">
       <MarketExplorer catalog={catalog} />
-      <TerminalOrder key={account?.account_id} account={account} accounts={accounts} onSelectAccount={onSelectAccount} market={catalog.market}
+      <TerminalOrder key={account?.account_id} initialDuration={initialDuration} account={account} accounts={accounts} onSelectAccount={onSelectAccount} market={catalog.market}
         executionEnabled={executionEnabled} openBot={() => go('Bot Agents', catalog.market?.symbol)} />
     </div>
     {account && <AccountActivity key={account.account_id} accountId={account.account_id}

@@ -48,6 +48,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [mt5, setMt5] = useState(null);
   const [page, setPage] = useState('Overview');
+  const [plannedDuration, setPlannedDuration] = useState();
   const [marketSymbol, setMarketSymbol] = useState('');
 
   async function load() {
@@ -138,7 +139,8 @@ export default function App() {
     );
   }
 
-  function navigate(next, symbol) {
+  function navigate(next, symbol, duration) {
+    setPlannedDuration(duration);
     if (symbol) setMarketSymbol(symbol);
     setPage(next === 'Accounts' || next === 'Portfolio' ? 'Bot Agents' : next);
   }
@@ -202,7 +204,7 @@ export default function App() {
           {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} realExecutionEnabled={session.execution === true} />}
           {!loading && page === 'Trading Terminal' && (
             <React.Suspense fallback={<p>Loading...</p>}>
-              <MarketWorkspace page="Trading Terminal" marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} account={selectedAccount} accounts={accounts} onSelectAccount={selectAccount} executionEnabled={session.execution === true} changePage={navigate} />
+              <MarketWorkspace page="Trading Terminal" initialDuration={plannedDuration} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} account={selectedAccount} accounts={accounts} onSelectAccount={selectAccount} executionEnabled={session.execution === true} changePage={navigate} />
             </React.Suspense>
           )}
           {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}

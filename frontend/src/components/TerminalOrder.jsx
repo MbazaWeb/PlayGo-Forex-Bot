@@ -6,8 +6,8 @@ import { ArrowDownRight, ArrowUpRight, Bot } from 'lucide-react';
 const DURATIONS = [1, 5, 15, 60];
 const ACTIONS = { buy: 'Buy / Rise', sell: 'Sell / Fall', bot: 'Bot Trade' };
 
-export default function TerminalOrder({ account, accounts, onSelectAccount, market, executionEnabled, openBot }) {
-  const [preferredDuration, setDuration] = useState(5);
+export default function TerminalOrder({ account, accounts, onSelectAccount, market, executionEnabled, openBot, initialDuration }) {
+  const [preferredDuration, setDuration] = useState(initialDuration ?? 5);
   const [contractOptions, setContractOptions] = useState(null);
   const [durationAttempt, retryDurations] = useState(0);
   const symbol = market?.symbol;

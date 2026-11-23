@@ -203,6 +203,7 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
         id,
         symbol: typeof contract.underlying_symbol === 'string' ? contract.underlying_symbol : null,
         profit: Number(contract.profit),
+        canSell: contract.is_valid_to_sell === 1,
         stake,
       });
     }

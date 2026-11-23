@@ -546,7 +546,7 @@ test('real portfolio reads and verifies the stake used by exit thresholds', asyn
     },
   });
   assert.deepEqual(portfolio.contracts, [
-    { id: '12345', symbol: 'R_75', profit: -1, stake: 10 },
+    { id: '12345', symbol: 'R_75', profit: -1, stake: 10, canSell: false },
   ]);
 });
 

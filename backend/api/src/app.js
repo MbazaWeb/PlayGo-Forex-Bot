@@ -1,5 +1,5 @@
 import { isDerivAccount } from '../../trading/deriv-account.js';
-import {readPortfolio, readHistory} from './portfolio/index.js';
+import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
 import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
@@ -159,6 +159,13 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
       }
     }
     return json(res,200,{accounts:results});
+   }
+
+   if(path==='/api/portfolio/close' && req.method==='POST'){
+    if(req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1')
+      return json(res,403,{error:'Request origin rejected.'});
+    const result=await closePortfolioContract({account,contractId:params.get('contract'),token:session.token,appId:config.clientId,fetchImpl:fetcher});
+    return json(res,result.status,result.body);
    }
 
    if(['/api/portfolio','/api/history'].includes(path)&&req.method==='GET'){

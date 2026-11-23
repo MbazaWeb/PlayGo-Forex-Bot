@@ -34,6 +34,24 @@ export async function brokerRequest(url, options = {}) {
 
 export function simpleBotStatus(raw) {
   const message = String(raw || '');
+  const reasons = {
+    STALE_MARKET_DATA: 'Waiting for fresh candles.',
+    UNALIGNED_MARKET_DATA: 'Candle times do not match the selected interval.',
+    DUPLICATE_MARKET_DATA: 'The market feed returned duplicate candles.',
+    MARKET_DATA_GAP: 'The market feed is missing candles.',
+    INSUFFICIENT: 'Waiting for 50 closed candles.',
+    INVALID: 'The market feed returned an invalid candle.',
+    ELEVATED_VOLATILITY: 'Waiting for volatility to ease.',
+    BREAKOUT_NOT_CONFIRMED: 'Price has not confirmed the breakout.',
+    LOSS_STREAK_COOLDOWN: 'Trading paused after consecutive losses.',
+    DAILY_LOSS_LIMIT: 'Daily loss limit reached.',
+    DAILY_HISTORY_INCOMPLETE: 'Waiting for complete settlement history.',
+    NO_QUALIFYING_SIGNAL: 'Waiting for an eligible setup.',
+  };
+  const code = message.toUpperCase().replaceAll(' ', '_');
+  for (const [reason, label] of Object.entries(reasons)) {
+    if (code === reason || code.endsWith('_' + reason) || code.endsWith('_' + reason + '.')) return label;
+  }
   if (/429|RATE[ _]LIMIT|rate limit/i.test(message)) return 'Deriv is busy. PlayGo will wait before checking again.';
   if (/PROPOSAL[ _]REJECTED|ContractBuyValidationError/i.test(message)) return 'Deriv declined the trade quote. No order was placed.';
   if (/WEAK[ _]SIGNAL/i.test(message)) return 'Waiting for a stronger signal.';

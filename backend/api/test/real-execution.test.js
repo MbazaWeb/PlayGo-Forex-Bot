@@ -311,7 +311,7 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
         const candles = Array.from({ length: 80 }, (_, index) => {
           const close = 100 + index * 0.12 + Math.sin(index * 1.1) * 0.5;
           return {
-            epoch: 1_700_000_000 + index * 60,
+            epoch: 1_800_000_000 - (80 - index) * 60,
             open: close - 0.1,
             high: close + 0.2,
             low: close - 0.2,

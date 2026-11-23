@@ -1,7 +1,7 @@
-import { automaticEntryBlock, AUTOMATIC_SETUP } from '../../shared/agent-analysis.js';
+import { AUTOMATIC_SETUP } from '../../shared/agent-analysis.js';
 import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 import { createHash } from 'node:crypto';
-import { analyzeCandles } from '../../shared/agent-analysis.js';
+import { reviewMarket, marketReviewReceipt } from '../../shared/market-review.js';
 import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements } from './execute.js';
 import {
   calculateStake,
@@ -12,7 +12,7 @@ import {
   consecutiveLossHalt,
   dailyRiskState,
 } from './execution-risk.js';
-import { marketIntegrityBlock, readMarketCandles } from './market-data.js';
+import { readMarketCandles } from './market-data.js';
 import {
   pauseRealControl,
   readRealControl,
@@ -360,27 +360,17 @@ export async function runRealAgentTick({
   }
 
   const candles = manualDirection ? [] : await readMarketCandles({ symbol, granularity, Socket, now });
-  const analysis = manualDirection ? null : analyzeCandles(candles, granularity);
+  const analysis = manualDirection ? null : reviewMarket(candles, granularity, now(), automatic);
   const contractType = manualDirection || qualifyingDirection(analysis);
-  let automaticBlock = automatic && analysis ? automaticEntryBlock(analysis) : null;
-  let strategy = automatic ? 'Trend + momentum' : 'Manual rules';
-  if (automatic && marketScan && analysis?.status === 'ready') {
-    automaticBlock = marketIntegrityBlock(candles, granularity, now()) || automaticBlock;
-    if (analysis.volatilityRank < 0.2) {
-      strategy = 'Low-volatility breakout';
-      const prior = candles.slice(-11, -1);
-      const breakout = contractType === 'CALL' ? analysis.last.close > Math.max(...prior.map(candle => candle.high))
-        : contractType === 'PUT' && analysis.last.close < Math.min(...prior.map(candle => candle.low));
-      if (!automaticBlock && (analysis.confluenceScore < 90 || !breakout)) automaticBlock = 'BREAKOUT_NOT_CONFIRMED';
-    }
-  }
-  if (!contractType || automaticBlock) {
+  const strategy = analysis?.strategy || (manualDirection ? 'Manual direction' : 'Awaiting market data');
+  if (!contractType || analysis?.block) {
     return {
       status: 'watching',
-      reason: automaticBlock || (analysis.status === 'ready' ? 'NO_QUALIFYING_SIGNAL' : analysis.status.toUpperCase()),
+      reason: analysis?.block || 'NO_QUALIFYING_SIGNAL',
       accountId: account.account_id,
       symbol,
       strategy,
+      review: marketReviewReceipt(analysis),
       score: analysis.confluenceScore ?? null,
       equity: emergency.equity,
       emergency,
@@ -490,6 +480,7 @@ export async function runRealAgentTick({
     }
     return {
       status: 'ordered',
+      review: marketReviewReceipt(analysis),
       strategy,
       accountId: account.account_id,
       contractId: order.contractId,

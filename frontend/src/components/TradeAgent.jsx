@@ -1,10 +1,10 @@
 import { brokerCoolingDown, brokerRequest, pauseBrokerRequests, simpleBotStatus } from './brokerRequest';
 import AccountActivity from './AccountActivity';
 import ConfirmDialog from './ConfirmDialog';
-import { AUTOMATIC_SETUP, automaticEntryBlock } from '../../../shared/agent-analysis.js';
+import { AUTOMATIC_SETUP } from '../../../shared/agent-analysis.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { analyzeCandles } from './agentAnalysis.js';
-import { publicRequest, readCandles, readMarkets } from './derivMarkets.js';
+import { closedMarketBars, reviewMarket } from '../../../shared/market-review.js';
+import { publicRequest, readMarkets } from './derivMarkets.js';
 
 const retryMarketReasons = new Set([
   'STALE_MARKET_DATA', 'UNALIGNED_MARKET_DATA', 'DUPLICATE_MARKET_DATA', 'MARKET_DATA_GAP', 'WEAK_SIGNAL', 'ELEVATED_VOLATILITY', 'BREAKOUT_NOT_CONFIRMED',
@@ -188,33 +188,35 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   useEffect(() => {
     if (!selectedMarket) return undefined;
     const controller = new AbortController();
-    setAnalysis({ status: 'loading', progress: 15 });
-
-    publicRequest({
-      ticks_history: selectedMarket.symbol,
-      style: 'candles',
-      end: 'latest',
-      adjust_start_time: 1,
-      count: 200,
-      granularity: interval,
-    }, controller.signal)
-      .then(readCandles)
-      .then((candles) => {
+    let timer;
+    async function update() {
+      setAnalysis({ status: 'loading' });
+      try {
+        const response = await publicRequest({
+          ticks_history: selectedMarket.symbol, style: 'candles', end: 'latest',
+          count: 200, granularity: interval,
+        }, controller.signal);
         if (controller.signal.aborted) return;
-        const result = analyzeCandles(candles, interval);
+        const now = Date.now();
+        const candles = closedMarketBars(response.candles, interval, now);
+        const result = reviewMarket(candles, interval, now, !manual);
         setAnalysis({ ...result, progress: 100, symbol: selectedMarket.symbol, interval });
-        recordActivity(result.status === 'ready'
-          ? `${result.direction ? `${result.direction} setup` : 'No qualifying setup'}; confluence ${result.confluenceScore}/100.`
-          : result.reason);
-      })
-      .catch(() => {
+        recordActivity(result.block ? simpleBotStatus(result.block)
+          : (result.direction || 'Neutral') + ' setup, signal score ' + result.confluenceScore + '/100.');
+      } catch {
         if (controller.signal.aborted) return;
-        setAnalysis({ status: 'error', progress: 100, symbol: selectedMarket.symbol, interval });
-        recordActivity(`Analysis failed for ${selectedMarket.symbol}; market data was unavailable.`);
-      });
-
-    return () => controller.abort();
-  }, [selectedMarket, interval, refresh, recordActivity]);
+        setAnalysis({ status: 'error', symbol: selectedMarket.symbol, interval });
+        recordActivity('Price history unavailable for ' + selectedMarket.symbol + '.');
+      } finally {
+        if (!controller.signal.aborted) {
+          const period = interval * 1000;
+          timer = setTimeout(update, period - Date.now() % period + 1500);
+        }
+      }
+    }
+    void update();
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [selectedMarket, interval, manual, refresh, recordActivity]);
 
   const validAccounts = useMemo(() => account ? [account] : [], [account]);
   const accountId = account?.account_id;
@@ -237,13 +239,14 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     Number.isFinite(takeProfitValue) && takeProfitValue > 0 && takeProfitValue <= 10000;
   const emergencyRetry = agentStatuses.some(item => item.control?.stop_reason === 'DRAWDOWN_LIMIT');
   const monitoringActive = agentRunning && (exitSettingsValid || emergencyRetry);
-  const entryBlock = !manual && ready ? automaticEntryBlock(analysis) : null;
+  const entryBlock = analysis.block;
   const signalQualifies = ready && Boolean(analysis.direction) && !entryBlock;
   const recommendation = entryBlock === 'ELEVATED_VOLATILITY'
     ? 'Risk Agent is waiting for volatility to ease.'
     : entryBlock === 'WEAK_SIGNAL'
       ? 'Strategies Agent is waiting for a stronger signal.'
-      : ready
+      : entryBlock ? simpleBotStatus(entryBlock)
+    : ready
     ? analysis.direction
       ? `${analysis.direction === 'bullish' ? 'Bullish' : 'Bearish'} setup to review`
       : 'No setup meets the 75/100 threshold'
@@ -608,30 +611,33 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
 
   return (
     <div className="trade-agent-dashboard">
-      <section className="panel agent-command" aria-label="Bot controls">
+      <section className="panel agent-command" data-running={monitoringActive} aria-label="Bot controls">
         <div><h2>Bot control</h2><p role="status">
           {stopping ? 'Stopping bot…' : scan?.running ? 'Scanning markets' : agentBusy ? 'Checking account…' : monitoringActive ? 'Running' : agentRunning ? 'Paused' : 'Standby'}
         </p></div>
-        <button type="button" className="outline agent-stop" disabled={!agentRunning || stopping}
+        <div className="bot-command-actions">
+          <button
+            type="button"
+            className="primary agent-proposal-button"
+            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
+            onClick={() => setConfirmation('place')}
+          >
+            {agentBusy ? 'Checking...' : 'Place Trade Now'}
+          </button>
+          {!agentRunning && <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={() => setConfirmation('start')}>Start bot</button>}
+          {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
+          <button type="button" className="outline agent-stop" disabled={!agentRunning || stopping}
           onClick={stopAgent}><span aria-hidden="true" className="stop-mark" /> Stop Bot</button>
+        </div>
         {agentRunning && nextScanSeconds !== null && <p className="agent-command-feedback">
           {scan?.running ? 'Scanning open markets...' : nextScanSeconds === 0
-            ? 'Scan due; waiting for the current check.'
+            ? 'Scan due. Waiting for the active check.'
             : `Next entry scan in ${Math.floor(nextScanSeconds / 60)}:${String(nextScanSeconds % 60).padStart(2, '0')}`}
         </p>}
         {agentFeedback && <p className="agent-command-feedback" role="status">{simpleBotStatus(agentFeedback)}</p>}
         {pendingContracts.length > 0 && <p className="agent-command-feedback">{pendingContracts.length} {pendingContracts.length === 1 ? 'bot trade is' : 'bot trades are'} waiting to settle.</p>}
       </section>
-      {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
-      <section aria-label="Bot results">
-        <div className="panelhead"><div><h2>Bot results</h2><p>Tracked on this browser</p></div></div>
-        <div className="metrics bot-results">
-          <div className="metric"><small>{winningAmounts.length} wins</small><strong className="gain">{botMoney.format(total(winningAmounts))}</strong></div>
-          <div className="metric"><small>{losingAmounts.length} losses</small><strong className="loss">{botMoney.format(total(losingAmounts))}</strong></div>
-          <div className="metric"><small>{trackedAmounts.length} settled · Net</small><strong>{botMoney.format(total(trackedAmounts))}</strong></div>
-        </div>
-      </section>
-      <section className="panel agent-flow" aria-label="Agent workflow">
+      <section className="panel agent-flow" data-scanning={Boolean(scan?.running)} aria-label="Agent workflow">
         <div className="panelhead"><div><h2>Agent workflow</h2></div></div>
         <ol className="agent-flow-steps">
           <li><strong>Market Scout</strong><small>{scan?.running ? scan.current : scan ? `${scan.checked} market(s) checked` : 'Waiting for next scan'}</small></li>
@@ -641,7 +647,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         </ol>
         {scan && <div className="agent-scan">
           <div className="agent-progress-heading">
-            <strong>{scan.running ? 'Checking with Deriv' : `Scan ${completedScans || 1} complete`}</strong>
+            <strong>{scan.running ? 'Checking with Deriv' : !scan.total ? 'No markets checked' : scan.checked < scan.total ? 'Scan ended early' : `Scan ${completedScans || 1} complete`}</strong>
             <span>{scan.total ? Math.round(scan.checked / scan.total * 100) : 0}% · {scan.checked}/{scan.total}</span>
           </div>
           <progress className={scan.running ? "progress-active" : undefined} aria-label="Markets checked" max={scan.total || 1} value={scan.checked} />
@@ -654,10 +660,27 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
               : agentRunning ? 'Waiting for the entry scheduler.' : 'Bot is stopped.'}
           </p>}
           {scan.rows.length > 0 && <ul>{scan.rows.map(row => <li key={row.symbol}>
-            <strong>{row.name}</strong><span>{row.status === 'ordered' ? 'Order confirmed' : simpleBotStatus(row.reason || 'No trade signal')}</span>
-            {Number.isFinite(row.score) && <small>{row.score}/100 signal score</small>}
+            <strong>{row.name}</strong>
+            <span>{row.status === 'ordered' ? 'Order confirmed' : simpleBotStatus(row.reason || row.status || 'No account result')}</span>
+            {row.review && <details className="scan-evidence">
+              <summary>Decision details</summary>
+              <dl className="trade-review">
+                <div><dt>Strategy</dt><dd>{row.strategy || 'Unavailable'}</dd></div>
+                <div><dt>Signal score</dt><dd>{Number.isFinite(row.score) ? row.score + '/100' : 'Unavailable'}</dd></div>
+                <div><dt>Bars received</dt><dd>{row.review.candles}</dd></div>
+                <div><dt>Last candle close (EAT)</dt><dd>{row.review.closedAt ? new Date(row.review.closedAt * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' }) : 'Unverified'}</dd></div>
+              </dl>
+            </details>}
           </li>)}</ul>}
         </div>}
+      </section>
+      <section aria-label="Bot results">
+        <div className="panelhead"><div><h2>Bot results</h2><p>Tracked on this browser</p></div></div>
+        <div className="metrics bot-results">
+          <div className="metric"><small>{winningAmounts.length} wins</small><strong className="gain">{botMoney.format(total(winningAmounts))}</strong></div>
+          <div className="metric"><small>{losingAmounts.length} losses</small><strong className="loss">{botMoney.format(total(losingAmounts))}</strong></div>
+          <div className="metric"><small>{trackedAmounts.length} settled · Net</small><strong>{botMoney.format(total(trackedAmounts))}</strong></div>
+        </div>
       </section>
       <section className="panel agent-controls">
         <div className="panelhead">
@@ -762,12 +785,12 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       <section className="panel agent-progress" aria-live="polite">
         <div className="agent-progress-heading">
           <h2>Analysis progress</h2>
-          <strong>{analysis.progress || 0}%</strong>
+          <strong>{analyzing ? 'Checking candles' : analysis.progress === 100 ? '100%' : 'Awaiting data'}</strong>
         </div>
-        <progress className={analysis.status === "loading" ? "progress-active" : undefined} max="100" value={analysis.progress || 0} aria-label="Market analysis progress" />
+        <progress className={analysis.status === "loading" ? "progress-active" : undefined} max="100" value={analyzing ? undefined : analysis.progress || 0} aria-label="Market analysis progress" />
       </section>
 
-      <div className="agent-card-grid">
+      <details className="agent-inspector"><summary>Agent diagnostics</summary><div className="agent-card-grid">
         <AgentCard title="Risk Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
           {ready
             ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}%</p>
@@ -778,10 +801,9 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             ? <p>SMA 20 {analysis.sma20.toFixed(5)} · SMA 50 {analysis.sma50.toFixed(5)} · RSI {analysis.rsi.toFixed(1)} · momentum {analysis.momentumPct.toFixed(3)}%.</p>
             : <p>Waiting for signal.</p>}
         </AgentCard>
-        <AgentCard title="Reminder Agent" status={ready ? 'Ready' : 'Waiting'}>
-          {ready
-            ? <p>Next check {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p>
-            : <p>Waiting for next check.</p>}
+        <AgentCard title="Market data" status={ready ? 'Verified' : analyzing ? 'Analyzing' : 'Waiting'}>
+          {ready ? <p>{analysis.bars} closed candles on {selectedMarket.name}. Latest bar closed at {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT.</p>
+            : <p>{analysis.block ? simpleBotStatus(analysis.block) : 'Checking candle timestamps and prices.'}</p>}
         </AgentCard>
         <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
           {validAccounts?.map((account, index) => {
@@ -804,20 +826,14 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         </AgentCard>
         <AgentCard title="Bot Agents" status={monitoringActive ? 'Running' : agentRunning ? 'Settings required' : ready ? 'Ready' : analyzing ? 'Analyzing' : 'Waiting'}>
           <p className="agent-recommendation">{recommendation}</p>
+          {ready && <p>{analysis.strategy}</p>}
           {ready && <p>Confluence score: {analysis.confluenceScore}/100 · {analysis.bars} bars checked.</p>}
-          <button
-            type="button"
-            className="primary agent-proposal-button"
-            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
-            onClick={() => setConfirmation('place')}
-          >
-            {agentBusy ? 'Checking...' : 'Place Trade Now'}
-          </button>
-          {!agentRunning && <button type="button" className="outline agent-proposal-button" disabled={agentBusy || !executionAvailable || !selectedMarket || !exitSettingsValid} onClick={() => setConfirmation('start')}>Start scheduled trading</button>}
-          {agentRunning && <button type="button" className="outline" disabled={agentBusy || !selectedMarket} onClick={() => void runAgent()}>{agentBusy ? 'Checking...' : 'Run check now'}</button>}
-        </AgentCard>
-      </div>
 
+
+        </AgentCard>
+      </div></details>
+
+      {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
       <section className="panel agent-activity">
         <div className="panelhead"><div><h2>Agent activity</h2></div></div>
         {activities.length ? (

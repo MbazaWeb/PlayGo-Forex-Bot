@@ -21,6 +21,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
 
   const refreshRef = useRef(null);
   const [observedAt, setObservedAt] = useState(null);
+  const [nowEpoch, setNowEpoch] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -65,6 +66,12 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       window.removeEventListener('playgo:settlement', onChange);
     };
   }, [accountId]);
+
+  useEffect(() => {
+    if (!contracts?.some(contract => !contract.canSell && Number.isSafeInteger(contract.expiryTime) && contract.expiryTime > nowEpoch)) return;
+    const timer = setInterval(() => setNowEpoch(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [contracts, nowEpoch]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,6 +137,14 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
 
   const tone = value => value > 0 ? 'gain' : value < 0 ? 'loss' : '';
   const money = value => (value > 0 ? '+' : '') + value.toFixed(2) + ' ' + currency;
+  const remainingTime = expiryTime => {
+    if (!Number.isSafeInteger(expiryTime) || expiryTime <= 0) return 'Expiry time unavailable';
+    const remaining = Math.max(0, expiryTime - nowEpoch);
+    const hours = Math.floor(remaining / 3600);
+    const minutes = Math.floor((remaining % 3600) / 60);
+    const seconds = remaining % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
   const closedRows = [...(settled ?? [])].sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
   const settledIds = new Set(closedRows.map(trade => trade.contractId));
   const openRows = (contracts ?? []).filter(contract => !settledIds.has(contract.id));
@@ -164,7 +179,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
                 <td><strong className={tone(contract.profit)}>{money(contract.profit)}</strong></td>
                 <td>—</td>
                 <td>{contract.canSell ? <button type="button" className="outline" disabled={closing || Boolean(error)}
-                  onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry</small>}</td>
+                  onClick={() => setReview(contract)}>Close Trade</button> : <small>Wait for expiry · {remainingTime(contract.expiryTime)}</small>}</td>
               </tr>
             ))}
             {closedRows.map(trade => {

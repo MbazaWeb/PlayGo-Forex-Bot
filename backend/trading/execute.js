@@ -231,6 +231,7 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
         currentSpot: contract.current_spot_display_value ?? contract.current_spot ?? null,
         profit: Number(contract.profit),
         canSell: contract.is_valid_to_sell === 1,
+        expiryTime: Number.isSafeInteger(Number(contract.date_expiry)) ? Number(contract.date_expiry) : null,
         stake,
       });
     }

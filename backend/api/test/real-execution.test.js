@@ -550,6 +550,7 @@ test('real portfolio reads and verifies the stake used by exit thresholds', asyn
               contract_type: 'PUT',
               entry_spot_display_value: '12.3400',
               current_spot: 12.35,
+              date_expiry: 1900000000,
               buy_price: 10,
               underlying_symbol: 'R_75',
             },
@@ -559,7 +560,7 @@ test('real portfolio reads and verifies the stake used by exit thresholds', asyn
     },
   });
   assert.deepEqual(portfolio.contracts, [
-    { id: '12345', symbol: 'R_75', contractType: 'PUT', entrySpot: '12.3400', currentSpot: 12.35, profit: -1, stake: 10, canSell: false },
+    { id: '12345', symbol: 'R_75', contractType: 'PUT', entrySpot: '12.3400', currentSpot: 12.35, profit: -1, canSell: false, expiryTime: 1900000000, stake: 10 },
   ]);
 });
 

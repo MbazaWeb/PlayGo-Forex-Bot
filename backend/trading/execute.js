@@ -203,6 +203,21 @@ function contractIdentifier(value) {
   return String(value);
 }
 
+function contractExpiryTime(contract) {
+  for (const value of [contract.date_expiry, contract.expiry_time]) {
+    const expiry = Number(value);
+    if (Number.isSafeInteger(expiry) && expiry > 0) return expiry;
+  }
+  const startedAt = [contract.date_start, contract.purchase_time]
+    .map(Number)
+    .find(value => Number.isSafeInteger(value) && value > 0);
+  const duration = Number(contract.duration);
+  const secondsPerUnit = { s: 1, m: 60, h: 3600, d: 86400 }[contract.duration_unit];
+  if (!startedAt || !Number.isSafeInteger(duration) || duration <= 0 || !secondsPerUnit) return null;
+  const expiry = startedAt + duration * secondsPerUnit;
+  return Number.isSafeInteger(expiry) ? expiry : null;
+}
+
 export async function readRealPortfolio({ account, token, appId, fetchImpl = fetch, Socket }) {
   if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
@@ -231,7 +246,7 @@ export async function readRealPortfolio({ account, token, appId, fetchImpl = fet
         currentSpot: contract.current_spot_display_value ?? contract.current_spot ?? null,
         profit: Number(contract.profit),
         canSell: contract.is_valid_to_sell === 1,
-        expiryTime: Number.isSafeInteger(Number(contract.date_expiry)) ? Number(contract.date_expiry) : null,
+        expiryTime: contractExpiryTime(contract),
         stake,
       });
     }

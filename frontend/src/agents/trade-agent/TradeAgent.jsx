@@ -534,11 +534,13 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     setAgentBusy(true);
     setAgentFeedback('');
     try {
+      // Sending terminalAction='bot' forces AUTOMATIC_SETUP stop-loss/take-profit and the USD $ cap; without it the backend runs the automatic tick with automatic=false and skips the cap.
       const body = await postAgentAction('place', {
         symbol: selectedMarket.symbol,
         granularity: String(interval),
         stopLossPercent: String(stopLossValue),
         takeProfitPercent: String(takeProfitValue),
+        terminalAction: 'bot',
       });
       const results = Array.isArray(body.accounts) ? body.accounts : [];
       const active = results.some(item =>

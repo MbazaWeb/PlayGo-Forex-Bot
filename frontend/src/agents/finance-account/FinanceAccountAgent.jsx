@@ -1,5 +1,8 @@
 import AgentCard from '../shared/AgentCard.jsx';
 
+// Mirrors the backend's currencyScale so the preview matches the real submitted stake.
+const currencyScale = (currency) => currency === 'USD' ? 100 : 1e8;
+
 export default function FinanceAccountAgent({ accounts, agentStatuses, cappedAutomaticStake }) {
   return (
     <AgentCard title="Finance and Account Agents" status={accounts.length ? 'Checked' : 'Unavailable'}>
@@ -8,7 +11,7 @@ export default function FinanceAccountAgent({ accounts, agentStatuses, cappedAut
         const equity = latest?.result?.equity ?? latest?.equity;
         const balance = Number(account.balance);
         const nextStake = Number.isFinite(balance) && balance > 0
-          ? Math.min(Math.floor(balance * 0.01 * 1e8) / 1e8, cappedAutomaticStake ? 10 : Infinity)
+          ? Math.min(Math.floor(balance * 0.01 * currencyScale(account.currency)) / currencyScale(account.currency), cappedAutomaticStake ? 10 : Infinity)
           : null;
         return (
           <p key={account.account_id}>

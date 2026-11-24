@@ -180,6 +180,7 @@ export async function placeRealAgentOrders({
       result = { status: 'error', reason: publicStatus(error), detail: error.proposalDetail };
     }
 
+    if (!result) result = { status: 'error', reason: 'AGENT_NO_RESULT' };
     if (!terminalAction && startedForRequest && result?.status === 'ordered') {
       startedForRequest = false;
       keepActive = true;
@@ -290,7 +291,8 @@ export async function runRealAgentTick({
     return { ...emergency, accountId: account.account_id };
 
   const cappedAutomaticUsd = automatic && !terminalOrder && account.currency === 'USD';
-  const useUsdTargets = cappedAutomaticUsd || (automatic && (marketScan || exitsOnly) && account.currency === 'USD');
+  // cappedAutomaticUsd already covers automatic, non-terminal, USD runs including marketScan and exitsOnly.
+  const useUsdTargets = cappedAutomaticUsd;
   const usdBreaches = useUsdTargets ? portfolio.contracts.filter(contract =>
     contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd
   ) : [];
@@ -411,14 +413,14 @@ export async function runRealAgentTick({
   const calculatedStake = calculateStake(balance, account.currency);
   const stake = cappedAutomaticUsd ? Math.min(calculatedStake, AUTOMATIC_SETUP.stopLossUsd) : calculatedStake;
   if (cappedAutomaticUsd) {
-    const openStake = portfolio.contracts.reduce((sum, contract) => sum + Math.round(contract.stake * 100), 0);
-    const budget = Math.floor(Math.min(balance, emergency.equity));
-    if (openStake + Math.round(stake * 100) > budget) {
+    const openStakeCents = portfolio.contracts.reduce((sum, contract) => sum + Math.round(contract.stake * 100), 0);
+    const budgetCents = Math.floor(Math.min(balance, emergency.equity));
+    if (openStakeCents + Math.round(stake * 100) > budgetCents) {
       return { status: 'watching', reason: 'OPEN_EXPOSURE_LIMIT', accountId: account.account_id, symbol };
     }
   }
   const duration = granularity / 60;
-  const signalEpoch = analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity;
+  const signalEpoch = analysis?.last?.epoch ?? Math.floor(now() / 1000 / granularity) * granularity;
   const identity = manualDirection && orderRequestId
     ? [account.account_id, 'manual-order', orderRequestId.toLowerCase()]
     : [account.account_id, symbol, granularity, signalEpoch];
@@ -443,6 +445,10 @@ export async function runRealAgentTick({
     fetchImpl,
   });
   if (reservation?.accepted !== true) {
+    if (reservation?.reason === 'INTENT_IN_FLIGHT' || reservation?.reason === 'ALREADY_RESERVED') {
+      // A previous tick reserved this identity but did not confirm; do not submit a second order and do not silently swallow the in-flight state.
+      return { status: 'watching', reason: 'ORDER_IN_FLIGHT', accountId: account.account_id, equity: emergency.equity };
+    }
     if (reservation?.reason === 'DRAWDOWN_LIMIT' && portfolio.contracts.length) {
       const closeResults = await closeRealContracts({
         ...brokerOptions,

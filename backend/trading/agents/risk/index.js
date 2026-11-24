@@ -32,10 +32,16 @@ export function contractsAtExitThresholds(contracts, stopLossPercent, takeProfit
   });
 }
 
+// USD is stored to cents; other currencies to 8 decimals (Deriv convention). Export this so callers and future frontend previews use the backend scale.
+export function currencyScale(currency) {
+  return currency === 'USD' ? 100 : 1e8;
+}
+
 export function calculateStake(balance, currency) {
   if (!finitePositive(balance)) throw Error('INVALID_ACCOUNT_BALANCE');
-  const scale = currency === 'USD' ? 100 : 1e8;
-  return Math.floor(balance * MAX_STAKE_PERCENT * scale) / scale;
+  const scale = currencyScale(currency);
+  const stake = Math.floor(balance * MAX_STAKE_PERCENT * scale) / scale;
+  return stake === 0 ? 1 / scale : stake;
 }
 
 export function evaluateEmergencyStop({ startingBalance, balance, openProfit }) {
@@ -84,7 +90,11 @@ export function consecutiveLossHalt(transactions, nowEpoch) {
 export function dailyRiskState(transactions, { nowEpoch, fetchLimit, historyComplete, startingBalance }) {
   const dayStart = startOfEatDay(nowEpoch);
   const oldest = transactions.length ? Number(transactions[transactions.length - 1].settledAt) : null;
-  const complete = historyComplete ?? (transactions.length < fetchLimit || (Number.isFinite(oldest) && oldest < dayStart));
+  const complete = historyComplete !== undefined
+    ? historyComplete
+    : Number.isFinite(fetchLimit)
+      ? transactions.length < fetchLimit || (Number.isFinite(oldest) && oldest < dayStart)
+      : Number.isFinite(oldest) && oldest < dayStart;
   const todayNet = transactions
     .filter(row => Number(row.settledAt) >= dayStart)
     .reduce((sum, row) => sum + (Number(row.sell) - Number(row.buy)), 0);

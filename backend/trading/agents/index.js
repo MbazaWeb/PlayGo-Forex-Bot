@@ -5,6 +5,7 @@ export {
   qualifyingDirection,
   MAX_OPEN_CONTRACTS,
   contractsAtExitThresholds,
+  currencyScale,
   validExitSettings,
   consecutiveLossHalt,
   dailyRiskState,

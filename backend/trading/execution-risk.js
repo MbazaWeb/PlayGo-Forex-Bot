@@ -81,10 +81,10 @@ export function consecutiveLossHalt(transactions, nowEpoch) {
 }
 
 // complete is false when the fetched page may not reach the start of the EAT day.
-export function dailyRiskState(transactions, { nowEpoch, fetchLimit, startingBalance }) {
+export function dailyRiskState(transactions, { nowEpoch, fetchLimit, historyComplete, startingBalance }) {
   const dayStart = startOfEatDay(nowEpoch);
   const oldest = transactions.length ? Number(transactions[transactions.length - 1].settledAt) : null;
-  const complete = transactions.length < fetchLimit || (Number.isFinite(oldest) && oldest < dayStart);
+  const complete = historyComplete ?? (transactions.length < fetchLimit || (Number.isFinite(oldest) && oldest < dayStart));
   const todayNet = transactions
     .filter(row => Number(row.settledAt) >= dayStart)
     .reduce((sum, row) => sum + (Number(row.sell) - Number(row.buy)), 0);

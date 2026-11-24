@@ -36,3 +36,11 @@ test('daily loss cap breaches at 5% of starting balance and is fail-closed when 
   assert.equal(truncated.complete, false);
   assert.equal(truncated.breached, false);
 });
+
+test('paged daily history counts losses beyond the recent page and blocks a capped result', () => {
+  const rows = Array.from({ length: 75 }, (_, i) => row(i < 25 ? 8 : 10, NOW - i));
+  const options = { nowEpoch: NOW, startingBalance: 500 };
+  assert.deepEqual(dailyRiskState(rows, { ...options, historyComplete: true }),
+    { complete: true, todayNet: -50, breached: true });
+  assert.equal(dailyRiskState(rows, { ...options, historyComplete: false }).complete, false);
+});

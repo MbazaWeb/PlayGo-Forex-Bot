@@ -2,7 +2,7 @@ import { AUTOMATIC_SETUP } from '../../shared/agent-analysis.js';
 import { isDerivAccount, canTradeAccount } from './deriv-account.js';
 import { createHash } from 'node:crypto';
 import { reviewMarket, marketReviewReceipt } from '../../shared/market-review.js';
-import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements } from './execute.js';
+import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements, readSettlementRange } from './execute.js';
 import {
   calculateStake,
   qualifyingDirection,
@@ -11,6 +11,7 @@ import {
   validExitSettings,
   consecutiveLossHalt,
   dailyRiskState,
+  startOfEatDay,
 } from './execution-risk.js';
 import { readMarketCandles } from './market-data.js';
 import {
@@ -383,9 +384,18 @@ export async function runRealAgentTick({
   if (consecutiveLossHalt(recent.transactions, nowEpoch)) {
     return { status: 'watching', reason: 'LOSS_STREAK_COOLDOWN', accountId: account.account_id, equity: emergency.equity };
   }
-  const daily = dailyRiskState(recent.transactions, {
-    nowEpoch, fetchLimit: recent.fetchLimit, startingBalance: Number(control.starting_balance),
+  const startingBalance = Number(control.starting_balance);
+  let daily = dailyRiskState(recent.transactions, {
+    nowEpoch, fetchLimit: recent.fetchLimit, startingBalance,
   });
+  if (!daily.complete) {
+    const today = await readSettlementRange({
+      ...brokerOptions, from: startOfEatDay(nowEpoch), to: nowEpoch, maxRows: 1000,
+    });
+    daily = dailyRiskState(today.transactions, {
+      nowEpoch, historyComplete: today.complete, startingBalance,
+    });
+  }
   if (!daily.complete) {
     return { status: 'watching', reason: 'DAILY_HISTORY_INCOMPLETE', accountId: account.account_id, equity: emergency.equity };
   }

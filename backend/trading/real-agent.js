@@ -95,6 +95,7 @@ export async function placeRealAgentOrders({
   granularity,
   automatic = false,
   terminalAction = null,
+  orderRequestId = null,
   stopLossPercent,
   takeProfitPercent,
   env = process.env,
@@ -104,6 +105,8 @@ export async function placeRealAgentOrders({
 }) {
   if (terminalAction !== null && !['buy', 'sell', 'bot'].includes(terminalAction))
     throw agentError('INVALID_TERMINAL_ACTION');
+  if (orderRequestId !== null && !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(orderRequestId))
+    throw agentError("INVALID_ORDER_REQUEST_ID");
   if (terminalAction) {
     stopLossPercent = AUTOMATIC_SETUP.stopLossPercent;
     takeProfitPercent = AUTOMATIC_SETUP.takeProfitPercent;
@@ -162,6 +165,7 @@ export async function placeRealAgentOrders({
             granularity,
             automatic: terminalAction === "bot" || automatic,
             terminalOrder: Boolean(terminalAction),
+            orderRequestId,
             manualDirection: terminalAction === "buy" ? "CALL" : terminalAction === "sell" ? "PUT" : null,
             stopLossPercent,
             takeProfitPercent,
@@ -229,6 +233,7 @@ export async function runRealAgentTick({
   marketScan = false,
   terminalOrder = false,
   manualDirection = null,
+  orderRequestId = null,
   env = process.env,
   fetchImpl = fetch,
   Socket,
@@ -413,8 +418,12 @@ export async function runRealAgentTick({
     }
   }
   const duration = granularity / 60;
+  const signalEpoch = analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity;
+  const identity = manualDirection && orderRequestId
+    ? [account.account_id, 'manual-order', orderRequestId.toLowerCase()]
+    : [account.account_id, symbol, granularity, signalEpoch];
   const idempotencyKey = createHash('sha256')
-    .update([account.account_id, symbol, granularity, analysis?.last.epoch ?? Math.floor(now() / 1000 / granularity) * granularity].join(':'))
+    .update(identity.join(':'))
     .digest('hex');
   const reservation = await reserveRealIntent({
     record: {

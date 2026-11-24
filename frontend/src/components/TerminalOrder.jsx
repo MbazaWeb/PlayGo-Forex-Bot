@@ -49,7 +49,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
     try {
       const query = new URLSearchParams({
         account: account.account_id, symbol: market.symbol,
-        granularity: String(duration * 60), terminalAction: action,
+        granularity: String(duration * 60), terminalAction: action, orderRequestId: crypto.randomUUID(),
       });
       const response = await fetch('/api/agent/place?' + query, {
         method: 'POST', headers: { 'X-PlayGo-Request': '1' },

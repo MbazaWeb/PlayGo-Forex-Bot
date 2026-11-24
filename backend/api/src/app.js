@@ -133,6 +133,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
           granularity:Number(params.get('granularity')),
           automatic:params.get('mode')==='automatic',
           terminalAction: params.get('terminalAction'),
+          orderRequestId: params.get('orderRequestId'),
           stopLossPercent:Number(params.get('stopLossPercent')),
           takeProfitPercent:Number(params.get('takeProfitPercent')),
           env:process.env,

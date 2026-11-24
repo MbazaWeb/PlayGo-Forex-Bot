@@ -168,6 +168,7 @@ export default async function handler(req, res) {
             granularity: Number(params.get('granularity')),
           automatic: params.get('mode') === 'automatic',
             terminalAction: params.get('terminalAction'),
+            orderRequestId: params.get('orderRequestId'),
           stopLossPercent: Number(params.get('stopLossPercent')),
             takeProfitPercent: Number(params.get('takeProfitPercent')),
             env: process.env,

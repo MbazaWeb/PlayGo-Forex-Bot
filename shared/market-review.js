@@ -13,9 +13,9 @@ export function closedMarketBars(rows, granularity, nowMs) {
   }));
 }
 
-export function marketIntegrityBlock(candles, granularity, nowMs) {
+export function marketIntegrityBlock(candles, granularity, nowMs, minimumBars = 50) {
   const recent = candles;
-  if (recent.length < 50) return 'INSUFFICIENT';
+  if (recent.length < minimumBars) return 'INSUFFICIENT';
   const latestClosedStart = Math.floor(nowMs / 1000 / granularity) * granularity - granularity;
   if (recent.at(-1).epoch < latestClosedStart - granularity) return 'STALE_MARKET_DATA';
   const seen = new Set();

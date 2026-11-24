@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { goldSignals } from '../../../shared/gold-bollinger.js';
+import { goldSignals, GOLD_SIGNAL_BARS } from '../../../shared/gold-bollinger.js';
 import { closedMarketBars, marketIntegrityBlock } from '../../../shared/market-review.js';
 import { publicRequest } from './derivMarkets';
 import { simpleBotStatus } from './brokerRequest';
@@ -16,11 +16,11 @@ export default function GoldResearch({ market, catalogLoading }) {
     let timer;
     async function refresh() {
       try {
-        const response = await publicRequest({ ticks_history: symbol, style: 'candles', end: 'latest', count: 51, granularity: interval }, controller.signal);
+        const response = await publicRequest({ ticks_history: symbol, style: 'candles', end: 'latest', count: GOLD_SIGNAL_BARS + 1, granularity: interval }, controller.signal);
         if (controller.signal.aborted) return;
         const now = Date.now();
-        const bars = closedMarketBars(response.candles, interval, now).slice(-50);
-        const block = marketIntegrityBlock(bars, interval, now);
+        const bars = closedMarketBars(response.candles, interval, now).slice(-GOLD_SIGNAL_BARS);
+        const block = marketIntegrityBlock(bars, interval, now, GOLD_SIGNAL_BARS);
         const signal = block ? null : goldSignals(bars.map(bar => bar.close));
         setResult({ symbol, signal, block, closeAt: bars.at(-1)?.epoch + interval });
       } catch {
@@ -42,7 +42,7 @@ export default function GoldResearch({ market, catalogLoading }) {
     <section className="panel" aria-label="Gold Double Bollinger Bands">
       <div className="panelhead"><div><h2>Gold Double Bollinger Bands</h2><p>XAU/USD · M15 · Signal research</p></div></div>
       {!market ? <p role="status">{catalogLoading ? 'Checking market availability.' : 'Gold is unavailable in the market feed.'}</p>
-        : !signal ? <p role="status">{current?.block ? simpleBotStatus(current.block) : current ? 'Invalid candle prices.' : 'Checking closed candles.'}</p>
+        : !signal ? <p role="status">{current?.block === 'INSUFFICIENT' ? 'Waiting for 21 closed Gold candles.' : current?.block ? simpleBotStatus(current.block) : current ? 'Invalid candle prices.' : 'Checking closed candles.'}</p>
         : <div aria-live="polite">
           <dl className="agent-setup-summary">
             <div><dt>Trend</dt><dd>{signalLabel(signal.trend)}</dd></div>

@@ -1,4 +1,5 @@
 const period = 20;
+export const GOLD_SIGNAL_BARS = period + 1;
 
 export function bollingerBands(closes) {
   if (closes.length < period) return null;

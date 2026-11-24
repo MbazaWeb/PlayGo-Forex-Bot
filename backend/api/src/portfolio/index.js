@@ -1,5 +1,5 @@
 import { readTradeEvidence } from '../../../trading/real-store.js';
-import { isDerivAccount, canTradeAccount } from '../../../trading/deriv-account.js';
+import { isDerivAccount, canTradeAccount } from '../../../trading/agents/account/index.js';
 import { closeRealContracts, readRealHistory, readRealPortfolio, readSettlementRange } from '../../../trading/execute.js';
 
 

@@ -1,36 +1,25 @@
-import { brokerCoolingDown, brokerRequest, pauseBrokerRequests, simpleBotStatus } from './brokerRequest';
-import GoldResearch from './GoldResearch';
-import AccountActivity from './AccountActivity';
-import ConfirmDialog from './ConfirmDialog';
-import { AUTOMATIC_SETUP } from '../../../shared/agent-analysis.js';
+import { brokerCoolingDown, brokerRequest, pauseBrokerRequests, simpleBotStatus } from '../../components/brokerRequest.js';
+import GoldResearch from '../../components/GoldResearch.jsx';
+import AccountActivity from '../../components/AccountActivity.jsx';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import { AUTOMATIC_SETUP } from '../../../../shared/agent-analysis.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { closedMarketBars, reviewMarket } from '../../../shared/market-review.js';
-import { publicRequest, readMarkets } from './derivMarkets.js';
+import { closedMarketBars, reviewMarket } from '../../../../shared/market-review.js';
+import { publicRequest, readMarkets } from '../../components/derivMarkets.js';
+import INTERVALS from '../intervals.js';
+import RiskAgent from '../risk/RiskAgent.jsx';
+import StrategiesAgent from '../strategies/StrategiesAgent.jsx';
+import ReminderAgent from '../reminders/ReminderAgent.jsx';
+import FinanceAccountAgent from '../finance-account/FinanceAccountAgent.jsx';
+import EmergencyAgent from '../emergency/EmergencyAgent.jsx';
+import BotAgent from './BotAgent.jsx';
+import MarketDataAgent from '../market-data/MarketDataAgent.jsx';
 
 const retryMarketReasons = new Set([
   'STALE_MARKET_DATA', 'UNALIGNED_MARKET_DATA', 'DUPLICATE_MARKET_DATA', 'MARKET_DATA_GAP', 'WEAK_SIGNAL', 'ELEVATED_VOLATILITY', 'BREAKOUT_NOT_CONFIRMED',
   'NO_QUALIFYING_SIGNAL', 'INSUFFICIENT', 'INVALID', 'MARKET_DATA_TIMEOUT',
   'MARKET_DATA_DISCONNECTED', 'MARKET_DATA_UNAVAILABLE', 'MARKET_DATA_SEND_FAILED',
 ]);
-
-const INTERVALS = [
-  [60, '1 minute'],
-  [300, '5 minutes'],
-  [900, '15 minutes'],
-  [3600, '1 hour'],
-];
-
-function AgentCard({ title, status, children }) {
-  return (
-    <section className="panel agent-card" data-working={status === 'Analyzing' || undefined}>
-      <div className="agent-card-heading">
-        <h2>{title}</h2>
-        <span className="agent-state">{status}</span>
-      </div>
-      {children}
-    </section>
-  );
-}
 
 function activityEntry(message) {
   return { id: `${Date.now()}-${Math.random()}`, at: new Date().toISOString(), message };
@@ -792,48 +781,18 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         <progress className={analysis.status === "loading" ? "progress-active" : undefined} max="100" value={analyzing ? undefined : analysis.progress || 0} aria-label="Market analysis progress" />
       </section>
 
-      <details className="agent-inspector"><summary>Agent diagnostics</summary><div className="agent-card-grid">
-        <AgentCard title="Risk Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
-          {ready
-            ? <p>{analysis.riskLevel} volatility · {analysis.volatilityPct.toFixed(4)}%</p>
-            : <p>Waiting for candles.</p>}
-        </AgentCard>
-        <AgentCard title="Strategies Agent" status={ready ? 'Updated' : analyzing ? 'Analyzing' : 'Waiting'}>
-          {ready
-            ? <p>SMA 20 {analysis.sma20.toFixed(5)} · SMA 50 {analysis.sma50.toFixed(5)} · RSI {analysis.rsi.toFixed(1)} · momentum {analysis.momentumPct.toFixed(3)}%.</p>
-            : <p>Waiting for signal.</p>}
-        </AgentCard>
-        <AgentCard title="Market data" status={ready ? 'Verified' : analyzing ? 'Analyzing' : 'Waiting'}>
-          {ready ? <p>{analysis.bars} closed candles on {selectedMarket.name}. Latest bar closed at {new Date(analysis.reviewAt * 1000).toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT.</p>
-            : <p>{analysis.block ? simpleBotStatus(analysis.block) : 'Checking candle timestamps and prices.'}</p>}
-        </AgentCard>
-        <AgentCard title="Finance and Account Agents" status={validAccounts?.length ? 'Checked' : 'Unavailable'}>
-          {validAccounts?.map((account, index) => {
-            const latest = agentStatuses.find(item => item.accountId === account.account_id);
-            const equity = latest?.result?.equity ?? latest?.equity;
-            const balance = Number(account.balance);
-            const nextStake = Number.isFinite(balance) && balance > 0
-              ? Math.min(Math.floor(balance * 0.01 * 1e8) / 1e8, cappedAutomaticStake ? AUTOMATIC_SETUP.stopLossUsd : Infinity)
-              : null;
-            return (
-              <p key={account.account_id}>
-                Account {index + 1} ({account.currency || 'currency'}) next stake:{' '}
-                {Number.isFinite(nextStake) ? `${nextStake.toFixed(2)} ${account.currency || ''}` : 'unavailable'} · equity at last verified check:{' '}
-                {Number.isFinite(equity) ? `${equity.toFixed(2)} ${account.currency || ''}` : 'awaiting verified trade check'}
-              </p>
-            );
-          })}
-        </AgentCard>
-        <AgentCard title="Emergency Agent" status={monitoringActive ? 'Monitoring' : agentRunning ? 'Settings required' : 'Standby'}>
-        </AgentCard>
-        <AgentCard title="Bot Agents" status={monitoringActive ? 'Running' : agentRunning ? 'Settings required' : ready ? 'Ready' : analyzing ? 'Analyzing' : 'Waiting'}>
-          <p className="agent-recommendation">{recommendation}</p>
-          {ready && <p>{analysis.strategy}</p>}
-          {ready && <p>Confluence score: {analysis.confluenceScore}/100 · {analysis.bars} bars checked.</p>}
-
-
-        </AgentCard>
-      </div></details>
+      <details className="agent-inspector">
+        <summary>Agent diagnostics</summary>
+        <div className="agent-card-grid">
+          <RiskAgent analysis={analysis} ready={ready} analyzing={analyzing} />
+          <StrategiesAgent analysis={analysis} ready={ready} analyzing={analyzing} />
+          <MarketDataAgent analysis={analysis} market={selectedMarket} ready={ready} analyzing={analyzing} formatStatus={simpleBotStatus} />
+          <ReminderAgent analysis={analysis} ready={ready} interval={interval} />
+          <FinanceAccountAgent accounts={validAccounts || []} agentStatuses={agentStatuses} cappedAutomaticStake={cappedAutomaticStake} />
+          <EmergencyAgent monitoringActive={monitoringActive} agentRunning={agentRunning} />
+          <BotAgent monitoringActive={monitoringActive} agentRunning={agentRunning} ready={ready} analyzing={analyzing} recommendation={recommendation} analysis={analysis} />
+        </div>
+      </details>
 
       {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
       <section className="panel agent-activity">

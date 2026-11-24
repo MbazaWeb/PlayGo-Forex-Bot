@@ -8,9 +8,9 @@ import {
   calculateStake,
   contractsAtExitThresholds,
   validExitSettings,
-} from '../../trading/execution-risk.js';
-import { runEmergencyCheck } from '../../trading/emergency-agent.js';
-import { placeRealAgentOrders, runRealAgentTick } from '../../trading/real-agent.js';
+} from '../../trading/agents/risk/index.js';
+import { runEmergencyCheck } from '../../trading/agents/emergency/index.js';
+import { placeRealAgentOrders, runRealAgentTick } from '../../trading/agents/trade-agent/index.js';
 
 const realAccount = {
   account_id: 'CR123456',

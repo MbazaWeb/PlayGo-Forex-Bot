@@ -1,8 +1,8 @@
-import { AUTOMATIC_SETUP } from '../../shared/agent-analysis.js';
-import { isDerivAccount, canTradeAccount } from './deriv-account.js';
+import { AUTOMATIC_SETUP } from '../../../../shared/agent-analysis.js';
+import { isDerivAccount, canTradeAccount } from '../account/index.js';
 import { createHash } from 'node:crypto';
-import { reviewMarket, marketReviewReceipt } from '../../shared/market-review.js';
-import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements, readSettlementRange } from './execute.js';
+import { reviewMarket, marketReviewReceipt } from '../../../../shared/market-review.js';
+import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements, readSettlementRange } from '../../execute.js';
 import {
   calculateStake,
   qualifyingDirection,
@@ -12,8 +12,8 @@ import {
   consecutiveLossHalt,
   dailyRiskState,
   startOfEatDay,
-} from './execution-risk.js';
-import { readMarketCandles } from './market-data.js';
+} from '../risk/index.js';
+import { readMarketCandles } from '../../market-data.js';
 import {
   pauseRealControl,
   readRealControl,
@@ -23,8 +23,8 @@ import {
   startRealControl,
   stopRealControl,
   transitionRealIntent,
-} from './real-store.js';
-import { runEmergencyCheck } from './emergency-agent.js';
+} from '../../real-store.js';
+import { runEmergencyCheck } from '../emergency/index.js';
 
 function balanceOf(account) {
   const balance = Number(account?.balance);

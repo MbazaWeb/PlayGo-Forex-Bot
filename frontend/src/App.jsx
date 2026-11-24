@@ -5,7 +5,7 @@ import {
   ChartCandlestick, ChartNoAxesCombined, Settings,
 } from 'lucide-react';
 import AccountDashboard from './components/AccountDashboard';
-import TradeAgent from './components/TradeAgent';
+import { TradeAgent } from './agents/index.js';
 
 const MarketWorkspace = React.lazy(() => import('./components/MarketWorkspace'));
 

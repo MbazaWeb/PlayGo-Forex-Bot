@@ -37,7 +37,9 @@ Open http://localhost:5173. For Vercel development, run `node backend/api/src/ve
 ## Project layout
 
 - `frontend`: Vite application and Deriv Bot Agents
+- `frontend/src/agents`: dedicated UI and analysis modules for risk, strategies, reminders, account/finance, emergency controls, and trade agents
 - `backend/api`: authenticated Node API and OAuth session handling
 - `backend/trading`: real-account execution, risk checks, emergency controls, and database access
+- `backend/trading/agents`: account validation, risk policy, emergency checks, and trade-agent orchestration
 - `backend/deriv_execution`: database migrations for real execution
 - `docs`: architecture, security, and risk-control notes

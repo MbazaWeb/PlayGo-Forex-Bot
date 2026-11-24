@@ -1,6 +1,6 @@
 import { evaluateLiveGate } from '../../shared/live-gate.js';
 import { readLiveQualification } from './real-store.js';
-import { isDerivAccount, canTradeAccount } from './deriv-account.js';
+import { isDerivAccount, canTradeAccount } from './agents/account/index.js';
 const API = 'https://api.derivws.com';
 
 function codedError(code) {

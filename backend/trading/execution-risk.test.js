@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { consecutiveLossHalt, dailyRiskState, startOfEatDay, MAX_OPEN_CONTRACTS } from './execution-risk.js';
+import { consecutiveLossHalt, dailyRiskState, startOfEatDay, MAX_OPEN_CONTRACTS } from './agents/risk/index.js';
 
 const row = (sell, settledAt) => ({ buy: 10, sell, settledAt });
 const NOW = Date.UTC(2026, 10, 24, 12) / 1000; // 24 Nov 2026 12:00 UTC = 15:00 EAT

@@ -1,6 +1,5 @@
-import { isDerivAccount } from '../../trading/deriv-account.js';
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
-import {startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/real-agent.js';
+import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/agents/index.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 

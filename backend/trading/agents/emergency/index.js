@@ -1,5 +1,5 @@
-import { isDerivAccount } from './deriv-account.js';
-import { evaluateEmergencyStop } from './execution-risk.js';
+import { isDerivAccount } from '../account/index.js';
+import { evaluateEmergencyStop } from '../risk/index.js';
 
 export async function runEmergencyCheck({
   account,

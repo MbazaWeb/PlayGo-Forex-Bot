@@ -1,0 +1,8 @@
+const INTERVALS = [
+  [60, '1 minute'],
+  [300, '5 minutes'],
+  [900, '15 minutes'],
+  [3600, '1 hour'],
+];
+
+export default INTERVALS;

@@ -134,7 +134,8 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
           'Market: ' + (detail?.symbol || 'Unavailable') + ' | Direction: ' +
             ({ CALL: 'Rise', PUT: 'Fall' }[detail?.direction] || 'Unavailable') + (detail?.duration ? ' | ' + detail.duration + ' min' : ''),
           ...(trade.value < 0 ? [trade.sell === 0 ? 'Loss: zero proceeds; the full stake was lost.' : 'Loss: sale proceeds were below the stake.'] : []),
-          exit?.outcome === 'CLOSED' ? 'Exit audit: Deriv confirmed an early close.'
+          exit?.outcome === 'CLOSED' ? 'Exit audit: Deriv confirmed an early close' +
+            (Number.isFinite(exit.soldFor) ? ' for ' + money(exit.soldFor) : '') + '.'
             : exit?.canSell === false ? 'Exit audit: Deriv did not offer early sale at the recorded check.'
               : exit ? 'Exit audit: PlayGo did not receive close confirmation.'
                 : 'Exit audit: unavailable. Exact exit cause cannot be established.',

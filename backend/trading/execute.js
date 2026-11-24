@@ -330,7 +330,12 @@ export async function closeRealContracts({ account, token, appId, contractIds, f
       const id = contractIdentifier(value);
       try {
         const response = await sendAndWait(socket, { sell: Number(id), price: 0 }, 'sell', reqId++);
-        results.push({ contractId: id, closed: response.sell?.sold_for !== undefined });
+        const soldFor = Number(response.sell?.sold_for);
+        results.push({
+          contractId: id,
+          closed: response.sell?.sold_for !== undefined,
+          ...(Number.isFinite(soldFor) && soldFor >= 0 ? { soldFor } : {}),
+        });
       } catch (error) {
         results.push({ contractId: id, closed: false, reason: error.code || 'CLOSE_FAILED' });
       }

@@ -24,10 +24,15 @@ test('trade evidence spans ID batches and finds exit records after the first 500
       }
       const cursor = query.get('id');
       if (!cursor) {
-        return Response.json(Array.from({ length: 500 }, (_, i) => ({ id: 1000 - i, event_data: { checks: [] } })));
+        return Response.json(Array.from({ length: 500 }, (_, i) => ({
+          id: 1000 - i,
+          event_data: {
+            checks: i === 0 ? [{ contractId: '1100', outcome: 'CLOSED', soldFor: 0 }] : [],
+          },
+        })));
       }
       if (cursor === 'lt.501') {
-        return Response.json([{ id: 500, event_data: { checks: [{ contractId: '1100', outcome: 'CLOSED' }] } }]);
+        return Response.json([{ id: 500, event_data: { checks: [{ contractId: '1100', outcome: 'CLOSED', soldFor: 8 }] } }]);
       }
       assert.equal(cursor, 'lt.500');
       return Response.json([]);
@@ -36,4 +41,5 @@ test('trade evidence spans ID batches and finds exit records after the first 500
   assert.deepEqual(batches, [100, 1]);
   assert.equal(evidence['1100'].strategy, 'Trend');
   assert.equal(evidence['1100'].exit.outcome, 'CLOSED');
+  assert.equal(evidence['1100'].exit.soldFor, 0);
 });

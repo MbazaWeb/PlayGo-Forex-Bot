@@ -442,6 +442,8 @@ test('one-time checks close a contract at its configured loss threshold without 
       control.active = false;
       return Response.json({ active: false });
     }
+    if (parsed.pathname.endsWith('/playgo_real_audit'))
+      return new Response(null, { status: 204 });
     if (parsed.pathname.endsWith('/otp'))
       return Response.json({
         data: { url: 'wss://api.derivws.com/trading/v1/options/ws/real?otp=fixture' },
@@ -473,6 +475,7 @@ test('one-time checks close a contract at its configured loss threshold without 
             profit: -1,
             buy_price: 10,
             underlying_symbol: 'R_75',
+            is_valid_to_sell: 1,
           },
         };
       } else if (request.sell) {
@@ -504,8 +507,99 @@ test('one-time checks close a contract at its configured loss threshold without 
   });
   assert.equal(results[0].status, 'exited');
   assert.equal(results[0].closeResults[0].closed, true);
+  assert.equal(results[0].closeResults[0].soldFor, 9);
   assert.deepEqual(events, ['sell-request']);
   assert.equal(control.active, false);
+});
+
+test('a breached but unsellable contract is audited and blocks another entry', async () => {
+  const audits = [];
+  const events = [];
+  const control = {
+    account_id: 'DOT1234',
+    starting_balance: 1000,
+    active: true,
+    paused: false,
+    stop_loss_percent: 10,
+    take_profit_percent: 25,
+  };
+  const env = {
+    PLAYGO_ENV: 'local',
+    PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+    PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+  };
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.endsWith('/playgo_real_controls')) return Response.json([control]);
+    if (parsed.pathname.endsWith('/playgo_real_audit')) {
+      audits.push(JSON.parse(options.body));
+      return new Response(null, { status: 204 });
+    }
+    if (parsed.pathname.endsWith('/otp'))
+      return Response.json({ data: { url: 'wss://api.derivws.com/trading/v1/options/ws/demo?otp=fixture' } });
+    throw Error(`Unexpected request: ${parsed.pathname}`);
+  };
+  class UnsellableContractSocket {
+    constructor() {
+      this.readyState = 0;
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
+    }
+
+    send(raw) {
+      const request = JSON.parse(raw);
+      let response;
+      if (request.portfolio) {
+        response = { req_id: request.req_id, msg_type: 'portfolio', portfolio: { contracts: [{ contract_id: 12345 }] } };
+      } else if (request.proposal_open_contract) {
+        response = {
+          req_id: request.req_id,
+          msg_type: 'proposal_open_contract',
+          proposal_open_contract: {
+            contract_id: 12345,
+            is_sold: 0,
+            status: 'open',
+            profit: -10,
+            buy_price: 10,
+            underlying_symbol: 'stpRNG4',
+            is_valid_to_sell: 0,
+          },
+        };
+      } else if (request.sell) {
+        events.push('sell-request');
+        response = { req_id: request.req_id, msg_type: 'sell', sell: { sold_for: 0 } };
+      } else {
+        events.push('unexpected-entry-request');
+        response = { req_id: request.req_id, msg_type: 'error', error: { code: 'UNEXPECTED' } };
+      }
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+    }
+
+    close() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
+  }
+
+  const result = await runRealAgentTick({
+    account: { account_id: 'DOT1234', account_type: 'demo', currency: 'USD', balance: 1000 },
+    token: 'fixture',
+    appId: 'fixture',
+    symbol: 'stpRNG4',
+    granularity: 300,
+    automatic: true,
+    env,
+    fetchImpl,
+    Socket: UnsellableContractSocket,
+  });
+
+  assert.equal(result.status, 'watching');
+  assert.equal(result.reason, 'EARLY_SALE_UNAVAILABLE');
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].event_data.checks[0].outcome, 'EARLY_SALE_UNAVAILABLE');
+  assert.deepEqual(events, []);
 });
 
 test('Emergency Agent pauses first, then attempts to close every open contract', async () => {

@@ -296,9 +296,10 @@ export async function runRealAgentTick({
   const usdBreaches = useUsdTargets ? portfolio.contracts.filter(contract =>
     contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd
   ) : [];
-  const exitContracts = useUsdTargets
-    ? usdBreaches.filter(contract => contract.canSell)
+  const thresholdBreaches = useUsdTargets
+    ? usdBreaches
     : contractsAtExitThresholds(portfolio.contracts, stopLossPercent, takeProfitPercent);
+  const exitContracts = thresholdBreaches.filter(contract => contract.canSell);
   let closeResults = [];
   if (exitContracts.length) {
     try {
@@ -313,9 +314,9 @@ export async function runRealAgentTick({
     }
   }
 
-  if (cappedAutomaticUsd && usdBreaches.length) {
+  if (thresholdBreaches.length) {
     const outcomes = new Map(closeResults.map(result => [result.contractId, result]));
-    const checks = usdBreaches.map(contract => {
+    const checks = thresholdBreaches.map(contract => {
       const outcome = outcomes.get(contract.id);
       return {
         contractId: contract.id,
@@ -323,6 +324,7 @@ export async function runRealAgentTick({
         canSell: contract.canSell,
         outcome: !contract.canSell ? 'EARLY_SALE_UNAVAILABLE'
           : outcome?.closed ? 'CLOSED' : outcome?.reason || 'CLOSE_UNCONFIRMED',
+        soldFor: outcome?.soldFor,
       };
     });
     try {
@@ -347,7 +349,7 @@ export async function runRealAgentTick({
     };
   }
 
-  if (exitsOnly && cappedAutomaticUsd && usdBreaches.length) {
+  if (thresholdBreaches.some(contract => !contract.canSell)) {
     return { status: 'watching', reason: 'EARLY_SALE_UNAVAILABLE', accountId: account.account_id };
   }
   if (exitsOnly) return { status: 'watching', reason: 'EXIT_MONITORING', accountId: account.account_id };

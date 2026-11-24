@@ -148,8 +148,15 @@ export async function readTradeEvidence({ accountId, contractIds, env = process.
     for (const check of row.event_data?.checks ?? []) {
       if (!Object.hasOwn(evidence, check.contractId)) continue;
       const entry = evidence[check.contractId];
-      if (!entry.exit || (check.outcome === 'CLOSED' && entry.exit.outcome !== 'CLOSED')) {
-        entry.exit = { outcome: check.outcome, profit: check.profit, canSell: check.canSell, checkedAt: row.created_at };
+      if (!entry.exit || (check.outcome === 'CLOSED' && entry.exit.outcome !== 'CLOSED') ||
+          (check.outcome === 'CLOSED' && Number.isFinite(check.soldFor) && !Number.isFinite(entry.exit.soldFor))) {
+        entry.exit = {
+          outcome: check.outcome,
+          profit: check.profit,
+          canSell: check.canSell,
+          soldFor: check.soldFor,
+          checkedAt: row.created_at,
+        };
       }
       if (check.outcome === 'CLOSED') confirmed.add(check.contractId);
     }

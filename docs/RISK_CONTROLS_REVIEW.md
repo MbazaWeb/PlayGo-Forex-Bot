@@ -11,7 +11,7 @@
 
 ## Exit handling
 
-A losing CALL/PUT can settle at zero proceeds. Early sale depends on Deriv allowing a sale and confirming the request. Stop-loss and take-profit thresholds are monitoring triggers. Monitoring is browser-page active. An unknown buy outcome blocks subsequent reservations. The drawdown control pauses entries at 90% of starting balance and tries to close broker-reported positions. Complete close/statement reconciliation and a persistent zero-proceeds-loss halt remain separate work.
+A losing CALL/PUT can settle at zero proceeds. Early sale depends on Deriv allowing a sale and confirming the request. Stop-loss and take-profit thresholds are monitoring triggers; a breached contract that cannot be sold is audited and blocks another entry on that tick. Confirmed early-sale proceeds are included in exit evidence when Deriv returns them. Monitoring is browser-page active. An unknown buy outcome blocks subsequent reservations. The drawdown control pauses entries at 90% of starting balance and tries to close broker-reported positions. Complete close/statement reconciliation and a persistent zero-proceeds-loss halt remain separate work.
 
 ## Qualification evidence
 

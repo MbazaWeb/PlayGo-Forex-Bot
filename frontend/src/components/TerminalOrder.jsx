@@ -59,6 +59,16 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       if (!response.ok || !order) throw Error(body.error || 'Trade request failed.');
       const databaseError = /^REAL_EXECUTION_DATABASE_/.test(order.reason || '');
       const rejection = /^DERIV_([A-Z_]+?)_REJECTED(?:_([A-Za-z0-9_]+))?$/.exec(order.reason || '');
+      if (order.reason === 'CONTRACT_EXIT_THRESHOLD') {
+        const confirmed = order.closeResults?.filter(contract => contract.closed).length ?? 0;
+        if (confirmed) {
+          window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: account.account_id }));
+        }
+        setResult(confirmed
+          ? 'Deriv confirmed an exit for an existing trade. No new order was placed. Check Account Activity for settlement.'
+          : 'An existing trade reached its stop-loss or take-profit setting. Deriv has not confirmed a close. Check Open Trades before placing another order.');
+        return;
+      }
       const message = rejection
         ? `Deriv rejected the ${rejection[1].toLowerCase().replaceAll('_', ' ')} request${rejection[2] ? ' (' + rejection[2] + ')' : ''}. ${order.detail || 'No order placed.'}`
         : databaseError

@@ -257,7 +257,7 @@ begin
     return jsonb_build_object('accepted', false, 'reason', 'AGENT_NOT_ACTIVE');
   end if;
 
-  if equity <= control.starting_balance * 0.80 then
+  if equity <= control.starting_balance * 0.90 then
     update public.playgo_real_controls
     set active = false, paused = true, stop_reason = 'DRAWDOWN_LIMIT', updated_at = now()
     where account_id = account;
@@ -277,7 +277,7 @@ begin
     where account_id = account and status = 'confirmed' and updated_at >= snapshot_started_at;
   end if;
 
-  if open_count >= 5 then
+  if open_count >= 2 then
     return jsonb_build_object('accepted', false, 'reason', 'OPEN_CONTRACT_LIMIT');
   end if;
 

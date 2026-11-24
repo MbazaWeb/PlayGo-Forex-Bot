@@ -1,10 +1,13 @@
+import { MAX_STAKE_ABSOLUTE_USD } from '../../../../shared/agent-analysis.js';
+
+export { MAX_STAKE_ABSOLUTE_USD };
 export const MAX_STAKE_PERCENT = 0.01;
-export const MAX_OPEN_CONTRACTS = 5; // matches docs/RISK_CONTROLS_REVIEW.md
-export const MAX_DAILY_LOSS_PERCENT = 5; // of starting balance, resets at 00:00 EAT
+export const MAX_OPEN_CONTRACTS = 2;
+export const MAX_DAILY_LOSS_PERCENT = 3; // of starting balance, resets at 00:00 EAT
 export const MAX_CONSECUTIVE_LOSSES = 3;
 export const LOSS_STREAK_COOLDOWN_SECONDS = 1800;
 const EAT_OFFSET_SECONDS = 3 * 3600;
-export const MAX_DRAWDOWN_PERCENT = 0.20;
+export const MAX_DRAWDOWN_PERCENT = 0.10;
 export const SIGNAL_THRESHOLD = 75;
 export const MAX_STOP_LOSS_PERCENT_OF_STAKE = 100;
 export const MAX_TAKE_PROFIT_PERCENT_OF_STAKE = 10000;
@@ -41,7 +44,8 @@ export function calculateStake(balance, currency) {
   if (!finitePositive(balance)) throw Error('INVALID_ACCOUNT_BALANCE');
   const scale = currencyScale(currency);
   const stake = Math.floor(balance * MAX_STAKE_PERCENT * scale) / scale;
-  return stake === 0 ? 1 / scale : stake;
+  const cappedStake = currency === 'USD' ? Math.min(stake, MAX_STAKE_ABSOLUTE_USD) : stake;
+  return cappedStake === 0 ? 1 / scale : cappedStake;
 }
 
 export function evaluateEmergencyStop({ startingBalance, balance, openProfit }) {

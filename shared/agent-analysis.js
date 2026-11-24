@@ -4,6 +4,7 @@ const BASE_PERIOD = 50;
 const RSI_PERIOD = 14;
 const VOLATILITY_PERIOD = 20;
 const SIGNAL_THRESHOLD = 75;
+export const MAX_STAKE_ABSOLUTE_USD = 20;
 
 function average(values) {
   return values.reduce((total, value) => total + value, 0) / values.length;

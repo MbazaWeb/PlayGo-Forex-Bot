@@ -2,6 +2,7 @@ export { isDerivAccount, canTradeAccount } from './account/index.js';
 export { runEmergencyCheck } from './emergency/index.js';
 export {
   calculateStake,
+  MAX_STAKE_ABSOLUTE_USD,
   qualifyingDirection,
   MAX_OPEN_CONTRACTS,
   contractsAtExitThresholds,

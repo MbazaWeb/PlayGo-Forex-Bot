@@ -1,4 +1,5 @@
 import AgentCard from '../shared/AgentCard.jsx';
+import { MAX_STAKE_ABSOLUTE_USD } from '../../../../shared/agent-analysis.js';
 
 // Mirrors the backend's currencyScale so the preview matches the real submitted stake.
 const currencyScale = (currency) => currency === 'USD' ? 100 : 1e8;
@@ -11,7 +12,8 @@ export default function FinanceAccountAgent({ accounts, agentStatuses, cappedAut
         const equity = latest?.result?.equity ?? latest?.equity;
         const balance = Number(account.balance);
         const nextStake = Number.isFinite(balance) && balance > 0
-          ? Math.min(Math.floor(balance * 0.01 * currencyScale(account.currency)) / currencyScale(account.currency), cappedAutomaticStake ? 10 : Infinity)
+          ? Math.min(Math.floor(balance * 0.01 * currencyScale(account.currency)) / currencyScale(account.currency),
+            cappedAutomaticStake ? 10 : account.currency === 'USD' ? MAX_STAKE_ABSOLUTE_USD : Infinity)
           : null;
         return (
           <p key={account.account_id}>

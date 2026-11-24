@@ -23,8 +23,8 @@ In scope:
 - Only accounts returned by the authenticated Deriv session with `account_type: real` can reach execution.
 - Real orders require the server-side `LIVE_TRADING_ENABLED=true` gate and durable real-execution controls.
 - The database stores starting balances, order state, and an audit trail; it does not store Deriv OAuth tokens.
-- Stake is limited to 1% of current balance per order; the account is limited to five open contracts.
-- The Emergency Agent pauses new orders at a 20% drawdown from the stored starting balance and attempts to close open contracts. Broker close requests may fail or fill at a different price; this is not a guaranteed loss cap.
+- Stake is limited to 1% of current balance per order and $20 for USD accounts; automatic USD entries remain capped at $10. The account is limited to two open contracts, and daily settled losses are capped at 3% of the starting balance.
+- The Emergency Agent pauses new orders at a 10% drawdown from the stored starting balance and attempts to close open contracts. Broker close requests may fail or fill at a different price; this is not a guaranteed loss cap.
 - Emergency monitoring runs only while the signed-in Trade Agent page is active. It is not a 24/7 background service.
 - The 75/100 signal score is indicator confluence, not a validated win probability.
 - Tests use mocks and do not call real buy or sell endpoints.

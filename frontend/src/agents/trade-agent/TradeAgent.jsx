@@ -819,7 +819,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           void (confirmation === 'start' ? startAgent() : placeTradeNow());
         }}>
         <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
-        <p>{cappedAutomaticStake ? 'Up to $10 stake per order.' : 'Up to 1% stake per order.'} Keep Bot Agents open for scheduled checks.</p>
+        <p>{account?.currency === 'USD' ? `Up to $${AUTOMATIC_SETUP.stopLossUsd} stake per order.` : 'Up to 1% stake per order.'} Keep Bot Agents open for scheduled checks.</p>
       </ConfirmDialog>}
     </div>
   );

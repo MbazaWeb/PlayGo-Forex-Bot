@@ -122,7 +122,8 @@ for (const accountType of ['demo']) {
 
 test('stake sizing and emergency threshold are measured from the stored starting balance', async () => {
   assert.equal(calculateStake(1000), 10);
-  assert.equal(calculateStake(9623.48, 'USD'), 96.23);
+  assert.equal(calculateStake(9623.48, 'USD'), 20);
+  assert.equal(calculateStake(9623.48, 'EUR'), 96.2348);
   assert.equal(evaluateEmergencyStop({
     startingBalance: 1000,
     balance: 850,
@@ -130,7 +131,7 @@ test('stake sizing and emergency threshold are measured from the stored starting
   }).stopped, true);
   assert.equal(evaluateEmergencyStop({
     startingBalance: 1000,
-    balance: 850,
+    balance: 905,
     openProfit: 0,
   }).stopped, false);
 });
@@ -604,8 +605,8 @@ test('real execution migration persists controls and rejects over-limit reservat
     'select public.playgo_real_reserve_intent($1) as result',
     [JSON.stringify(row)],
   );
-  assert.equal((await reserve({ ...record, open_count: 5 })).rows[0].result.reason, 'OPEN_CONTRACT_LIMIT');
-  const first = (await reserve({ ...record, open_count: 4 })).rows[0].result;
+  assert.equal((await reserve({ ...record, open_count: 2 })).rows[0].result.reason, 'OPEN_CONTRACT_LIMIT');
+  const first = (await reserve({ ...record, open_count: 1 })).rows[0].result;
   assert.equal(first.accepted, true);
   assert.equal((await reserve({ ...record, idempotency_key: 'b'.repeat(64) })).rows[0].result.reason, 'UNKNOWN_ORDER_STATE');
 

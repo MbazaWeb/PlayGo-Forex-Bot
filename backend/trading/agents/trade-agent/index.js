@@ -290,7 +290,7 @@ export async function runRealAgentTick({
   if (emergency.status !== 'watching')
     return { ...emergency, accountId: account.account_id };
 
-  const cappedAutomaticUsd = automatic && !terminalOrder && account.currency === 'USD';
+  const cappedAutomaticUsd = automatic && account.currency === 'USD' && (!terminalOrder || !manualDirection);
   // cappedAutomaticUsd already covers automatic, non-terminal, USD runs including marketScan and exitsOnly.
   const useUsdTargets = cappedAutomaticUsd;
   const usdBreaches = useUsdTargets ? portfolio.contracts.filter(contract =>

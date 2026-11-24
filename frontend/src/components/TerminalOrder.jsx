@@ -1,4 +1,5 @@
 import { publicRequest, supportedTradeDurations } from './derivMarkets';
+import { AUTOMATIC_SETUP, MAX_STAKE_ABSOLUTE_USD } from '../../../shared/agent-analysis.js';
 import ConfirmDialog from './ConfirmDialog';
 import React, { useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, Bot } from 'lucide-react';
@@ -34,7 +35,11 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
   const scale = account?.currency === 'USD' ? 100 : 1e8;
-  const stake = Math.floor(Number(account?.balance) * 0.01 * scale) / scale;
+  const calculatedStake = Math.floor(Number(account?.balance) * 0.01 * scale) / scale;
+  const stake = account?.currency === 'USD' ? Math.min(calculatedStake, MAX_STAKE_ABSOLUTE_USD) : calculatedStake;
+  const previewStake = review === 'bot' && account?.currency === 'USD'
+    ? Math.min(stake, AUTOMATIC_SETUP.stopLossUsd)
+    : stake;
   const real = account?.account_type === 'real';
   const funds = real ? 'real funds' : 'virtual funds';
   const blocker = !account ? (accounts?.length ? 'Choose an account to trade.' : 'No Deriv accounts available.')
@@ -128,7 +133,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
         <dl className="trade-review">
           <div><dt>Market</dt><dd>{market?.name}</dd></div>
           <div><dt>Deriv {real ? 'Real' : 'Demo'}</dt><dd>{account?.account_id}</dd></div>
-          <div><dt>Estimated stake</dt><dd>{stake} {account?.currency}</dd></div>
+          <div><dt>Estimated stake</dt><dd>{previewStake} {account?.currency}</dd></div>
           <div><dt>Duration</dt><dd>{duration} min</dd></div>
         </dl>
         <p>{funds === 'real funds' ? 'Real funds.' : 'Virtual funds.'}{review === 'bot' && ' Trades only if the setup qualifies.'}</p>

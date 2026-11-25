@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { executeRealOrder, getRealWebSocketUrl, readRealPortfolio, readRealHistory } from '../../trading/execute.js';
+import {
+  closeRealContracts,
+  executeRealOrder,
+  getRealWebSocketUrl,
+  readCurrencyPerUsd,
+  readRealPortfolio,
+  readRealHistory,
+} from '../../trading/execute.js';
 import {
   evaluateEmergencyStop,
   calculateStake,
@@ -35,7 +42,7 @@ class BrokerSocket {
     this.sent.push(request);
     const response = request.proposal
       ? { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } }
-      : { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345 } };
+      : { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345, transaction_id: 67890, buy_price: 10 } };
     queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
   }
 
@@ -96,6 +103,7 @@ for (const accountType of ['demo']) {
         stake: 10,
         duration: 1,
         durationUnit: 'm',
+        strategyId: 'test_strategy',
       },
       fetchImpl: async () => Response.json({
         data: { url: `wss://api.derivws.com/trading/v1/options/ws/${accountType}?otp=fixture` },
@@ -115,15 +123,21 @@ for (const accountType of ['demo']) {
       beforeBuy: async () => { events.push('persist-submit'); },
     });
     events.push('confirmed');
-    assert.deepEqual(order, { contractId: '12345', askPrice: 10 });
+    assert.deepEqual(order, {
+      contractId: '12345', transactionId: '67890', buyPrice: 10,
+      askPrice: 10, executionDataComplete: true,
+    });
     assert.deepEqual(events, ['persist-submit', 'buy-request', 'confirmed']);
   });
 }
 
 test('stake sizing and emergency threshold are measured from the stored starting balance', async () => {
-  assert.equal(calculateStake(1000), 10);
-  assert.equal(calculateStake(9623.48, 'USD'), 20);
-  assert.equal(calculateStake(9623.48, 'EUR'), 96.2348);
+  assert.equal(calculateStake(1000, 'USD'), 10);
+  assert.equal(calculateStake(9623.48, 'USD'), 10);
+  assert.equal(calculateStake(9623.48, 'EUR', 0.92), 9.2);
+  assert.throws(() => calculateStake(9623.48, 'EUR'), /CURRENCY_RATE_UNAVAILABLE/);
+  assert.throws(() => calculateStake(0.5, 'USD'), /STAKE_BELOW_MINIMUM/);
+  assert.throws(() => calculateStake(1000, 'EUR', 1e-12), /STAKE_BELOW_MINIMUM/);
   assert.equal(evaluateEmergencyStop({
     startingBalance: 1000,
     balance: 850,
@@ -134,6 +148,44 @@ test('stake sizing and emergency threshold are measured from the stored starting
     balance: 905,
     openProfit: 0,
   }).stopped, false);
+});
+
+test('non-USD stake conversion requires a valid Deriv exchange rate', async () => {
+  class ExchangeRateSocket {
+    constructor() {
+      queueMicrotask(() => this.onopen?.());
+    }
+
+    send(raw) {
+      const request = JSON.parse(raw);
+      assert.deepEqual({ exchange_rates: request.exchange_rates, base_currency: request.base_currency },
+        { exchange_rates: 1, base_currency: 'USD' });
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({
+        req_id: request.req_id,
+        msg_type: 'exchange_rates',
+        exchange_rates: { rates: { EUR: 0.92 } },
+      }) }));
+    }
+
+    close() {}
+  }
+  const account = { ...realAccount, currency: 'EUR' };
+  assert.equal(await readCurrencyPerUsd({
+    account, token: 'fixture', fetchImpl: otpFetch, Socket: ExchangeRateSocket,
+  }), 0.92);
+  await assert.rejects(readCurrencyPerUsd({
+    account,
+    token: 'fixture',
+    fetchImpl: otpFetch,
+    Socket: class extends ExchangeRateSocket {
+      send(raw) {
+        const request = JSON.parse(raw);
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({
+          req_id: request.req_id, msg_type: 'exchange_rates', exchange_rates: { rates: {} },
+        }) }));
+      }
+    },
+  }), { code: 'CURRENCY_RATE_UNAVAILABLE' });
 });
 
 test('per-contract exits compare verified P&L with configured percentages of stake', () => {
@@ -287,6 +339,12 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
       events.push(`intent-${event}`);
       return Response.json({ status: event });
     }
+    if (parsed.pathname.endsWith('/playgo_real_audit')) {
+      events.push('record-audit');
+      return new Response(null, { status: 204 });
+    }
+    if (parsed.pathname.endsWith('/playgo_account_settings'))
+      return Response.json([]);
     if (parsed.pathname.endsWith('/otp'))
       return Response.json({
         data: { url: 'wss://api.derivws.com/trading/v1/options/ws/demo?otp=fixture' },
@@ -324,7 +382,10 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
         response = { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } };
       } else if (request.buy) {
         events.push('buy-request');
-        response = { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345 } };
+        response = {
+          req_id: request.req_id, msg_type: 'buy',
+          buy: { contract_id: 12345, transaction_id: 67890, buy_price: 10 },
+        };
       } else if (request.profit_table) {
         response = { req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions: [] } };
       } else {
@@ -666,7 +727,9 @@ test('real execution migration persists controls and rejects over-limit reservat
   const db = new PGlite();
   t.after(() => db.close());
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-  await db.exec(await readFile('backend/deriv_execution/real_execution.sql', 'utf8'));
+  const migration = await readFile('backend/deriv_execution/real_execution.sql', 'utf8');
+  await db.exec(migration);
+  await db.exec(migration);
   await db.exec('set role service_role');
 
   const configure = (balance, stopLoss, takeProfit) => db.query(
@@ -690,6 +753,12 @@ test('real execution migration persists controls and rejects over-limit reservat
     symbol: 'R_75',
     contract_type: 'CALL',
     stake: 10,
+    stake_cap: 10,
+    strategy_id: 'trend_momentum',
+    strategy_label: 'Trend + momentum',
+    score: 85,
+    decision_at: '2026-11-23T12:00:00.000Z',
+    account_reference: '...3456',
     duration: 1,
     balance: 1000,
     equity: 1000,
@@ -700,13 +769,43 @@ test('real execution migration persists controls and rejects over-limit reservat
     [JSON.stringify(row)],
   );
   assert.equal((await reserve({ ...record, open_count: 2 })).rows[0].result.reason, 'OPEN_CONTRACT_LIMIT');
+  assert.equal((await reserve({ ...record, stake: 10.01 })).rows[0].result.reason, 'STAKE_LIMIT');
   const first = (await reserve({ ...record, open_count: 1 })).rows[0].result;
   assert.equal(first.accepted, true);
   assert.equal((await reserve({ ...record, idempotency_key: 'b'.repeat(64) })).rows[0].result.reason, 'UNKNOWN_ORDER_STATE');
+  await db.query(
+    'select public.playgo_real_transition($1,$2,null,null,null)',
+    [first.intentId, 'submit'],
+  );
+  await db.query(
+    'select public.playgo_real_transition($1,$2,$3,$4,$5)',
+    [first.intentId, 'confirm', '12345', '67890', 10],
+  );
+  assert.deepEqual((await db.query(
+    'select strategy_id,strategy_label,score,account_reference,broker_transaction_id,broker_settlement_transaction_id,buy_price from public.playgo_real_intents where id=$1',
+    [first.intentId],
+  )).rows[0], {
+    strategy_id: 'trend_momentum',
+    strategy_label: 'Trend + momentum',
+    score: '85',
+    account_reference: '...3456',
+    broker_transaction_id: '67890',
+    broker_settlement_transaction_id: null,
+    buy_price: '10',
+  });
+  await db.query('insert into public.playgo_account_settings(account_id) values ($1)', ['CR123456']);
+  assert.equal((await db.query(
+    'select auto_start_enabled from public.playgo_account_settings where account_id=$1',
+    ['CR123456'],
+  )).rows[0].auto_start_enabled, false);
 
   await db.exec('reset role; set role authenticated');
   await assert.rejects(
     db.query('select * from public.playgo_real_controls'),
+    /permission denied/,
+  );
+  await assert.rejects(
+    db.query('select * from public.playgo_account_settings'),
     /permission denied/,
   );
   await assert.rejects(
@@ -764,7 +863,7 @@ test('reports the Deriv proposal rejection code without entering the buy stage',
   await assert.rejects(executeRealOrder({
     account: realAccount, token: 'fixture', fetchImpl: otpFetch, Socket: RejectedProposalSocket,
     env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id },
-    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
+    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm', strategyId: 'test_strategy' },
     beforeBuy: () => assert.fail('rejected proposal must never submit a buy'),
   }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure' });
 });
@@ -773,7 +872,7 @@ test('the real order path fails closed without stored qualification even with bo
   const code = { code: 'LIVE_READINESS_NOT_VERIFIED' };
   await assert.rejects(executeRealOrder({
     account: realAccount, token: 'fixture',
-    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
+    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm', strategyId: 'test_strategy' },
     env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id, PLAYGO_ENV: 'local',
       PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000', PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890' },
     fetchImpl: async url => String(url).includes('playgo_live_qualification') ? Response.json([]) : otpFetch(),
@@ -782,10 +881,86 @@ test('the real order path fails closed without stored qualification even with bo
   }), code);
 });
 
+test('manual terminal orders bypass qualification but still require a persisted submission', async () => {
+  let persisted = false;
+  const order = await executeRealOrder({
+    account: realAccount,
+    token: 'fixture',
+    intent: {
+      symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1,
+      durationUnit: 'm', strategyId: 'Manual (no signal gate)',
+    },
+    manualTerminal: true,
+    env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id },
+    fetchImpl: otpFetch,
+    Socket: BrokerSocket,
+    beforeBuy: async () => { persisted = true; },
+  });
+  assert.equal(persisted, true);
+  assert.equal(order.contractId, '12345');
+  assert.equal(order.executionDataComplete, true);
+});
+
+test('close confirmation persists broker outcomes and leaves unconfirmed closes unresolved', async () => {
+  for (const shouldConfirm of [true, false]) {
+    let audit;
+    let confirmationRequests = 0;
+    class CloseSocket {
+      constructor() {
+        queueMicrotask(() => this.onopen?.());
+      }
+
+      send(raw) {
+        const request = JSON.parse(raw);
+        let response;
+        if (request.sell) {
+          response = { req_id: request.req_id, msg_type: 'sell', error: { code: 'AlreadySold' } };
+        } else {
+          confirmationRequests++;
+          response = {
+            req_id: request.req_id,
+            msg_type: 'proposal_open_contract',
+            proposal_open_contract: shouldConfirm
+              ? { contract_id: request.contract_id, is_sold: 1, status: 'lost', sell_price: 7, sell_transaction_id: 54321 }
+              : { contract_id: request.contract_id, is_sold: 0, status: 'open' },
+          };
+        }
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+      }
+
+      close() {}
+    }
+    const result = await closeRealContracts({
+      account: realAccount,
+      token: 'fixture',
+      contractIds: ['12345'],
+      contractDetails: [{ id: '12345', stake: 10 }],
+      env: {
+        PLAYGO_ENV: 'local',
+        PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+        PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+      },
+      fetchImpl: async (url, options) => {
+        if (String(url).endsWith('/otp')) return otpFetch(url, options);
+        audit = JSON.parse(options.body);
+        return new Response(null, { status: 204 });
+      },
+      Socket: CloseSocket,
+    });
+    assert.equal(result[0].closeStatus, shouldConfirm ? 'confirmed' : 'unconfirmed');
+    assert.equal(result[0].outcome, shouldConfirm ? 'lost' : 'unconfirmed');
+    assert.equal(audit.event_type, 'CLOSE_RESULT');
+    assert.equal(audit.event_data.outcome, result[0].outcome);
+    assert.equal(result[0].transactionId, shouldConfirm ? '54321' : undefined);
+    assert.equal(audit.event_data.transaction_id, shouldConfirm ? '54321' : null);
+    assert.equal(confirmationRequests, shouldConfirm ? 1 : 3);
+  }
+});
+
 test('explicit kill switch blocks Demo before contacting the broker', async () => {
   await assert.rejects(executeRealOrder({
     account: { ...realAccount, account_type: 'demo' }, token: 'fixture',
-    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm' },
+    intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm', strategyId: 'test_strategy' },
     env: { TRADING_ENABLED: 'false' }, fetchImpl: assert.fail, beforeBuy: assert.fail,
   }), { code: 'TRADING_DISABLED' });
 });

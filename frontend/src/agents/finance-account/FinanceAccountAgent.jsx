@@ -1,22 +1,14 @@
 import AgentCard from '../shared/AgentCard.jsx';
-import { MAX_STAKE_ABSOLUTE_USD } from '../../../../shared/agent-analysis.js';
 
-// Mirrors the backend's currencyScale so the preview matches the real submitted stake.
-const currencyScale = (currency) => currency === 'USD' ? 100 : 1e8;
-
-export default function FinanceAccountAgent({ accounts, agentStatuses, cappedAutomaticStake }) {
+export default function FinanceAccountAgent({ accounts, agentStatuses, stakeLimits }) {
   return (
     <AgentCard title="Finance and Account Agents" status={accounts.length ? 'Checked' : 'Unavailable'}>
       {accounts.map((account, index) => {
-        const latest = agentStatuses.find(item => item.accountId === account.account_id);
+        const latest = agentStatuses.find(item => item.accountRef === account.accountRef);
         const equity = latest?.result?.equity ?? latest?.equity;
-        const balance = Number(account.balance);
-        const nextStake = Number.isFinite(balance) && balance > 0
-          ? Math.min(Math.floor(balance * 0.01 * currencyScale(account.currency)) / currencyScale(account.currency),
-            cappedAutomaticStake ? 10 : account.currency === 'USD' ? MAX_STAKE_ABSOLUTE_USD : Infinity)
-          : null;
+        const nextStake = stakeLimits?.accountRef === account.accountRef ? stakeLimits.stake : null;
         return (
-          <p key={account.account_id}>
+          <p key={account.accountRef}>
             Account {index + 1} ({account.currency || 'currency'}) next stake:{' '}
             {Number.isFinite(nextStake) ? `${nextStake.toFixed(2)} ${account.currency || ''}` : 'unavailable'} · equity at last verified check:{' '}
             {Number.isFinite(equity) ? `${equity.toFixed(2)} ${account.currency || ''}` : 'awaiting verified trade check'}

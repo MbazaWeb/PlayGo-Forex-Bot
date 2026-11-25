@@ -5,16 +5,17 @@ PlayGo Trading is a Deriv workspace for Demo and Real accounts. Bot Agents analy
 ## Real execution
 
 - Select a Demo or Real Deriv Options account. The server verifies the account against the authenticated session and checks that Deriv's OTP URL matches its account type. Demo trades use virtual funds.
-- Bot Agents run on the selected account while their page is open. Switching accounts or leaving the page stops monitoring that account. Selecting it again on the Bot Agents page resumes active monitoring.
+- One server-confirmed account is shared across the app. Account IDs are masked in the UI and API; selecting a Real account requires explicit confirmation, and switching is blocked until the current account has no open positions.
+- Bot Agents run on the selected account while their page is open. Per-account auto-start is off by default; enabling it is an explicit setting (and requires confirmation for a Real account).
 - Automatic setup defaults to five-minute checks, a stop-loss target of 35% of stake, and a take-profit target of 50% of stake. It requires an 85/100 signal and skips entries during elevated relative volatility. Manual Setup allows market, interval, and exit-target overrides and uses the 75/100 signal floor. Confluence measures indicator agreement.
-- Each order is limited to 1% of the current account balance and USD stakes are capped at $20, with no more than two open contracts per account.
+- Every order mode, including manual terminal orders, is limited to 1% of the current balance and a shared $10 USD-equivalent cap, with no more than two open contracts per account. Non-USD orders require a valid Deriv exchange rate; they are blocked when it is unavailable.
 - Daily settled losses are capped at 3% of the starting balance.
 - "Place Trade Now" performs an immediate server-side analysis and risk check; it does not bypass the signal threshold. If it places an order on an inactive account, Bot Agents stay active there for exit monitoring and later scheduled checks until stopped. Scheduled checks use the selected candle interval and run only while the signed-in Bot Agents page is open.
-- Stop-loss and take-profit percentages are required and stored with each account's persistent agent control. They monitor each contract's floating P&L relative to its stake and submit best-effort sell requests; they are not broker-side guarantees. The current Deriv CALL/PUT path does not support FOK.
+- Manual terminal Buy/Sell may bypass bot signal qualification only; live-account, persistence, and risk checks still apply. Stop-loss and take-profit percentages are early-exit requests based on floating P&L, not broker-side guarantees. Deriv may not offer early sale, so the full stake can be lost. The current CALL/PUT path does not support FOK.
 - The Emergency Agent pauses new orders when verified equity reaches 90% of the balance captured when the agent was first started. It then attempts to close open contracts. Broker acceptance and fills are not guaranteed, so this is not a guaranteed maximum-loss cap.
 - Both account types require the execution database migration and a valid Deriv OAuth session. Real buys also require both live keys, separately logged human approval and verified settlement qualification. Tests use mocked broker responses.
 
-The database migration is [real_execution.sql](./backend/deriv_execution/real_execution.sql). Apply it only to the intended database after reviewing it. Do not apply it to a hosted database as part of local development.
+The database migration is [real_execution.sql](./backend/deriv_execution/real_execution.sql). It adds account auto-start preferences, stake-cap enforcement, and order/settlement/close evidence. Apply it only to the intended database after reviewing it; this repository does not apply it to a hosted database. Do not enable the new database-backed behavior until the migration is applied.
 
 ## Local setup
 

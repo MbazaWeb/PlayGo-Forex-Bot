@@ -55,6 +55,83 @@ create table if not exists public.playgo_real_intents (
   updated_at timestamptz not null default now()
 );
 
+alter table public.playgo_real_intents
+  add column if not exists strategy_id text not null default 'legacy_unknown';
+alter table public.playgo_real_intents
+  add column if not exists strategy_label text not null default 'Unavailable';
+alter table public.playgo_real_intents
+  add column if not exists score numeric;
+alter table public.playgo_real_intents
+  add column if not exists decision_at timestamptz not null default now();
+alter table public.playgo_real_intents
+  add column if not exists technical jsonb;
+alter table public.playgo_real_intents
+  add column if not exists account_reference text;
+alter table public.playgo_real_intents
+  add column if not exists broker_transaction_id text;
+alter table public.playgo_real_intents
+  add column if not exists broker_settlement_transaction_id text;
+alter table public.playgo_real_intents
+  add column if not exists buy_price numeric;
+alter table public.playgo_real_intents
+  add column if not exists sell_price numeric;
+alter table public.playgo_real_intents
+  add column if not exists outcome text not null default 'unconfirmed';
+alter table public.playgo_real_intents
+  add column if not exists settled_at timestamptz;
+
+alter table public.playgo_real_intents
+  drop constraint if exists playgo_real_intents_strategy_check;
+alter table public.playgo_real_intents
+  drop constraint if exists playgo_real_intents_transaction_id_check;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.playgo_real_intents'::regclass
+      and conname = 'playgo_real_intents_strategy_check'
+  ) then
+    alter table public.playgo_real_intents
+      add constraint playgo_real_intents_strategy_check check (
+        strategy_id ~ '^[A-Za-z0-9][A-Za-z0-9 _()+/-]{0,79}$' and
+        strategy_label ~ '^[A-Za-z0-9][A-Za-z0-9 _()+/-]{0,79}$'
+      );
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.playgo_real_intents'::regclass
+      and conname = 'playgo_real_intents_transaction_id_check'
+  ) then
+    alter table public.playgo_real_intents
+      add constraint playgo_real_intents_transaction_id_check check (
+        (broker_transaction_id is null or broker_transaction_id ~ '^[0-9]{1,30}$') and
+        (broker_settlement_transaction_id is null or broker_settlement_transaction_id ~ '^[0-9]{1,30}$')
+      );
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.playgo_real_intents'::regclass
+      and conname = 'playgo_real_intents_score_check'
+  ) then
+    alter table public.playgo_real_intents
+      add constraint playgo_real_intents_score_check check (
+        score is null or (score >= 0 and score <= 100 and score < 'Infinity'::numeric)
+      );
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.playgo_real_intents'::regclass
+      and conname = 'playgo_real_intents_outcome_check'
+  ) then
+    alter table public.playgo_real_intents
+      add constraint playgo_real_intents_outcome_check check (
+        outcome in ('won', 'lost', 'unconfirmed')
+      );
+  end if;
+end
+$$;
+
 create table if not exists public.playgo_real_audit (
   id bigint generated always as identity primary key,
   account_id text not null,
@@ -62,6 +139,12 @@ create table if not exists public.playgo_real_audit (
   event_type text not null,
   event_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
+);
+
+create table if not exists public.playgo_account_settings (
+  account_id text primary key check (account_id ~ '^[A-Za-z0-9_-]{3,80}$'),
+  auto_start_enabled boolean not null default false,
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists playgo_real_audit_account_idx
@@ -72,13 +155,16 @@ create index if not exists playgo_real_intents_account_status_idx
 alter table public.playgo_real_controls enable row level security;
 alter table public.playgo_real_intents enable row level security;
 alter table public.playgo_real_audit enable row level security;
+alter table public.playgo_account_settings enable row level security;
 
 revoke all on public.playgo_real_controls from public, anon, authenticated;
 revoke all on public.playgo_real_intents from public, anon, authenticated;
 revoke all on public.playgo_real_audit from public, anon, authenticated;
+revoke all on public.playgo_account_settings from public, anon, authenticated;
 grant select, insert, update on public.playgo_real_controls to service_role;
 grant select, insert, update on public.playgo_real_intents to service_role;
 grant select, insert on public.playgo_real_audit to service_role;
+grant select, insert, update on public.playgo_account_settings to service_role;
 grant usage on sequence public.playgo_real_audit_id_seq to service_role;
 
 create or replace function public.playgo_real_start_control(p_account_id text, p_balance numeric)
@@ -232,6 +318,12 @@ declare
   open_count integer := (p_record->>'open_count')::integer;
   snapshot_started_at timestamptz := (p_record->>'portfolio_snapshot_started_at')::timestamptz;
   stake_value numeric := (p_record->>'stake')::numeric;
+  stake_cap numeric := (p_record->>'stake_cap')::numeric;
+  score_value numeric := nullif(p_record->>'score', '')::numeric;
+  decision_time timestamptz := (p_record->>'decision_at')::timestamptz;
+  strategy_value text := p_record->>'strategy_id';
+  strategy_label_value text := p_record->>'strategy_label';
+  account_reference_value text := p_record->>'account_reference';
   control public.playgo_real_controls%rowtype;
   intent_id uuid;
 begin
@@ -240,11 +332,17 @@ begin
      equity is null or equity < 0 or equity >= 'Infinity'::numeric or
      open_count is null or open_count < 0 or
      stake_value is null or stake_value <= 0 or stake_value >= 'Infinity'::numeric or
+     stake_cap is null or stake_cap <= 0 or stake_cap >= 'Infinity'::numeric or
      p_record->>'status' is distinct from 'reserved' or
      p_record->>'symbol' !~ '^[A-Za-z0-9_]{2,30}$' or
      p_record->>'contract_type' not in ('CALL', 'PUT') or
      (p_record->>'duration')::integer not between 1 and 60 or
-     p_record->>'idempotency_key' !~ '^[a-f0-9]{64}$' then
+     p_record->>'idempotency_key' !~ '^[a-f0-9]{64}$' or
+     strategy_value !~ '^[A-Za-z0-9][A-Za-z0-9 _()+/-]{0,79}$' or
+     strategy_label_value !~ '^[A-Za-z0-9][A-Za-z0-9 _()+/-]{0,79}$' or
+     (score_value is not null and (score_value < 0 or score_value > 100 or score_value >= 'Infinity'::numeric)) or
+     decision_time is null or
+     account_reference_value !~ '^\.\.\.[A-Za-z0-9_-]{4}$' then
     raise exception 'INVALID_REAL_RESERVATION';
   end if;
 
@@ -266,7 +364,7 @@ begin
     return jsonb_build_object('accepted', false, 'reason', 'DRAWDOWN_LIMIT');
   end if;
 
-  if stake_value > balance * 0.01 then
+  if stake_value > least(balance * 0.01, stake_cap) then
     return jsonb_build_object('accepted', false, 'reason', 'STAKE_LIMIT');
   end if;
 
@@ -289,11 +387,14 @@ begin
   end if;
 
   insert into public.playgo_real_intents(
-    account_id, idempotency_key, symbol, contract_type, stake, duration
+    account_id, idempotency_key, symbol, contract_type, stake, duration,
+    strategy_id, strategy_label, score, decision_at, technical, account_reference
   )
   values (
     account, p_record->>'idempotency_key', p_record->>'symbol',
-    p_record->>'contract_type', stake_value, (p_record->>'duration')::integer
+    p_record->>'contract_type', stake_value, (p_record->>'duration')::integer,
+    strategy_value, strategy_label_value, score_value, decision_time,
+    p_record->'technical', account_reference_value
   )
   on conflict (idempotency_key) do nothing
   returning id into intent_id;
@@ -302,16 +403,34 @@ begin
     return jsonb_build_object('accepted', false, 'reason', 'DUPLICATE_SIGNAL');
   end if;
 
-  insert into public.playgo_real_audit(account_id, intent_id, event_type)
-  values (account, intent_id, 'INTENT_RESERVED');
+  insert into public.playgo_real_audit(account_id, intent_id, event_type, event_data)
+  values (
+    account, intent_id, 'INTENT_RESERVED',
+    jsonb_build_object(
+      'strategy_id', strategy_value,
+      'strategy_label', strategy_label_value,
+      'score', score_value,
+      'decision_at', decision_time,
+      'symbol', p_record->>'symbol',
+      'contract_type', p_record->>'contract_type',
+      'duration', (p_record->>'duration')::integer,
+      'stake', stake_value,
+      'stake_cap', stake_cap,
+      'account_reference', account_reference_value
+    )
+  );
   return jsonb_build_object('accepted', true, 'intentId', intent_id, 'status', 'reserved');
 end;
 $$;
 
+drop function if exists public.playgo_real_transition(uuid, text, text);
+
 create or replace function public.playgo_real_transition(
   p_intent_id uuid,
   p_event text,
-  p_contract_id text default null
+  p_contract_id text default null,
+  p_transaction_id text default null,
+  p_buy_price numeric default null
 )
 returns jsonb language plpgsql security invoker set search_path = '' as $$
 declare
@@ -337,16 +456,28 @@ begin
      (p_contract_id is null or p_contract_id !~ '^[0-9]{1,30}$') then
     raise exception 'INVALID_BROKER_CONTRACT_ID';
   end if;
+  if p_transaction_id is not null and p_transaction_id !~ '^[0-9]{1,30}$' then
+    raise exception 'INVALID_BROKER_TRANSACTION_ID';
+  end if;
+  if p_buy_price is not null and
+     (p_buy_price <= 0 or p_buy_price >= 'Infinity'::numeric) then
+    raise exception 'INVALID_BROKER_BUY_PRICE';
+  end if;
 
   update public.playgo_real_intents
   set status = next_status,
       broker_contract_id = coalesce(p_contract_id, broker_contract_id),
+      broker_transaction_id = coalesce(p_transaction_id, broker_transaction_id),
+      buy_price = coalesce(p_buy_price, buy_price),
       updated_at = now()
   where id = p_intent_id;
 
   insert into public.playgo_real_audit(account_id, intent_id, event_type, event_data)
   values (intent.account_id, p_intent_id, 'ORDER_' || upper(p_event),
-    jsonb_build_object('from', intent.status, 'to', next_status, 'contract_id', p_contract_id));
+    jsonb_build_object(
+      'from', intent.status, 'to', next_status, 'contract_id', p_contract_id,
+      'transaction_id', p_transaction_id, 'buy_price', p_buy_price
+    ));
 
   if next_status = 'unknown' then
     update public.playgo_real_controls
@@ -363,10 +494,10 @@ revoke all on function public.playgo_real_configure_control(text, numeric, numer
 revoke all on function public.playgo_real_stop_control(text) from public, anon, authenticated;
 revoke all on function public.playgo_real_pause_control(text, text) from public, anon, authenticated;
 revoke all on function public.playgo_real_reserve_intent(jsonb) from public, anon, authenticated;
-revoke all on function public.playgo_real_transition(uuid, text, text) from public, anon, authenticated;
 grant execute on function public.playgo_real_start_control(text, numeric) to service_role;
 grant execute on function public.playgo_real_configure_control(text, numeric, numeric, numeric) to service_role;
 grant execute on function public.playgo_real_stop_control(text) to service_role;
 grant execute on function public.playgo_real_pause_control(text, text) to service_role;
 grant execute on function public.playgo_real_reserve_intent(jsonb) to service_role;
-grant execute on function public.playgo_real_transition(uuid, text, text) to service_role;
+revoke all on function public.playgo_real_transition(uuid, text, text, text, numeric) from public, anon, authenticated;
+grant execute on function public.playgo_real_transition(uuid, text, text, text, numeric) to service_role;

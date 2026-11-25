@@ -2,19 +2,19 @@ import React, { useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 import { brokerRequest } from './brokerRequest';
 
-export default function ClosedTradeDetails({ trade, accountId, currency, settledTime, onClose }) {
+export default function ClosedTradeDetails({ trade, accountRef, currency, settledTime, onClose }) {
   const [audit, setAudit] = useState(null);
   const contractId = trade.contractId;
   useEffect(() => {
     if (!contractId) return;
     let active = true;
-    const query = new URLSearchParams({ account: accountId, report: '1' });
+    const query = new URLSearchParams({ report: '1' });
     async function loadEvidence() {
       try {
         const response = await brokerRequest('/api/history?' + query);
         if (!response.ok) throw new Error('Trade audit unavailable');
         const data = await response.json();
-        if (data.accountId !== accountId || !data.evidence) throw new Error('Trade audit unavailable');
+        if (data.accountRef !== accountRef || !data.evidence) throw new Error('Trade audit unavailable');
         if (active) setAudit({ detail: data.evidence[contractId] });
       } catch {
         if (active) setAudit({ error: true });
@@ -22,18 +22,24 @@ export default function ClosedTradeDetails({ trade, accountId, currency, settled
     }
     void loadEvidence();
     return () => { active = false; };
-  }, [accountId, contractId]);
+  }, [accountRef, contractId]);
 
   const detail = audit?.detail;
   const exit = detail?.exit;
+  const close = detail?.close;
   const profit = trade.sell - trade.buy;
   const money = amount => amount.toFixed(2) + ' ' + currency;
   const hasTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
   const result = profit < 0 ? 'Loss' : profit > 0 ? 'Win' : 'Break-even';
-  const exitSummary = exit?.outcome === 'CLOSED' ? 'Deriv confirmed an early close.'
-    : exit?.canSell === false ? 'Deriv did not offer an early sale at the recorded check.'
-      : exit ? 'PlayGo did not receive close confirmation.' : 'The exit cause is unavailable in the trade audit.';
-  const suggestion = exit?.canSell === false
+  const exitSummary = close?.status === 'confirmed'
+    ? 'Deriv confirmed the close' + (Number.isFinite(close.soldFor) ? ' at ' + money(close.soldFor) : '') + '.'
+    : close ? 'The close request is unconfirmed; reconcile this contract against Deriv before treating it as closed.'
+      : exit?.outcome === 'CLOSED' ? 'Deriv confirmed an early close.'
+        : exit?.canSell === false ? 'Deriv did not offer an early sale at the recorded check.'
+          : exit ? 'PlayGo did not receive close confirmation.' : 'The exit cause is unavailable in the trade audit.';
+  const suggestion = close?.status === 'unconfirmed'
+    ? 'Verify the contract status and settlement in Deriv before changing risk settings.'
+    : exit?.canSell === false
     ? 'On Demo, review when early sale is available. Set the stake assuming the full amount can be lost.'
     : exit && exit.outcome !== 'CLOSED'
       ? 'Reconcile this contract against the Deriv statement before changing exit rules.'
@@ -53,6 +59,8 @@ export default function ClosedTradeDetails({ trade, accountId, currency, settled
         <dl>
           <dt>Strategy</dt><dd>{detail?.strategy || 'Unavailable'}{Number.isFinite(detail?.score) && ' · Signal ' + detail.score + '/100'}</dd>
           <dt>Market / direction</dt><dd>{detail?.symbol || 'Unavailable'} · {({ CALL: 'Rise', PUT: 'Fall' })[detail?.direction] || 'Unavailable'}{detail?.duration ? ' · ' + detail.duration + ' min' : ''}</dd>
+          <dt>Broker transaction</dt><dd>{detail?.execution?.transactionId || 'Unavailable'} · Buy price {Number.isFinite(detail?.execution?.buy) ? money(detail.execution.buy) : 'Unavailable'}</dd>
+          <dt>Close audit</dt><dd>{close ? close.status + ' · ' + (close.reason || close.outcome || 'status recorded') + ' · Broker transaction ' + (close.transactionId || 'Unavailable') : 'Unavailable'}</dd>
         </dl>
         <h3>{profit < 0 ? 'Why it lost' : 'Exit evidence'}</h3>
         {profit < 0 && <p>{trade.sell === 0 ? 'The contract returned zero proceeds, so the full stake was lost.' : 'Settlement proceeds were below the original stake.'}</p>}

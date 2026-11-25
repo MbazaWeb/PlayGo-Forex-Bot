@@ -5,7 +5,7 @@ import { ArrowUpRight, ChartCandlestick, ChartNoAxesCombined } from 'lucide-reac
 import TerminalOrder from './TerminalOrder';
 import MarketExplorer, { useMarketList } from './MarketExplorer';
 
-export default function MarketWorkspace({ page, changePage, marketSymbol, onMarketChange, account, accounts, onSelectAccount, executionEnabled, initialDuration }) {
+export default function MarketWorkspace({ page, changePage, marketSymbol, onMarketChange, account, executionEnabled, initialDuration }) {
   const catalog = useMarketList(marketSymbol, onMarketChange);
   const go = (next, symbol, duration) => {
     if (typeof changePage === 'function') changePage(next, symbol, duration);
@@ -56,10 +56,10 @@ export default function MarketWorkspace({ page, changePage, marketSymbol, onMark
     <>
     <div className="terminal-workspace">
       <MarketExplorer catalog={catalog} />
-      <TerminalOrder key={account?.account_id} initialDuration={initialDuration} account={account} accounts={accounts} onSelectAccount={onSelectAccount} market={catalog.market}
+      <TerminalOrder key={account?.accountRef} initialDuration={initialDuration} account={account} market={catalog.market}
         executionEnabled={executionEnabled} openBot={() => go('Bot Agents', catalog.market?.symbol)} />
     </div>
-    {account && <AccountActivity key={account.account_id} accountId={account.account_id}
+    {account && <AccountActivity key={account.accountRef} accountRef={account.accountRef}
       currency={account.currency} openAnalytics={() => go('Analytics')} />}
     </>
   );

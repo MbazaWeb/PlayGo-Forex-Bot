@@ -42,8 +42,9 @@ async function fetchJSON(url, opts) {
 export default function App() {
   const [session, setSession] = useState(null);
   const [accounts, setAccounts] = useState(null);
-  const [pendingAccountId, setPendingAccountId] = useState('');
-  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [pendingAccountRef, setPendingAccountRef] = useState('');
+  const [selectedAccountRef, setSelectedAccountRef] = useState('');
+  const [accountSelectionBusy, setAccountSelectionBusy] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [mt5, setMt5] = useState(null);
@@ -63,7 +64,11 @@ export default function App() {
           if (aRes.status === 401) setSession({ ...s, authenticated: false });
           throw new Error(aBody?.error || 'Could not load accounts');
         }
-        setAccounts(Array.isArray(aBody?.accounts) ? aBody.accounts : []);
+        const linked = Array.isArray(aBody?.accounts) ? aBody.accounts : [];
+        setAccounts(linked);
+        setSelectedAccountRef(linked.some(row => row.accountRef === aBody.activeAccountRef)
+          ? aBody.activeAccountRef
+          : '');
         try {
           const { res: mRes, body: mBody } = await fetchJSON('/api/mt5/status');
           setMt5(mRes.ok ? mBody : { status: 'unavailable' });
@@ -77,7 +82,7 @@ export default function App() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    if (!session?.authenticated || !selectedAccountId) return;
+    if (!session?.authenticated || !selectedAccountRef) return;
     const controller = new AbortController();
     let checking = false;
     let pending = false;
@@ -88,10 +93,10 @@ export default function App() {
       try {
         const { res, body } = await fetchJSON('/api/accounts', { signal: controller.signal });
         if (!res.ok || !Array.isArray(body?.accounts) || controller.signal.aborted) return;
-        const balances = new Map(body.accounts.map(row => [row.account_id, row.balance]));
+        const balances = new Map(body.accounts.map(row => [row.accountRef, row.balance]));
         setAccounts(previous => previous?.map(row =>
-          balances.has(row.account_id) && balances.get(row.account_id) !== row.balance
-            ? { ...row, balance: balances.get(row.account_id) }
+          balances.has(row.accountRef) && balances.get(row.accountRef) !== row.balance
+            ? { ...row, balance: balances.get(row.accountRef) }
             : row));
       } catch {
         // Preserve the last verified balance while the broker is unavailable.
@@ -102,7 +107,7 @@ export default function App() {
     }
     const timer = setInterval(refreshBalances, 15_000);
     function onSettlement(event) {
-      if (event.detail === selectedAccountId) void refreshBalances();
+      if (event.detail === selectedAccountRef) void refreshBalances();
     }
     window.addEventListener('playgo:settlement', onSettlement);
     return () => {
@@ -110,11 +115,11 @@ export default function App() {
       clearInterval(timer);
       window.removeEventListener('playgo:settlement', onSettlement);
     };
-  }, [session?.authenticated, selectedAccountId]);
+  }, [session?.authenticated, selectedAccountRef]);
 
   async function logout() {
     try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'X-PlayGo-Request': '1' } }); } catch {}
-    setSelectedAccountId(''); setAccounts(null); load();
+    setSelectedAccountRef(''); setAccounts(null); load();
   }
 
   if (!session?.authenticated) {
@@ -146,11 +151,41 @@ export default function App() {
     setPage(next === 'Accounts' || next === 'Portfolio' ? 'Bot Agents' : next);
   }
 
-  const selectedAccount = accounts?.find(account => account.account_id === selectedAccountId);
-  function selectAccount(accountId) {
-    if (accountId === selectedAccountId) return;
-    if (selectedAccount) setPendingAccountId(accountId);
-    else setSelectedAccountId(accountId);
+  const selectedAccount = accounts?.find(account => account.accountRef === selectedAccountRef);
+  const pendingAccount = accounts?.find(account => account.accountRef === pendingAccountRef);
+  function selectAccount(accountRef) {
+    if (accountRef === selectedAccountRef) return;
+    setPendingAccountRef(accountRef);
+    setError('');
+  }
+  async function confirmAccountSelection() {
+    if (!pendingAccount || accountSelectionBusy) return;
+    setAccountSelectionBusy(true);
+    try {
+      const query = new URLSearchParams({ accountRef: pendingAccount.accountRef });
+      if (pendingAccount.account_type === 'real') query.set('confirmReal', '1');
+      const { res, body } = await fetchJSON('/api/accounts/select?' + query, {
+        method: 'POST',
+        headers: { 'X-PlayGo-Request': '1' },
+      });
+      if (!res.ok) {
+        const messages = {
+          ACCOUNT_SWITCH_OPEN_POSITIONS: 'Close or wait for all open positions before switching accounts.',
+          ACTIVE_ACCOUNT_STATUS_UNAVAILABLE: 'Could not verify the current account positions. No account switch was made.',
+          ACTIVE_ACCOUNT_UNAVAILABLE: 'The current account is no longer available to verify. Sign out and reconnect before switching.',
+          REAL_ACCOUNT_CONFIRMATION_REQUIRED: 'Confirm the real-account selection to continue.',
+          ACCOUNT_REFERENCE_NOT_FOUND: 'That account is no longer available. Refresh the account list.',
+        };
+        throw new Error(messages[body?.error] || body?.error || 'Account selection failed.');
+      }
+      setSelectedAccountRef(body.activeAccount?.accountRef || pendingAccount.accountRef);
+      setPendingAccountRef('');
+      setError('');
+    } catch (selectionError) {
+      setError(selectionError?.message || 'Account selection failed.');
+    } finally {
+      setAccountSelectionBusy(false);
+    }
   }
   const selectedAccounts = selectedAccount ? [selectedAccount] : [];
 
@@ -181,12 +216,12 @@ export default function App() {
                     <div className="top-right">
             <HeaderClock />
             {!!accounts?.length && (
-              <select className="outline" aria-label="Deriv trading account" value={selectedAccount?.account_id || ''}
+              <select className="outline" aria-label="Deriv trading account" value={selectedAccount?.accountRef || ''}
                 onChange={event => selectAccount(event.target.value)}>
                 <option value="" disabled>Select Deriv account</option>
                 {accounts.map(account => (
-                  <option key={account.account_id} value={account.account_id}>
-                    {account.account_type === 'demo' ? 'Demo' : 'Real'} · {account.account_id}
+                  <option key={account.accountRef} value={account.accountRef}>
+                    {account.account_type === 'demo' ? 'Demo' : 'Real'} · {account.maskedAccountId}
                   </option>
                 ))}
               </select>
@@ -204,10 +239,10 @@ export default function App() {
           {error && <div role="alert" className="notice">{error}<button onClick={load}>Retry</button></div>}
           {loading && <p role="status">Loading...</p>}
           {!loading && page === 'Overview' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} />}
-          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountId} account={selectedAccount} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} realExecutionEnabled={session.execution === true} />}
+          {!loading && page === 'Bot Agents' && <TradeAgent key={selectedAccountRef} account={selectedAccount} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} realExecutionEnabled={session.execution === true} />}
           {!loading && page === 'Trading Terminal' && (
             <React.Suspense fallback={<p>Loading...</p>}>
-              <MarketWorkspace page="Trading Terminal" initialDuration={plannedDuration} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} account={selectedAccount} accounts={accounts} onSelectAccount={selectAccount} executionEnabled={session.execution === true} changePage={navigate} />
+              <MarketWorkspace page="Trading Terminal" initialDuration={plannedDuration} marketSymbol={marketSymbol} onMarketChange={setMarketSymbol} account={selectedAccount} executionEnabled={session.execution === true} changePage={navigate} />
             </React.Suspense>
           )}
           {!loading && page === 'Analytics' && <AccountDashboard accounts={selectedAccounts} mt5={mt5} navigate={navigate} analytics />}
@@ -229,10 +264,13 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {pendingAccountId && <ConfirmDialog title="Switch Deriv account" confirmLabel="Switch account"
-        onCancel={() => setPendingAccountId('')}
-        onConfirm={() => { setSelectedAccountId(pendingAccountId); setPendingAccountId(''); }}>
-        <p>Bot Agents will pause monitoring the current account until you select it again.</p>
+      {pendingAccount && <ConfirmDialog title={pendingAccount.account_type === 'real' ? 'Confirm real account' : 'Switch Deriv account'}
+        confirmLabel={accountSelectionBusy ? 'Checking...' : pendingAccount.account_type === 'real' ? 'Confirm real account' : 'Switch account'}
+        onCancel={() => setPendingAccountRef('')}
+        onConfirm={() => { void confirmAccountSelection(); }}>
+        <p>Use {pendingAccount.account_type === 'demo' ? 'Demo' : 'Real'} account {pendingAccount.maskedAccountId} ({pendingAccount.currency}).</p>
+        {pendingAccount.account_type === 'real' && <p>This selects a real-money account. Real trading still requires the server live-trading switch and risk checks.</p>}
+        <p>Account switching is blocked while the currently selected account has open positions.</p>
       </ConfirmDialog>}
     </div>
   );

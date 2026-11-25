@@ -1,13 +1,13 @@
 import { publicRequest, supportedTradeDurations } from './derivMarkets';
-import { AUTOMATIC_SETUP, MAX_STAKE_ABSOLUTE_USD } from '../../../shared/agent-analysis.js';
 import ConfirmDialog from './ConfirmDialog';
 import React, { useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, Bot } from 'lucide-react';
+import useStakeLimits from './useStakeLimits.js';
 
 const DURATIONS = [1, 5, 15, 60];
 const ACTIONS = { buy: 'Buy / Rise', sell: 'Sell / Fall', bot: 'Bot Trade' };
 
-export default function TerminalOrder({ account, accounts, onSelectAccount, market, executionEnabled, openBot, initialDuration }) {
+export default function TerminalOrder({ account, market, executionEnabled, openBot, initialDuration }) {
   const [preferredDuration, setDuration] = useState(initialDuration ?? 5);
   const [contractOptions, setContractOptions] = useState(null);
   const [durationAttempt, retryDurations] = useState(0);
@@ -34,17 +34,13 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
   const [review, setReview] = useState(null);
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
-  const scale = account?.currency === 'USD' ? 100 : 1e8;
-  const calculatedStake = Math.floor(Number(account?.balance) * 0.01 * scale) / scale;
-  const stake = account?.currency === 'USD' ? Math.min(calculatedStake, MAX_STAKE_ABSOLUTE_USD) : calculatedStake;
-  const previewStake = review === 'bot' && account?.currency === 'USD'
-    ? Math.min(stake, AUTOMATIC_SETUP.stopLossUsd)
-    : stake;
+  const { limits: stakeLimits, error: stakeLimitsError } = useStakeLimits(account?.accountRef);
+  const stake = stakeLimits?.accountRef === account?.accountRef ? stakeLimits.stake : null;
   const real = account?.account_type === 'real';
   const funds = real ? 'real funds' : 'virtual funds';
-  const blocker = !account ? (accounts?.length ? 'Choose an account to trade.' : 'No Deriv accounts available.')
+  const blocker = !account ? 'Choose an account from the active account selector.'
     : real && !executionEnabled ? 'Real-money execution is disabled.'
-      : !(stake > 0) ? 'The selected account needs an available balance.'
+      : !(stake > 0) ? stakeLimitsError ? 'Server stake limits are unavailable; orders are blocked.' : 'Loading verified server stake limits.'
         : market?.status !== 'Open' ? (market?.status === 'Closed' || market?.status === 'Suspended' ? 'Market ' + market.status.toLowerCase() + '.' : 'Waiting for an open market.') : '';
 
   async function submit(action) {
@@ -53,7 +49,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
     setResult(null);
     try {
       const query = new URLSearchParams({
-        account: account.account_id, symbol: market.symbol,
+        symbol: market.symbol,
         granularity: String(duration * 60), terminalAction: action, orderRequestId: crypto.randomUUID(),
       });
       const response = await fetch('/api/agent/place?' + query, {
@@ -67,7 +63,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       if (order.reason === 'CONTRACT_EXIT_THRESHOLD') {
         const confirmed = order.closeResults?.filter(contract => contract.closed).length ?? 0;
         if (confirmed) {
-          window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: account.account_id }));
+          window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: account.accountRef }));
         }
         setResult(confirmed
           ? 'Deriv confirmed an exit for an existing trade. No new order was placed. Check Account Activity for settlement.'
@@ -83,7 +79,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
         : order.status === 'ordered'
         ? `Deriv accepted contract ${order.contractId}.`
         : `No new order placed. ${(order.reason || order.status).replaceAll('_', ' ')}.`;
-      if (order.status === 'ordered') window.dispatchEvent(new CustomEvent('playgo:position', { detail: account.account_id }));
+      if (order.status === 'ordered') window.dispatchEvent(new CustomEvent('playgo:position', { detail: account.accountRef }));
       setResult(message);
     } catch (error) {
       setResult(error.message || 'Order status unavailable. Check Account Activity before retrying.');
@@ -97,15 +93,7 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
       <h2>Trade Now</h2>
       <p>{market?.name || 'Select market'}</p>
       <div className="terminal-ticket-fields">
-      <label>Deriv account
-        <select value={account?.account_id || ''} disabled={!accounts?.length || Boolean(busy)}
-          onChange={event => onSelectAccount(event.target.value)}>
-          <option value="" disabled>Choose account</option>
-          {accounts?.map(item => <option key={item.account_id} value={item.account_id}>
-            {item.account_type === 'demo' ? 'Demo' : 'Real'} / {item.account_id}
-          </option>)}
-        </select>
-      </label>
+      <div><strong>Active Deriv account</strong><p>{account?.maskedAccountId || 'No account selected'}</p></div>
       <label>Duration
         <select value={duration ?? ''} disabled={Boolean(busy || !durations.length)} onChange={event => setDuration(Number(event.target.value))}>
           {!durations.length && <option value="">Unavailable</option>}
@@ -132,11 +120,12 @@ export default function TerminalOrder({ account, accounts, onSelectAccount, mark
         onCancel={() => setReview(null)} onConfirm={() => { setReview(null); void submit(review); }}>
         <dl className="trade-review">
           <div><dt>Market</dt><dd>{market?.name}</dd></div>
-          <div><dt>Deriv {real ? 'Real' : 'Demo'}</dt><dd>{account?.account_id}</dd></div>
-          <div><dt>Estimated stake</dt><dd>{previewStake} {account?.currency}</dd></div>
+          <div><dt>Deriv {real ? 'Real' : 'Demo'}</dt><dd>{account?.maskedAccountId}</dd></div>
+          <div><dt>Server-calculated stake</dt><dd>{stake} {account?.currency} · maximum {stakeLimits?.maxStake?.toFixed(2)} {account?.currency}</dd></div>
           <div><dt>Duration</dt><dd>{duration} min</dd></div>
         </dl>
         <p>{funds === 'real funds' ? 'Real funds.' : 'Virtual funds.'}{review === 'bot' && ' Trades only if the setup qualifies.'}</p>
+        <p>Stop-loss is an early-exit request. Deriv may not offer early sale; the full stake can be lost.</p>
       </ConfirmDialog>}
     </section>
   );

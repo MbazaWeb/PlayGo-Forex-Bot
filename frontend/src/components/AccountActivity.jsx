@@ -7,7 +7,7 @@ const settlementTime = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Africa/Dar_es_Salaam',
 });
 
-export default function AccountActivity({ accountId, currency, openAnalytics }) {
+export default function AccountActivity({ accountRef, currency, openAnalytics }) {
   const [settled, setSettled] = useState(null);
   const [historyError, setHistoryError] = useState(false);
   const historyRefreshRef = useRef(null);
@@ -32,11 +32,11 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       busy = true;
       setLoading(true);
       try {
-        const r = await brokerRequest('/api/portfolio?account=' + encodeURIComponent(accountId), { signal, cache: 'no-store' });
+        const r = await brokerRequest('/api/portfolio', { signal, cache: 'no-store' });
         if (r.status === 429) throw Error('Deriv is busy. Showing the last available positions while PlayGo waits.');
         if (!r.ok) throw Error();
         const body = await r.json();
-        if (body.accountId !== accountId || !Array.isArray(body.contracts)) throw Error();
+        if (body.accountRef !== accountRef || !Array.isArray(body.contracts)) throw Error();
         if (!signal.aborted) {
           setContracts(body.contracts);
           setObservedAt(body.observedAt);
@@ -53,7 +53,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
         }
       }
     }
-    function onChange(event) { if (event.detail === accountId) void refresh(); }
+    function onChange(event) { if (event.detail === accountRef) void refresh(); }
     refreshRef.current = refresh;
     window.addEventListener('playgo:position', onChange);
     window.addEventListener('playgo:settlement', onChange);
@@ -65,7 +65,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       window.removeEventListener('playgo:position', onChange);
       window.removeEventListener('playgo:settlement', onChange);
     };
-  }, [accountId]);
+  }, [accountRef]);
 
   useEffect(() => {
     if (!contracts?.some(contract => !contract.canSell && Number.isSafeInteger(contract.expiryTime) && contract.expiryTime > nowEpoch)) return;
@@ -82,10 +82,10 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       clearTimeout(timer);
       busy = true;
       try {
-        const response = await brokerRequest('/api/history?account=' + encodeURIComponent(accountId), { signal, cache: 'no-store' });
+        const response = await brokerRequest('/api/history', { signal, cache: 'no-store' });
         if (!response.ok) throw Error();
         const body = await response.json();
-        if (body.accountId !== accountId || !Array.isArray(body.transactions)) throw Error();
+        if (body.accountRef !== accountRef || !Array.isArray(body.transactions)) throw Error();
         if (!signal.aborted) {
           setSettled(body.transactions);
           setHistoryError(false);
@@ -100,7 +100,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
         }
       }
     }
-    function onSettlement(event) { if (event.detail === accountId) void refresh(); }
+    function onSettlement(event) { if (event.detail === accountRef) void refresh(); }
     historyRefreshRef.current = refresh;
     window.addEventListener('playgo:settlement', onSettlement);
     void refresh();
@@ -110,22 +110,26 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
       historyRefreshRef.current = null;
       window.removeEventListener('playgo:settlement', onSettlement);
     };
-  }, [accountId]);
+  }, [accountRef]);
 
   async function closeTrade(contract) {
     setClosing(true);
     setNotice('');
     try {
-      const query = new URLSearchParams({ account: accountId, contract: contract.id });
+      const query = new URLSearchParams({ contract: contract.id });
       const response = await brokerRequest('/api/portfolio/close?' + query, {
         method: 'POST', headers: { 'X-PlayGo-Request': '1' },
       });
       if (response.status === 429) { setNotice("Deriv is busy. Wait before trying to close again."); return; }
       const body = await response.json();
-      setNotice(response.ok && body.closed ? 'Trade closed. Waiting for Deriv settlement.' : body.error || 'Close status unavailable.');
+      setNotice(response.ok && body.closed
+        ? body.auditError
+          ? 'Deriv confirmed the close, but PlayGo could not save its audit record. Refresh broker history and reconcile it.'
+          : 'Deriv confirmed the close. Waiting for broker settlement confirmation.'
+        : body.error || 'Close status unavailable.');
       if (response.ok && body.closed) {
         setContracts(rows => rows?.filter(row => row.id !== contract.id) ?? []);
-        window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
+        window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountRef }));
         return;
       }
     } catch {
@@ -202,7 +206,7 @@ export default function AccountActivity({ accountId, currency, openAnalytics }) 
         </table>
       </div>
       {openAnalytics && <button type="button" className="textlink" onClick={openAnalytics}>View Analytics</button>}
-      {closedTrade && <ClosedTradeDetails trade={closedTrade} accountId={accountId} currency={currency}
+      {closedTrade && <ClosedTradeDetails trade={closedTrade} accountRef={accountRef} currency={currency}
         settledTime={settlementTime} onClose={() => setClosedTrade(null)} />}
       {review && <ConfirmDialog title="Close trade" confirmLabel="Close at market"
         onCancel={() => setReview(null)}

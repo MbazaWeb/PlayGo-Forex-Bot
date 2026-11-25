@@ -1,5 +1,5 @@
 import { evaluateLiveGate } from '../../shared/live-gate.js';
-import { readLiveQualification } from './real-store.js';
+import { readLiveQualification, recordCloseResult } from './real-store.js';
 import { isDerivAccount, canTradeAccount } from './agents/account/index.js';
 const API = 'https://api.derivws.com';
 
@@ -44,6 +44,27 @@ export async function getRealWebSocketUrl({ token, account, appId, fetchImpl = f
   return url.toString();
 }
 
+export async function readCurrencyPerUsd({ account, token, appId, fetchImpl = fetch, Socket }) {
+  if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
+  if (account.currency === 'USD') return 1;
+  if (!/^[A-Z]{3}$/.test(account.currency || '')) throw codedError('INVALID_ACCOUNT_CURRENCY');
+  try {
+    return await withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
+      const response = await sendAndWait(socket, {
+        exchange_rates: 1,
+        base_currency: 'USD',
+      }, 'exchange_rates', 1);
+      const rates = response?.exchange_rates?.rates;
+      const rate = Number(rates?.[account.currency]);
+      if (!Number.isFinite(rate) || rate <= 0 || rate > 1_000_000)
+        throw codedError('INVALID_CURRENCY_RATE');
+      return rate;
+    });
+  } catch {
+    throw codedError('CURRENCY_RATE_UNAVAILABLE');
+  }
+}
+
 function openSocket(Socket, url) {
   return new Promise((resolve, reject) => {
     let socket;
@@ -74,10 +95,10 @@ function openSocket(Socket, url) {
   });
 }
 
-function sendAndWait(socket, payload, expectedType, reqId) {
+function sendAndWait(socket, payload, expectedType, reqId, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const timer = setTimeout(() => finish(codedError('BROKER_REQUEST_TIMEOUT')), 10000);
+    const timer = setTimeout(() => finish(codedError('BROKER_REQUEST_TIMEOUT')), timeoutMs);
     function finish(error, value) {
       if (settled) return;
       settled = true;
@@ -136,6 +157,8 @@ function validIntent(intent, account) {
   return isDerivAccount(account) &&
     /^[A-Za-z0-9_]{2,30}$/.test(intent?.symbol || '') &&
     ['CALL', 'PUT'].includes(intent?.contractType) &&
+    typeof intent?.strategyId === 'string' &&
+    /^[A-Za-z0-9][A-Za-z0-9 _()+/-]{0,79}$/.test(intent.strategyId) &&
     /^[A-Z]{3}$/.test(account.currency || '') &&
     Number.isFinite(intent?.stake) && intent.stake > 0 &&
     Number.isSafeInteger(intent?.duration) && intent.duration >= 1 && intent.duration <= 60 &&
@@ -143,7 +166,8 @@ function validIntent(intent, account) {
 }
 
 export async function executeRealOrder({
-  account, token, appId, intent, beforeBuy, env = process.env, fetchImpl = fetch, Socket,
+  account, token, appId, intent, beforeBuy, manualTerminal = false,
+  env = process.env, fetchImpl = fetch, Socket,
 }) {
   if (!validIntent(intent, account)) throw codedError('INVALID_REAL_ORDER');
   if (env.TRADING_ENABLED === 'false') throw codedError('TRADING_DISABLED');
@@ -167,7 +191,7 @@ export async function executeRealOrder({
         !Number.isFinite(ask) || ask <= 0 || ask > intent.stake)
       throw codedError('INVALID_BROKER_PROPOSAL');
 
-    if (account.account_type === 'real') {
+    if (account.account_type === 'real' && !manualTerminal) {
       const qualification = await readLiveQualification({ accountId: account.account_id, env, fetchImpl })
         .catch(() => null);
       const now = Date.now();
@@ -192,7 +216,22 @@ export async function executeRealOrder({
     if (!(typeof contractId === 'string' || Number.isSafeInteger(contractId)) ||
         !/^[0-9]{1,30}$/.test(String(contractId)))
       throw codedError('BROKER_ORDER_OUTCOME_UNKNOWN');
-    return { contractId: String(contractId), askPrice: ask };
+    const rawTransactionId = result?.buy?.transaction_id;
+    const transactionId = (typeof rawTransactionId === 'string' || Number.isSafeInteger(rawTransactionId)) &&
+      /^[0-9]{1,30}$/.test(String(rawTransactionId))
+      ? String(rawTransactionId)
+      : null;
+    const buyPriceValue = Number(result?.buy?.buy_price);
+    const buyPrice = Number.isFinite(buyPriceValue) && buyPriceValue > 0 && buyPriceValue <= intent.stake
+      ? buyPriceValue
+      : null;
+    return {
+      contractId: String(contractId),
+      transactionId,
+      buyPrice,
+      askPrice: ask,
+      executionDataComplete: transactionId !== null && buyPrice !== null,
+    };
   });
 }
 
@@ -201,6 +240,13 @@ function contractIdentifier(value) {
       !/^[0-9]{1,30}$/.test(String(value)))
     throw codedError('INVALID_BROKER_CONTRACT_ID');
   return String(value);
+}
+
+function brokerTransactionIdentifier(value) {
+  return (typeof value === 'string' || Number.isSafeInteger(value)) &&
+    /^[0-9]{1,30}$/.test(String(value))
+    ? String(value)
+    : null;
 }
 
 function contractExpiryTime(contract) {
@@ -320,25 +366,88 @@ export async function readRealHistory({ account, token, appId, fetchImpl = fetch
   });
 }
 
-export async function closeRealContracts({ account, token, appId, contractIds, fetchImpl = fetch, Socket }) {
+async function confirmClosedContract(socket, contractId, reqId) {
+  let lastReason = 'CLOSE_UNCONFIRMED';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await sendAndWait(socket, {
+        proposal_open_contract: 1,
+        contract_id: Number(contractId),
+      }, 'proposal_open_contract', reqId++, 3000);
+      const contract = response?.proposal_open_contract;
+      if (String(contract?.contract_id) === contractId &&
+          (contract.is_sold === 1 || ['sold', 'won', 'lost', 'expired'].includes(contract.status))) {
+        const soldFor = Number(contract.sell_price ?? contract.sell_value ?? contract.sold_for);
+        const transactionId = brokerTransactionIdentifier(
+          contract.sell_transaction_id ?? contract.transaction_id,
+        );
+        return {
+          closed: true,
+          ...(transactionId ? { transactionId } : {}),
+          ...(Number.isFinite(soldFor) && soldFor >= 0 ? { soldFor } : {}),
+        };
+      }
+    } catch (error) {
+      lastReason = error.code || lastReason;
+    }
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  return { closed: false, reason: 'CLOSE_UNCONFIRMED', confirmationReason: lastReason };
+}
+
+export async function closeRealContracts({
+  account, token, appId, contractIds, contractDetails = [], env = process.env, fetchImpl = fetch, Socket,
+}) {
   if (!isDerivAccount(account) || !Array.isArray(contractIds))
     throw codedError('REAL_ACCOUNT_REQUIRED');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
     const results = [];
     let reqId = 1;
+    const detailById = new Map(contractDetails.map(contract => [String(contract.id), contract]));
     for (const value of contractIds) {
       const id = contractIdentifier(value);
+      const requestedAt = new Date().toISOString();
+      let result;
       try {
         const response = await sendAndWait(socket, { sell: Number(id), price: 0 }, 'sell', reqId++);
         const soldFor = Number(response.sell?.sold_for);
-        results.push({
-          contractId: id,
-          closed: response.sell?.sold_for !== undefined,
-          ...(Number.isFinite(soldFor) && soldFor >= 0 ? { soldFor } : {}),
-        });
+        const transactionId = brokerTransactionIdentifier(response.sell?.transaction_id);
+        result = response.sell?.sold_for !== undefined && Number.isFinite(soldFor) && soldFor >= 0
+          ? { contractId: id, closed: true, soldFor, ...(transactionId ? { transactionId } : {}) }
+          : { contractId: id, ...(await confirmClosedContract(socket, id, reqId++)), ...(transactionId ? { transactionId } : {}) };
       } catch (error) {
-        results.push({ contractId: id, closed: false, reason: error.code || 'CLOSE_FAILED' });
+        result = { contractId: id, ...(await confirmClosedContract(socket, id, reqId++)), requestReason: error.code || 'CLOSE_FAILED' };
       }
+      const stake = Number(detailById.get(id)?.stake);
+      const outcome = result.closed && Number.isFinite(result.soldFor) && Number.isFinite(stake) && stake > 0
+        ? result.soldFor >= stake ? 'won' : 'lost'
+        : 'unconfirmed';
+      const confirmedAt = result.closed ? new Date().toISOString() : null;
+      const record = {
+        ...result,
+        outcome,
+        closeStatus: result.closed ? 'confirmed' : 'unconfirmed',
+      };
+      try {
+        await recordCloseResult({
+          accountId: account.account_id,
+          contractId: id,
+          outcome,
+          closeStatus: record.closeStatus,
+          transactionId: result.transactionId,
+          soldFor: result.soldFor,
+          stake,
+          reason: result.reason || result.requestReason || null,
+          requestedAt,
+          confirmedAt,
+          env,
+          fetchImpl,
+        });
+      } catch {
+        record.auditError = 'CLOSE_AUDIT_FAILED';
+        console.warn('PlayGo close audit write failed');
+      }
+      results.push(record);
     }
     return results;
   });

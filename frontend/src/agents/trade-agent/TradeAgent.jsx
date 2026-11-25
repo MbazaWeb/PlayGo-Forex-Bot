@@ -2,6 +2,7 @@ import { brokerCoolingDown, brokerRequest, pauseBrokerRequests, simpleBotStatus 
 import GoldResearch from '../../components/GoldResearch.jsx';
 import AccountActivity from '../../components/AccountActivity.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import useStakeLimits from '../../components/useStakeLimits.js';
 import { AUTOMATIC_SETUP } from '../../../../shared/agent-analysis.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { closedMarketBars, reviewMarket } from '../../../../shared/market-review.js';
@@ -29,7 +30,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const [markets, setMarkets] = useState([]);
   const [catalogState, setCatalogState] = useState('loading');
   const [catalogAttempt, setCatalogAttempt] = useState(0);
-  const setupKey = account ? 'playgo-agent-setup:' + account.account_id : null;
+  const setupKey = account ? 'playgo-agent-setup:' + account.accountRef : null;
   const [savedSetup] = useState(() => {
     try { return setupKey && JSON.parse(localStorage.getItem(setupKey)); } catch { return null; }
   });
@@ -40,8 +41,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   );
   const interval = manual ? manualInterval : AUTOMATIC_SETUP.interval;
   const checkInterval = manual ? manualInterval : AUTOMATIC_SETUP.checkInterval;
-  const useUsdTargets = account?.currency === 'USD';
-  const cappedAutomaticStake = !manual && useUsdTargets;
+  const { limits: stakeLimits, error: stakeLimitsError } = useStakeLimits(account?.accountRef);
   const [refresh, setRefresh] = useState(0);
   const [analysis, setAnalysis] = useState({ status: 'waiting', progress: 0 });
   const [activities, setActivities] = useState([]);
@@ -61,6 +61,8 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatuses, setAgentStatuses] = useState([]);
   const [agentFeedback, setAgentFeedback] = useState('');
+  const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+  const [confirmAutoStart, setConfirmAutoStart] = useState(false);
   const [stopLossPercent, setStopLossPercent] = useState('');
   const [takeProfitPercent, setTakeProfitPercent] = useState('');
 
@@ -70,7 +72,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     catch { /* Setup remains available for this session. */ }
   }, [setupKey, manual, manualInterval, symbol]);
 
-  const pendingKey = account ? 'playgo:bot-contracts:' + account.account_id : '';
+  const pendingKey = account ? 'playgo:bot-contracts:' + account.accountRef : '';
   const [pendingContracts, setPendingContracts] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(pendingKey) || '[]');
@@ -82,62 +84,42 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     try { localStorage.setItem(pendingKey, JSON.stringify(pendingContracts)); } catch {}
   }, [pendingKey, pendingContracts]);
 
-  const settledKey = pendingKey && pendingKey + ':settled';
-  const [settledTrades, setSettledTrades] = useState(() => {
-    if (!settledKey) return {};
-    try {
-      const stored = JSON.parse(localStorage.getItem(settledKey) || '{}');
-      return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
-    } catch { return {}; }
-  });
-  useEffect(() => {
-    if (!settledKey) return;
-    try { localStorage.setItem(settledKey, JSON.stringify(settledTrades)); } catch {}
-  }, [settledKey, settledTrades]);
-
-  const trackedAmounts = Object.values(settledTrades).filter(Number.isFinite);
-  const winningAmounts = trackedAmounts.filter(value => value > 0);
-  const losingAmounts = trackedAmounts.filter(value => value < 0);
   const total = values => values.reduce((sum, value) => sum + value, 0);
   const botMoney = new Intl.NumberFormat('en-US', {
     style: 'currency', currency: account?.currency || 'USD', signDisplay: 'exceptZero',
   });
+  const [brokerResults, setBrokerResults] = useState(null);
+  const brokerRows = brokerResults?.rows ?? [];
+  const winningRows = brokerRows.filter(row => row.value > 0);
+  const losingRows = brokerRows.filter(row => row.value < 0);
+  const evenRows = brokerRows.filter(row => row.value === 0);
+  const resultValues = brokerRows.map(row => row.value);
 
   const trackContract = useCallback(id => {
-    if (id) window.dispatchEvent(new CustomEvent('playgo:position', { detail: account?.account_id }));
+    if (id) window.dispatchEvent(new CustomEvent('playgo:position', { detail: account?.accountRef }));
     if (id) setPendingContracts(previous => previous.includes(String(id)) ? previous : [...previous, String(id)]);
-  }, [account?.account_id]);
+  }, [account?.accountRef]);
 
   const recordActivity = useCallback((message) => {
     setActivities((previous) => [activityEntry(message), ...previous].slice(0, 8));
   }, []);
 
   useEffect(() => {
-    if (!account?.account_id || !pendingContracts.length) return;
-    const id = account.account_id;
+    if (!account?.accountRef || !pendingContracts.length) return;
+    const id = account.accountRef;
     const controller = new AbortController();
     let timer;
     async function checkSettlements() {
       try {
-        const response = await brokerRequest('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
+        const response = await brokerRequest('/api/history', { signal: controller.signal });
         if (!response.ok) return;
         const body = await response.json();
-        if (controller.signal.aborted || body.accountId !== id || !Array.isArray(body.transactions)) return;
-        const settled = new Map();
+        if (controller.signal.aborted || body.accountRef !== id || !Array.isArray(body.transactions)) return;
+        const settled = new Set();
         for (const row of body.transactions) {
-          const contractId = row.contractId;
-          if (!pendingContracts.includes(contractId) || settled.has(contractId) ||
-              !Number.isFinite(row.sell) || !Number.isFinite(row.buy)) continue;
-          const pnl = row.sell - row.buy;
-          const amount = new Intl.NumberFormat('en-US', {
-            style: 'currency', currency: account.currency || 'USD', signDisplay: 'exceptZero',
-          }).format(pnl);
-          const outcome = pnl > 0 ? 'Win' : pnl < 0 ? 'Loss' : 'Break-even';
-          recordActivity(`Closed #${contractId} · ${outcome} ${amount}`);
-          settled.set(contractId, Number(pnl.toFixed(8)));
+          if (pendingContracts.includes(row.contractId)) settled.add(row.contractId);
         }
         if (settled.size) {
-          setSettledTrades(previous => ({ ...previous, ...Object.fromEntries(settled) }));
           setPendingContracts(previous => previous.filter(contractId => !settled.has(contractId)));
           window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: id }));
         }
@@ -149,7 +131,61 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     }
     void checkSettlements();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [account?.account_id, account?.currency, pendingContracts, recordActivity]);
+  }, [account?.accountRef, pendingContracts]);
+
+  useEffect(() => {
+    if (!account?.accountRef) {
+      setBrokerResults(null);
+      return undefined;
+    }
+    const id = account.accountRef;
+    const controller = new AbortController();
+    let timer;
+    let refreshing = false;
+    let pending = false;
+    async function refresh() {
+      if (refreshing) { pending = true; return; }
+      refreshing = true;
+      try {
+        const response = await brokerRequest('/api/history?report=1', {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        const body = await response.json();
+        if (!response.ok || body.accountRef !== id || !Array.isArray(body.transactions) ||
+            !body.evidence || typeof body.evidence !== 'object')
+          throw new Error(body.error || 'Broker settlement results unavailable.');
+        const rows = body.transactions.filter(row => {
+          const evidence = body.evidence[row.contractId];
+          return evidence?.execution?.status === 'confirmed' &&
+            typeof evidence?.strategyId === 'string' &&
+            Number.isFinite(row.buy) && Number.isFinite(row.sell);
+        }).map(row => ({
+          value: Number((row.sell - row.buy).toFixed(8)),
+          outcome: row.sell >= row.buy ? 'won' : 'lost',
+        }));
+        if (!controller.signal.aborted) setBrokerResults({ rows });
+      } catch {
+        if (!controller.signal.aborted) setBrokerResults({ error: true, rows: [] });
+      } finally {
+        refreshing = false;
+        if (!controller.signal.aborted) {
+          timer = setTimeout(refresh, pending ? 0 : 15_000);
+          pending = false;
+        }
+      }
+    }
+    function onSettlement(event) {
+      if (event.detail === id) void refresh();
+    }
+    window.addEventListener('playgo:settlement', onSettlement);
+    void refresh();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      window.removeEventListener('playgo:settlement', onSettlement);
+    };
+  }, [account?.accountRef]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -209,17 +245,17 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   }, [selectedMarket, interval, manual, refresh, recordActivity]);
 
   const validAccounts = useMemo(() => account ? [account] : [], [account]);
-  const accountId = account?.account_id;
+  const accountRef = account?.accountRef;
+  const accountDisplay = account?.maskedAccountId || 'selected account';
   const [controlLoaded, setControlLoaded] = useState(false);
   const [manuallyStopped, setManuallyStopped] = useState(() => {
-    try { return localStorage.getItem('playgo-agent-stop:' + accountId) === '1'; }
+    try { return localStorage.getItem('playgo-agent-stop:' + accountRef) === '1'; }
     catch { return false; }
   });
-  const autoStartDemo = account?.account_type === 'demo' && !manual;
   const accountLabel = account?.account_type === 'real' ? 'Real' : 'Demo';
-  const executionAvailable = Boolean(accountId) && (accountLabel === 'Demo' || realExecutionEnabled);
-  const accountSummary = accountId
-    ? `${accountLabel} account ${accountId} selected.`
+  const executionAvailable = Boolean(accountRef) && (accountLabel === 'Demo' || realExecutionEnabled);
+  const accountSummary = accountRef
+    ? `${accountLabel} account ${accountDisplay} selected.`
     : 'Select a Deriv account to trade.';
   const ready = analysis.status === 'ready' && analysis.symbol === selectedMarket?.symbol && analysis.interval === interval;
   const analyzing = analysis.status === 'loading' || catalogState === 'loading';
@@ -247,7 +283,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         : 'Analysis not ready';
 
   const postAgentAction = useCallback(async (path, params = {}) => {
-    const query = new URLSearchParams({ ...params, account: accountId, mode: manual ? 'manual' : 'automatic' });
+    const query = new URLSearchParams({ ...params, mode: manual ? 'manual' : 'automatic' });
     const response = await brokerRequest(`/api/agent/${path}${query.size ? `?${query}` : ''}`, {
       method: 'POST',
       headers: { 'X-PlayGo-Request': '1' },
@@ -269,10 +305,10 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       pauseBrokerRequests();
     }
     return body;
-  }, [accountId, manual]);
+  }, [manual]);
 
   useEffect(() => {
-    if (!accountId) {
+    if (!accountRef) {
       setAgentStatuses([]);
       setAgentRunning(false);
       return undefined;
@@ -280,7 +316,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     const controller = new AbortController();
     let retry;
     function loadControl() {
-      brokerRequest(`/api/agent/status?account=${encodeURIComponent(accountId)}`, {
+      brokerRequest('/api/agent/status', {
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
       })
       .then(async response => {
@@ -291,10 +327,11 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       .then(body => {
         if (controller.signal.aborted) return;
         const statuses = Array.isArray(body.accounts) ? body.accounts : [];
-        const status = statuses.find(item => item.accountId === accountId);
+        const status = statuses.find(item => item.accountRef === accountRef);
         if (!status || status.error) throw Error(status?.error || 'Account status unavailable.');
         setControlLoaded(true);
         setAgentStatuses(statuses);
+        setAutoStartEnabled(status.autoStartEnabled === true);
         setAgentRunning(statuses.some(item =>
           item.control?.active === true || item.control?.stop_reason === 'DRAWDOWN_LIMIT',
         ));
@@ -329,7 +366,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       clearTimeout(retry);
       controller.abort();
     };
-  }, [accountId]);
+  }, [accountRef]);
 
   const runAgent = useCallback(async (exitsOnly = false) => {
     if (!executionAvailable || !selectedMarket ||
@@ -401,7 +438,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         setLastScanAt(Date.now());
       }
       if (results.some(item => item.closeResults?.some(contract => contract.closed))) {
-        window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountId }));
+        window.dispatchEvent(new CustomEvent('playgo:settlement', { detail: accountRef }));
       }
       if (requestGeneration !== generation.current) return;
       const activeResults = results.some(item =>
@@ -410,7 +447,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       );
       setAgentRunning(activeResults);
       setAgentStatuses(results.map(item => ({
-        accountId: item.accountId,
+        accountRef: item.accountRef,
         control: item.status === 'stopped' ? { active: false, paused: true, stop_reason: item.reason } : undefined,
         result: item,
       })));
@@ -449,14 +486,14 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       setAgentFeedback(message);
       recordActivity(message);
       if (!exitsOnly && stage.startsWith('Entry check')) {
-        window.dispatchEvent(new CustomEvent('playgo:position', { detail: accountId }));
+        window.dispatchEvent(new CustomEvent('playgo:position', { detail: accountRef }));
       }
     } finally {
       tickPending.current = false;
       setScan(previous => previous?.running ? { ...previous, running: false } : previous);
       setAgentBusy(false);
     }
-  }, [accountId, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts, trackContract, manual]);
+  }, [accountRef, accountLabel, agentBusy, emergencyRetry, executionAvailable, exitSettingsValid, interval, postAgentAction, recordActivity, selectedMarket, stopLossValue, takeProfitValue, validAccounts, trackContract, manual]);
 
   const latestRun = useRef(runAgent);
   const latestBusy = useRef(agentBusy);
@@ -502,11 +539,11 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       setAgentRunning(active);
       if (active) {
         setManuallyStopped(false);
-        try { localStorage.removeItem('playgo-agent-stop:' + accountId); } catch {}
+        try { localStorage.removeItem('playgo-agent-stop:' + accountRef); } catch {}
       }
       setAgentFeedback(active ? 'Bot Agents started.' : statuses[0]?.error || 'The selected account could not be started.');
       recordActivity(active
-        ? `Bot Agents started on ${accountLabel} account ${accountId}.`
+        ? `Bot Agents started on ${accountLabel} account ${accountDisplay}.`
         : 'Bot Agents did not start; check account and database configuration.');
     } catch (error) {
       setAgentFeedback(error.message || 'Could not start Bot Agents.');
@@ -520,21 +557,47 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   useEffect(() => { latestStart.current = startAgent; }, [startAgent]);
   const riskPaused = agentStatuses.some(item => item.control?.paused || item.paused || item.control?.stop_reason);
   useEffect(() => {
-    if (!autoStartDemo || !controlLoaded || !schedulerReady || !exitSettingsValid ||
+    if (!autoStartEnabled || !controlLoaded || !schedulerReady || !exitSettingsValid ||
         agentRunning || manuallyStopped || riskPaused) return;
     const start = () => { void latestStart.current(); };
     start();
     const retry = setInterval(start, 15000);
     return () => clearInterval(retry);
-  }, [autoStartDemo, controlLoaded, schedulerReady, exitSettingsValid, agentRunning, manuallyStopped, riskPaused]);
+  }, [autoStartEnabled, controlLoaded, schedulerReady, exitSettingsValid, agentRunning, manuallyStopped, riskPaused]);
+
+  async function saveAutoStart(enabled) {
+    setAgentBusy(true);
+    setAgentFeedback('');
+    try {
+      const body = await postAgentAction('preferences', {
+        enabled: enabled ? '1' : '0',
+        ...(enabled && account?.account_type === 'real' ? { confirmReal: '1' } : {}),
+      });
+      if (body.accountRef !== accountRef) throw new Error('Auto-start setting was not confirmed for this account.');
+      setAutoStartEnabled(body.autoStartEnabled === true);
+      setAgentFeedback(body.autoStartEnabled ? 'Auto-start enabled for this account.' : 'Auto-start disabled for this account.');
+    } catch (error) {
+      setAgentFeedback(error.message || 'Could not save auto-start preference.');
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
+  function changeAutoStart(enabled) {
+    if (enabled && account?.account_type === 'real') {
+      setConfirmAutoStart(true);
+      return;
+    }
+    void saveAutoStart(enabled);
+  }
 
   async function placeTradeNow() {
-    if (agentBusy || !executionAvailable || !selectedMarket || !ready ||
+    if (agentBusy || !executionAvailable || !stakeLimits || !selectedMarket || !ready ||
         !signalQualifies || !exitSettingsValid) return;
     setAgentBusy(true);
     setAgentFeedback('');
     try {
-      // Sending terminalAction='bot' forces AUTOMATIC_SETUP stop-loss/take-profit and the USD $ cap; without it the backend runs the automatic tick with automatic=false and skips the cap.
+      // The server applies the same verified stake calculation to every order surface.
       const body = await postAgentAction('place', {
         symbol: selectedMarket.symbol,
         granularity: String(interval),
@@ -550,7 +613,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       );
       setAgentRunning(active);
       setAgentStatuses(results.map(item => ({
-        accountId: item.accountId,
+        accountRef: item.accountRef,
         control: item.status === 'stopped' ? { active: false, paused: true, stop_reason: item.reason } : undefined,
         result: item,
       })));
@@ -567,7 +630,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         }
       }
       setAgentFeedback(results.length
-        ? `Trade check completed for ${accountLabel} account ${accountId}. Bot Agents remain active after a successful order.`
+        ? `Trade check completed for ${accountLabel} account ${accountDisplay}. Bot Agents remain active after a successful order.`
         : 'No account result was returned.');
     } catch (error) {
       setAgentFeedback(error.message || 'Could not place the one-time trade.');
@@ -578,15 +641,15 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   }
 
   async function stopAgent() {
-    if (!accountId || stopPending.current) return;
+    if (!accountRef || stopPending.current) return;
     stopPending.current = true;
     setManuallyStopped(true);
-    try { localStorage.setItem('playgo-agent-stop:' + accountId, '1'); } catch {}
+    try { localStorage.setItem('playgo-agent-stop:' + accountRef, '1'); } catch {}
     generation.current++;
     setStopping(true);
     try {
       const body = await postAgentAction('stop');
-      const state = body.accounts?.find(item => item.accountId === accountId);
+      const state = body.accounts?.find(item => item.accountRef === accountRef);
       if (!state || state.error || state.active !== false)
         throw Error(state?.error || 'Deriv account stop was not confirmed.');
       setAgentStatuses(body.accounts);
@@ -611,7 +674,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           <button
             type="button"
             className="primary agent-proposal-button"
-            disabled={agentBusy || !executionAvailable || !signalQualifies || !exitSettingsValid}
+            disabled={agentBusy || !executionAvailable || !stakeLimits || !signalQualifies || !exitSettingsValid}
             onClick={() => setConfirmation('place')}
           >
             {agentBusy ? 'Checking...' : 'Place Trade Now'}
@@ -668,12 +731,16 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       </section>
       <GoldResearch market={markets.find(market => /^(?:frx)?XAUUSD$/i.test(market.symbol))} catalogLoading={catalogState === "loading"} />
       <section aria-label="Bot results">
-        <div className="panelhead"><div><h2>Bot results</h2><p>Tracked on this browser</p></div></div>
-        <div className="metrics bot-results">
-          <div className="metric"><small>{winningAmounts.length} wins</small><strong className="gain">{botMoney.format(total(winningAmounts))}</strong></div>
-          <div className="metric"><small>{losingAmounts.length} losses</small><strong className="loss">{botMoney.format(total(losingAmounts))}</strong></div>
-          <div className="metric"><small>{trackedAmounts.length} settled · Net</small><strong>{botMoney.format(total(trackedAmounts))}</strong></div>
-        </div>
+        <div className="panelhead"><div><h2>Bot results</h2><p>Recent Deriv settlements with recorded bot strategy evidence</p></div></div>
+        {brokerResults?.error
+          ? <p role="status">Broker-confirmed bot results are unavailable. Local browser values are not used as a financial source.</p>
+          : brokerResults
+            ? <div className="metrics bot-results">
+                <div className="metric"><small>{winningRows.length} wins · verified</small><strong className="gain">{botMoney.format(total(winningRows.map(row => row.value)))}</strong></div>
+                <div className="metric"><small>{losingRows.length} losses · verified</small><strong className="loss">{botMoney.format(total(losingRows.map(row => row.value)))}</strong></div>
+                <div className="metric"><small>{brokerRows.length} settled · {evenRows.length} break-even</small><strong>{botMoney.format(total(resultValues))}</strong></div>
+              </div>
+            : <p role="status">Loading Deriv settlement history…</p>}
       </section>
       <section className="panel agent-controls">
         <div className="panelhead">
@@ -702,14 +769,22 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           </div>
           {agentRunning && <small>Stop trading to change your setup.</small>}
         </div>
+        <label className="auto-start-setting">
+          <input type="checkbox" checked={autoStartEnabled} disabled={!controlLoaded || agentBusy}
+            onChange={event => changeAutoStart(event.target.checked)} />
+          <span>Allow Bot Agents to auto-start on this account</span>
+        </label>
+        <p>Auto-start is off by default. Real-account auto-start requires confirmation each time it is enabled.</p>
         {!manual && (
           <dl className="agent-setup-summary">
             <div><dt>Markets</dt><dd>Up to {AUTOMATIC_SETUP.marketsPerScan} open markets</dd></div>
             <div><dt>Check interval</dt><dd>{checkInterval} seconds</dd></div>
-            <div><dt>{cappedAutomaticStake ? 'Maximum stake' : 'Stop-loss target'}</dt><dd>{useUsdTargets ? (cappedAutomaticStake ? '$' : '-$') + AUTOMATIC_SETUP.stopLossUsd + ' per position' : stopLossValue + '% of stake'}</dd></div>
-            <div><dt>Early take-profit trigger</dt><dd>{useUsdTargets ? '+$' + AUTOMATIC_SETUP.takeProfitUsd + ' per position' : takeProfitValue + '% of stake'}</dd></div>
+            <div><dt>Server-calculated stake</dt><dd>{stakeLimits ? `${stakeLimits.stake} ${stakeLimits.currency} (maximum ${stakeLimits.maxStake.toFixed(2)} ${stakeLimits.currency})` : stakeLimitsError ? 'Unavailable; orders blocked' : 'Loading'}</dd></div>
+            <div><dt>Stop-loss trigger</dt><dd>{stopLossValue}% of stake · early-exit request only</dd></div>
+            <div><dt>Take-profit trigger</dt><dd>{takeProfitValue}% of stake · early-exit request only</dd></div>
           </dl>
         )}
+        <p>Deriv may not offer early sale for a contract. A stop-loss cannot guarantee a smaller realized loss; size every trade assuming the full stake can be lost.</p>
         {catalogState === 'error' ? (
           <p role="alert">
             Market list unavailable.{' '}
@@ -771,7 +846,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             />
           </label>
         </div>}
-        {accountId && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
+        {accountRef && !executionAvailable && <p role="status">Real-money execution is disabled on the server.</p>}
         {!exitSettingsValid && <p role="status">Enter valid stop-loss and take-profit percentages to enable trading.</p>}
       </section>
 
@@ -790,13 +865,13 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           <StrategiesAgent analysis={analysis} ready={ready} analyzing={analyzing} />
           <MarketDataAgent analysis={analysis} market={selectedMarket} ready={ready} analyzing={analyzing} formatStatus={simpleBotStatus} />
           <ReminderAgent analysis={analysis} ready={ready} interval={interval} />
-          <FinanceAccountAgent accounts={validAccounts || []} agentStatuses={agentStatuses} cappedAutomaticStake={cappedAutomaticStake} />
+          <FinanceAccountAgent accounts={validAccounts || []} agentStatuses={agentStatuses} stakeLimits={stakeLimits} />
           <EmergencyAgent monitoringActive={monitoringActive} agentRunning={agentRunning} />
           <BotAgent monitoringActive={monitoringActive} agentRunning={agentRunning} ready={ready} analyzing={analyzing} recommendation={recommendation} analysis={analysis} />
         </div>
       </details>
 
-      {account && <AccountActivity key={account.account_id} accountId={account.account_id} currency={account.currency} />}
+      {account && <AccountActivity key={account.accountRef} accountRef={account.accountRef} currency={account.currency} />}
       <section className="panel agent-activity">
         <div className="panelhead"><div><h2>Agent activity</h2></div></div>
         {activities.length ? (
@@ -818,8 +893,15 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           setConfirmation(null);
           void (confirmation === 'start' ? startAgent() : placeTradeNow());
         }}>
-        <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountId}.</p>
-        <p>{account?.currency === 'USD' ? `Up to $${AUTOMATIC_SETUP.stopLossUsd} stake per order.` : 'Up to 1% stake per order.'} Keep Bot Agents open for scheduled checks.</p>
+        <p>{selectedMarket?.name || 'Selected market'} on Deriv {accountLabel} account {accountDisplay}.</p>
+        <p>Server-calculated stake: {stakeLimits ? `${stakeLimits.stake} ${stakeLimits.currency} (maximum ${stakeLimits.maxStake.toFixed(2)} ${stakeLimits.currency})` : 'unavailable; orders are blocked'}.</p>
+        <p>Stop-loss is an early-exit request. Deriv may not offer early sale, so the full stake can be lost. Keep Bot Agents open for scheduled checks.</p>
+      </ConfirmDialog>}
+      {confirmAutoStart && <ConfirmDialog title="Enable real-account auto-start" confirmLabel="Confirm and enable"
+        onCancel={() => setConfirmAutoStart(false)}
+        onConfirm={() => { setConfirmAutoStart(false); void saveAutoStart(true); }}>
+        <p>Bot Agents may start automatically on real account {accountDisplay} when its risk checks allow it.</p>
+        <p>This does not guarantee a stop-loss exit. The full stake can be lost; the server live switch and risk gates remain required.</p>
       </ConfirmDialog>}
     </div>
   );

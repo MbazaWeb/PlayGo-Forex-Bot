@@ -40,12 +40,23 @@ export function currencyScale(currency) {
   return currency === 'USD' ? 100 : 1e8;
 }
 
-export function calculateStake(balance, currency) {
+export function calculateStake(balance, currency, currencyPerUsd = null) {
   if (!finitePositive(balance)) throw Error('INVALID_ACCOUNT_BALANCE');
+  if (!/^[A-Z]{3}$/.test(currency || '')) throw Error('INVALID_ACCOUNT_CURRENCY');
   const scale = currencyScale(currency);
   const stake = Math.floor(balance * MAX_STAKE_PERCENT * scale) / scale;
-  const cappedStake = currency === 'USD' ? Math.min(stake, MAX_STAKE_ABSOLUTE_USD) : stake;
-  return cappedStake === 0 ? 1 / scale : cappedStake;
+  const usdEquivalentCap = currency === 'USD'
+    ? MAX_STAKE_ABSOLUTE_USD
+    : finitePositive(currencyPerUsd)
+      ? MAX_STAKE_ABSOLUTE_USD * currencyPerUsd
+      : null;
+  if (usdEquivalentCap === null) throw Error('CURRENCY_RATE_UNAVAILABLE');
+  const cappedStake = Math.min(
+    stake,
+    Math.floor(usdEquivalentCap * scale) / scale,
+  );
+  if (cappedStake < 1 / scale) throw Error('STAKE_BELOW_MINIMUM');
+  return cappedStake;
 }
 
 export function evaluateEmergencyStop({ startingBalance, balance, openProfit }) {

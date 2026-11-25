@@ -35,14 +35,26 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  const sessionCookie=result.headers.get('set-cookie').match(/playgo_session=([^;]+)/)?.[0];
  assert.ok(sessionCookie);assert.match(result.headers.get('set-cookie'),/HttpOnly/);
  assert.equal((await request(callback,{headers:{Cookie:cookie}})).headers.get('location'),'http://localhost:5173/?auth_error=invalid_callback');
- const body=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).text();
- assert.match(body,/DOT123/);
- assert.match(body,/CR123/);assert.ok(!body.includes('secret')&&!body.includes('hidden'));
+ const accountList=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).json();
+ assert.equal(accountList.accounts.length,2);
+ assert.ok(!JSON.stringify(accountList).includes('DOT123'));
+ assert.ok(!JSON.stringify(accountList).includes('CR123'));
+ assert.ok(accountList.accounts.every(account=>account.accountRef&&account.maskedAccountId.startsWith('...')));
  const agentHeaders={Cookie:sessionCookie,Origin:config.origin,'X-PlayGo-Request':'1'};
  assert.equal((await request('/api/agent/status',{headers:agentHeaders})).status,400);
  assert.equal((await request('/api/agent/place?account=DOT999',{method:'POST',headers:agentHeaders})).status,400);
- const demoStatus=await (await request('/api/agent/status?account=DOT123',{headers:agentHeaders})).json();
- assert.deepEqual(demoStatus.accounts.map(account=>account.accountId),['DOT123']);
+ assert.equal((await request('/api/agent/status?account=DOT123',{headers:agentHeaders})).status,400);
+ const demoAccount=accountList.accounts.find(account=>account.account_type==='demo');
+ const selected=await request('/api/accounts/select?accountRef='+encodeURIComponent(demoAccount.accountRef),{
+  method:'POST',headers:agentHeaders,
+ });
+ assert.equal(selected.status,200);
+ assert.equal((await selected.json()).activeAccount.accountRef,demoAccount.accountRef);
+ const selectedList=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).json();
+ assert.equal(selectedList.activeAccountRef,demoAccount.accountRef);
+ assert.equal((await request('/api/accounts/select?accountRef='+encodeURIComponent(accountList.accounts.find(account=>account.account_type==='real').accountRef),{
+  method:'POST',headers:agentHeaders,
+ })).status,400);
  const verifier=calls[0].options.body.get('code_verifier');
  const {createHash}=await import('node:crypto');
  assert.equal(createHash('sha256').update(verifier).digest('base64url'),auth.searchParams.get('code_challenge'));

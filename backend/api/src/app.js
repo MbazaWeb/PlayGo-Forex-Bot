@@ -1,13 +1,16 @@
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
-import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/agents/index.js';
+import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders, calculateStake, MAX_STAKE_ABSOLUTE_USD, MAX_STAKE_PERCENT} from '../../trading/agents/index.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
+import {accountReference, activateAccount, publicAccount, publicAccountBody, publicAgentResult, resolveActiveAccount} from './account-selection.js';
+import {readCurrencyPerUsd} from '../../trading/execute.js';
+import {readAutoStartPreference, writeAutoStartPreference} from '../../trading/real-store.js';
 
 const random=()=>randomBytes(32).toString('base64url');
 const RATE_LIMIT_WINDOW_MS=60000;
 const RATE_LIMIT_MAX=60;
 
-export function createApp(config,{fetcher=fetch,now=Date.now}={}){
+export function createApp(config,{fetcher=fetch,now=Date.now,Socket=globalThis.WebSocket}={}){
  const pending=new Map(),sessions=new Map(),rateBuckets=new Map();
  const secure=new URL(config.origin).protocol==='https:';
  const callback=new URL(config.redirectUri);
@@ -67,7 +70,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
      const token=await exchangeCode({code:q.get('code'),verifier:flow.verifier,config,fetcher});
      if(sessions.size>=1000)throw Error('Session capacity reached');
      if(sid)sessions.delete(sid);
-     const id=random();sessions.set(id,token);
+     const id=random();sessions.set(id,{...token,activeAccountId:null});
      setCookie(res,oauthCookieName,'',0);
      setCookie(res,cookieName,id,Math.max(1,Math.floor((token.expires-now())/1000)));
      return redirect(res,config.origin+'/');
@@ -82,7 +85,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
    if(sid&&rateLimit(sid))return json(res,429,{error:'Rate limit exceeded. Slow down.'});
 
    const params=new URL(req.url,'http://localhost').searchParams;
-   const accountId=params.get('account');
+   if(params.has('account'))return json(res,400,{error:'Use the active Deriv account.'});
    let linkedAccounts;
    try {
      linkedAccounts=await listAccounts(session.token,fetcher,config.clientId);
@@ -91,14 +94,63 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
      if(status===401){sessions.delete(sid);setCookie(res,cookieName,'',0);}
      return json(res,status,{error:status===401?'Deriv session expired. Sign in again.':status===429?'Deriv account service rate limit exceeded.':'Could not verify Deriv accounts.'});
    }
-   const account=linkedAccounts.find(a=>a.account_id===accountId && isDerivAccount(a));
+   const account=resolveActiveAccount(session,linkedAccounts);
+   const accountRef=account?accountReference(session.token,account.account_id):null;
+
+   if(path==='/api/accounts'&&req.method==='GET'){
+    const active=account?accountRef:null;
+    return json(res,200,{accounts:linkedAccounts.filter(isDerivAccount).map(row=>publicAccount(row,session.token)),activeAccountRef:active});
+   }
+
+   if(path==='/api/accounts/select'&&req.method==='POST'){
+    if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')
+      return json(res,403,{error:'Request origin rejected.'});
+    try{
+      const selected=await activateAccount({
+        session,accounts:linkedAccounts,accountRef:params.get('accountRef'),token:session.token,
+        confirmReal:params.get('confirmReal')==='1',appId:config.clientId,env:process.env,fetchImpl:fetcher,Socket,
+      });
+      return json(res,200,{activeAccount:publicAccount(selected,session.token)});
+    }catch(error){
+      const code=error.code||'ACCOUNT_SELECTION_FAILED';
+      return json(res,code==='ACCOUNT_SWITCH_OPEN_POSITIONS'?409:
+        ['REAL_ACCOUNT_CONFIRMATION_REQUIRED','ACCOUNT_REFERENCE_NOT_FOUND'].includes(code)?400:503,{error:code});
+    }
+   }
 
    if(path.startsWith('/api/agent/') && !account)
     return json(res,400,{error:'Select a connected Deriv account.'});
 
+   if(path==='/api/agent/preferences'&&req.method==='GET'){
+    try{
+      const enabled=await readAutoStartPreference({accountId:account.account_id,env:process.env,fetchImpl:fetcher});
+      return json(res,200,{accountRef,autoStartEnabled:enabled});
+    }catch(error){return json(res,503,{error:error.code||'AUTO_START_SETTINGS_UNAVAILABLE'});}
+   }
+   if(path==='/api/agent/preferences'&&req.method==='POST'){
+    if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')
+      return json(res,403,{error:'Request origin rejected.'});
+    const enabled=params.get('enabled');
+    if(!['0','1'].includes(enabled))return json(res,400,{error:'Invalid auto-start setting.'});
+    if(enabled==='1'&&account.account_type==='real'&&params.get('confirmReal')!=='1')
+      return json(res,400,{error:'REAL_AUTO_START_CONFIRMATION_REQUIRED'});
+    try{
+      await writeAutoStartPreference({accountId:account.account_id,enabled:enabled==='1',env:process.env,fetchImpl:fetcher});
+      return json(res,200,{accountRef,autoStartEnabled:enabled==='1'});
+    }catch(error){return json(res,503,{error:error.code||'AUTO_START_SETTINGS_UNAVAILABLE'});}
+   }
+   if(path==='/api/agent/limits'&&req.method==='GET'){
+    try{
+      const currencyPerUsd=await readCurrencyPerUsd({account,token:session.token,appId:config.clientId,fetchImpl:fetcher,Socket});
+      const balance=Number(account.balance);
+      const stake=calculateStake(balance,account.currency,currencyPerUsd);
+      return json(res,200,{accountRef,currency:account.currency,stake,maxStake:MAX_STAKE_ABSOLUTE_USD*currencyPerUsd,sizingPercent:MAX_STAKE_PERCENT*100});
+    }catch(error){return json(res,503,{error:error.code||error.message||'STAKE_LIMIT_UNAVAILABLE'});}
+   }
+
    if(path==='/api/agent/status'&&req.method==='GET'){
     const results=await readRealAgentStatuses({accounts:[account],env:process.env,fetchImpl:fetcher});
-    return json(res,200,{accounts:results});
+    return json(res,200,{accounts:results.map(row=>publicAgentResult(row,accountRef))});
    }
    if(['/api/agent/start','/api/agent/stop','/api/agent/run','/api/agent/place'].includes(path)&&req.method==='POST'){
     if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')
@@ -112,7 +164,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
           env:process.env,
           fetchImpl:fetcher,
         });
-        return json(res,200,{accounts:results});
+        return json(res,200,{accounts:results.map(row=>publicAgentResult(row,accountRef))});
       }catch(error){
         const code=error.code||'AGENT_START_FAILED';
         return json(res,code==='LIVE_TRADING_DISABLED'?403:['REAL_ACCOUNT_REQUIRED','INVALID_EXIT_SETTINGS'].includes(code)?400:503,{error:code});
@@ -120,7 +172,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
     }
     if(path==='/api/agent/stop'){
       const results=await stopRealAgents({accounts:[account],env:process.env,fetchImpl:fetcher});
-      return json(res,200,{accounts:results});
+      return json(res,200,{accounts:results.map(row=>publicAgentResult(row,accountRef))});
     }
     if(path==='/api/agent/place'){
       try{
@@ -138,7 +190,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
           env:process.env,
           fetchImpl:fetcher,
         });
-        return json(res,200,{accounts:results});
+        return json(res,200,{accounts:results.map(row=>publicAgentResult(row,accountRef))});
       }catch(error){
         const code=error.code||'AGENT_PLACE_FAILED';
         return json(res,code==='LIVE_TRADING_DISABLED'?403:['REAL_ACCOUNT_REQUIRED','INVALID_EXIT_SETTINGS','INVALID_MARKET_REQUEST','INVALID_TERMINAL_ACTION'].includes(code)?400:503,{error:code});
@@ -160,28 +212,27 @@ export function createApp(config,{fetcher=fetch,now=Date.now}={}){
         results.push({accountId:row.account_id,status:'error',reason:error.code||'AGENT_RUN_FAILED'});
       }
     }
-    return json(res,200,{accounts:results});
+    return json(res,200,{accounts:results.map(row=>publicAgentResult(row,accountRef))});
    }
 
    if(path==='/api/portfolio/close' && req.method==='POST'){
+    if(!account)return json(res,400,{error:'Select a connected Deriv account.'});
     if(req.headers.origin!==config.origin || req.headers['x-playgo-request']!=='1')
       return json(res,403,{error:'Request origin rejected.'});
     const result=await closePortfolioContract({account,contractId:params.get('contract'),token:session.token,appId:config.clientId,fetchImpl:fetcher});
-    return json(res,result.status,result.body);
+    return json(res,result.status,publicAccountBody(result.body,accountRef));
    }
 
    if(['/api/portfolio','/api/history'].includes(path)&&req.method==='GET'){
-    if(!account)return json(res,400,{error:'Deriv account not found.'});
+    if(!account)return json(res,400,{error:'Select a connected Deriv account.'});
     const read=path==='/api/history'?readHistory:readPortfolio;
     const result=await read({account,token:session.token,includeEvidence: params.get('report') === '1',
       range: params.has('range') ? { mode: params.get('range'), from: params.get('from'), to: params.get('to') } : null,
       offset: params.has('offset') ? Number(params.get('offset')) : 0,
       limit: params.has('limit') ? Number(params.get('limit')) : 500,
       appId:config.clientId,fetchImpl:fetcher});
-    return json(res,result.status,result.body);
+    return json(res,result.status,publicAccountBody(result.body,accountRef));
    }
-
-   if(path==='/api/accounts'&&req.method==='GET')return json(res,200,{accounts:linkedAccounts.filter(isDerivAccount)});
 
    if(path==='/api/mt5/status'&&req.method==='GET')return json(res,200,{status:'not_linked',execution:false});
    if(path.startsWith('/api/orders')||path.startsWith('/api/bots'))return json(res,501,{error:'Route not available.'});

@@ -19,7 +19,7 @@ const MarketWorkspace = React.lazy(() => import('./MarketWorkspace'));
 
 export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol, onMarketChange, analytics = false }) {
   const account = accounts?.[0];
-  const id = account?.account_id;
+  const id = account?.accountRef;
   const [history, setHistory] = useState(null);
   const [rangeFrom, setRangeFrom] = useState('');
   const [rangeTo, setRangeTo] = useState('');
@@ -40,10 +40,10 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       clearTimeout(timer);
       refreshing = true;
       try {
-        const res = await brokerRequest('/api/history?account=' + encodeURIComponent(id), { signal: controller.signal });
+        const res = await brokerRequest('/api/history', { signal: controller.signal });
         if (!res.ok) throw new Error('history unavailable');
         const body = await res.json();
-        if (body?.accountId !== id || !Array.isArray(body.transactions)) throw new Error('unexpected payload');
+        if (body?.accountRef !== id || !Array.isArray(body.transactions)) throw new Error('unexpected payload');
         const points = body.transactions
           .slice()
           .reverse()
@@ -92,11 +92,11 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
   const even = (points?.length ?? 0) - wins - losses;
   const winRate = points?.length ? (100 * wins / points.length).toFixed(1) + '%' : '—';
 
-  async function exportPdf() {
+  async function exportReport(format = 'pdf') {
     setPdfBusy(true);
     setPdfNotice('');
     const ranged = Boolean(rangeFrom || rangeTo);
-    const query = new URLSearchParams({ account: id, report: '1' });
+    const query = new URLSearchParams({ report: '1' });
     if (ranged) {
       const from = Date.parse(rangeFrom + 'T00:00:00+03:00') / 1000;
       const to = Math.min(Date.parse(rangeTo + 'T23:59:59+03:00') / 1000, Math.floor(Date.now() / 1000));
@@ -118,6 +118,8 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       const transactions = [];
       const evidence = {};
       let evidenceAvailable = true;
+      let failures = null;
+      let failuresComplete = false;
       let complete = !ranged;
       let partial = false;
       let offset = 0;
@@ -135,7 +137,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         if (!response.ok) {
           throw new Error(data?.error || 'Report request failed (HTTP ' + response.status + ').');
         }
-        if (data.accountId !== id || !Array.isArray(data.transactions))
+        if (data.accountRef !== id || !Array.isArray(data.transactions))
           throw new Error('The report service returned invalid trade data.');
         if (transactions.length + data.transactions.length > REPORT_MAX_ROWS) {
           partial = true;
@@ -145,6 +147,13 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         if (data.evidence && typeof data.evidence === 'object' && !Array.isArray(data.evidence))
           Object.assign(evidence, data.evidence);
         else evidenceAvailable = false;
+        if (Array.isArray(data.failures)) {
+          failures = data.failures;
+          failuresComplete = data.failuresComplete === true;
+        } else if (offset === 0) {
+          failures = null;
+          failuresComplete = false;
+        }
         complete = !ranged || data.complete === true;
         const nextOffset = Number(data.nextOffset);
         if (ranged && (!Number.isSafeInteger(nextOffset) || (!complete && nextOffset <= offset)))
@@ -160,7 +169,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
             break;
           }
           const probe = await probeResponse.json();
-          if (probe.accountId !== id || !Array.isArray(probe.transactions))
+          if (probe.accountRef !== id || !Array.isArray(probe.transactions))
             throw new Error('The report service returned invalid trade data.');
           if (probe.transactions.length) partial = true;
           else complete = true;
@@ -171,22 +180,26 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         const value = Number((t.sell - t.buy).toFixed(8));
         return { ...t, time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
       });
-      if (!exportPoints.length) {
+      if (!exportPoints.length && !failures?.length) {
         setPdfNotice('No settlements found for this report.');
         return;
       }
       const exportWins = exportPoints.filter(t => t.value > 0).length;
       const exportLosses = exportPoints.filter(t => t.value < 0).length;
-      downloadTradePdf({ id, currency, points: exportPoints, performance: summarizeClosedTrades(exportPoints),
+      const report = { id, currency, points: exportPoints, performance: summarizeClosedTrades(exportPoints),
         wins: exportWins, losses: exportLosses, even: exportPoints.length - exportWins - exportLosses,
-        settlementFormat, evidence: evidenceAvailable ? evidence : null, partial,
-        requestedRange: ranged ? rangeFrom + ' to ' + rangeTo + ' EAT' : null });
+        settlementFormat, evidence: evidenceAvailable ? evidence : null, failures, failuresComplete,
+        partial, requestedRange: ranged ? rangeFrom + ' to ' + rangeTo + ' EAT' : null };
+      if (format === 'excel') downloadTradeReport(report);
+      else downloadTradePdf(report);
       const warnings = [];
       if (partial) warnings.push('Partial report: 10,000-row cap reached. Narrow the date range for a complete export.');
       if (!evidenceAvailable) warnings.push('Some trade audit records were unavailable.');
+      if (!failuresComplete) warnings.push('Technical failure records may be unavailable or incomplete.');
       setPdfNotice(warnings.join(' '));
     } catch (error) {
-      setPdfNotice('PDF could not be prepared: ' + (error instanceof Error ? error.message : 'unknown report error'));
+      setPdfNotice((format === 'excel' ? 'Excel' : 'PDF') + ' report could not be prepared: ' +
+        (error instanceof Error ? error.message : 'unknown report error'));
     } finally {
       setPdfBusy(false);
     }
@@ -228,16 +241,16 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       {analytics && (
         <section aria-label="Profitability">
           <div className="panelhead analytics-report-head">
-            <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p><p>PDF reports support date ranges up to 3 months.</p></div>
+            <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p><p>Reports support date ranges up to 3 months.</p></div>
             <div className="analytics-report-actions">
-            <button type="button" className="outline" disabled={!points?.length}
-              onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>
-              Download Excel report
+            <button type="button" className="outline" disabled={!id || pdfBusy || (!points?.length && !rangeFrom && !rangeTo)}
+              onClick={() => exportReport('excel')}>
+              {pdfBusy ? "Preparing report…" : "Download Excel report"}
             </button>
             <label>From (EAT) <input type="date" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)} /></label>
             <label>To (EAT) <input type="date" value={rangeTo} onChange={event => setRangeTo(event.target.value)} /></label>
             <button type="button" className="outline" disabled={!id || pdfBusy || (!points?.length && !rangeFrom && !rangeTo)}
-              onClick={exportPdf}>
+              onClick={() => exportReport('pdf')}>
               {pdfBusy ? "Preparing PDF…" : "Download PDF report"}
             </button>
             </div>
@@ -293,7 +306,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           <button className="outline" onClick={() => navigate?.('Bot Agents')}>View Bot Agents</button>
         </div>
       )}
-      {id && <AccountActivity key={id} accountId={id} currency={currency} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
+      {id && <AccountActivity key={id} accountRef={id} currency={currency} openAnalytics={analytics ? undefined : () => navigate('Analytics')} />}
     </>
   );
 }

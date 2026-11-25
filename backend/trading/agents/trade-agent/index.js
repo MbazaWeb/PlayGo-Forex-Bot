@@ -2,9 +2,10 @@ import { AUTOMATIC_SETUP } from '../../../../shared/agent-analysis.js';
 import { isDerivAccount, canTradeAccount } from '../account/index.js';
 import { createHash } from 'node:crypto';
 import { reviewMarket, marketReviewReceipt } from '../../../../shared/market-review.js';
-import { executeRealOrder, readRealPortfolio, closeRealContracts, readRecentSettlements, readSettlementRange } from '../../execute.js';
+import { executeRealOrder, readCurrencyPerUsd, readRealPortfolio, closeRealContracts, readRecentSettlements, readSettlementRange } from '../../execute.js';
 import {
   calculateStake,
+  MAX_STAKE_ABSOLUTE_USD,
   qualifyingDirection,
   MAX_OPEN_CONTRACTS,
   contractsAtExitThresholds,
@@ -17,6 +18,8 @@ import { readMarketCandles } from '../../market-data.js';
 import {
   pauseRealControl,
   readRealControl,
+  readAutoStartPreference,
+  recordAgentFailure,
   recordExitCheck,
   recordOrderStrategy,
   reserveRealIntent,
@@ -40,6 +43,49 @@ function agentError(code) {
   const error = Error(code);
   error.code = code;
   return error;
+}
+
+function strategyIdentifier(label) {
+  if (label === 'Manual (no signal gate)') return label;
+  const identifier = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  if (!/^[a-z0-9_]{1,80}$/.test(identifier)) throw agentError('MISSING_STRATEGY_ID');
+  return identifier;
+}
+
+function accountReference(accountId) {
+  return '...' + accountId.slice(-4);
+}
+
+const TECHNICAL_WATCH_REASONS = new Set([
+  'STALE_MARKET_DATA',
+  'UNALIGNED_MARKET_DATA',
+  'DUPLICATE_MARKET_DATA',
+  'MARKET_DATA_GAP',
+  'INSUFFICIENT',
+  'INVALID',
+  'DAILY_HISTORY_INCOMPLETE',
+  'ORDER_IN_FLIGHT',
+]);
+
+async function auditAgentFailure(request, result) {
+  const { account, symbol, granularity, automatic, env, fetchImpl } = request;
+  const shouldRecord = result?.status === 'blocked' || result?.status === 'error' ||
+    (result?.status === 'watching' && TECHNICAL_WATCH_REASONS.has(result.reason));
+  if (!shouldRecord || !account?.account_id) return;
+  try {
+    await recordAgentFailure({
+      accountId: account.account_id,
+      status: result.status,
+      reason: result.reason || 'AGENT_OPERATION_FAILED',
+      symbol,
+      granularity,
+      automatic,
+      env,
+      fetchImpl,
+    });
+  } catch {
+    console.warn('PlayGo agent failure audit write failed');
+  }
 }
 
 export async function startRealAgents({
@@ -129,6 +175,7 @@ export async function placeRealAgentOrders({
     let startedForRequest = false;
     let keepActive = false;
     let cleanupFailed = false;
+    let tickStarted = false;
     try {
       const current = await readRealControl({ accountId: account.account_id, env, fetchImpl });
       wasActive = current?.active === true;
@@ -157,6 +204,7 @@ export async function placeRealAgentOrders({
           }
         }
         if (!result) {
+          tickStarted = true;
           result = await runRealAgentTick({
             account,
             token,
@@ -198,6 +246,14 @@ export async function placeRealAgentOrders({
         };
       }
     }
+    if (!tickStarted || cleanupFailed) await auditAgentFailure({
+      account,
+      symbol,
+      granularity,
+      automatic: terminalAction === 'bot' || automatic,
+      env,
+      fetchImpl,
+    }, result);
     const automationActive = cleanupFailed
       ? null
       : (wasActive || keepActive) &&
@@ -215,6 +271,7 @@ export async function readRealAgentStatuses({ accounts, env = process.env, fetch
       results.push({
         accountId: account.account_id,
         control: await readRealControl({ accountId: account.account_id, env, fetchImpl }),
+        autoStartEnabled: await readAutoStartPreference({ accountId: account.account_id, env, fetchImpl }),
       });
     } catch (error) {
       results.push({ accountId: account.account_id, error: publicStatus(error) });
@@ -224,6 +281,37 @@ export async function readRealAgentStatuses({ accounts, env = process.env, fetch
 }
 
 export async function runRealAgentTick({
+  account,
+  token,
+  appId,
+  symbol,
+  granularity,
+  automatic = false,
+  exitsOnly = false,
+  marketScan = false,
+  terminalOrder = false,
+  manualDirection = null,
+  orderRequestId = null,
+  env = process.env,
+  fetchImpl = fetch,
+  Socket,
+  now = Date.now,
+}) {
+  const request = {
+    account, token, appId, symbol, granularity, automatic, exitsOnly, marketScan,
+    terminalOrder, manualDirection, orderRequestId, env, fetchImpl, Socket, now,
+  };
+  try {
+    const result = await runRealAgentTickInternal(request);
+    await auditAgentFailure(request, result);
+    return result;
+  } catch (error) {
+    await auditAgentFailure(request, { status: 'error', reason: publicStatus(error) });
+    throw error;
+  }
+}
+
+async function runRealAgentTickInternal({
   account,
   token,
   appId,
@@ -266,6 +354,8 @@ export async function runRealAgentTick({
       ? await closeRealContracts({
         ...brokerOptions,
         contractIds: portfolio.contracts.map(contract => contract.id),
+        contractDetails: portfolio.contracts,
+        env,
       })
       : [];
     return {
@@ -285,20 +375,18 @@ export async function runRealAgentTick({
       env,
       fetchImpl,
     }),
-    closeContracts: contractIds => closeRealContracts({ ...brokerOptions, contractIds }),
+    closeContracts: contractIds => closeRealContracts({
+      ...brokerOptions,
+      contractIds,
+      contractDetails: portfolio.contracts.filter(contract => contractIds.includes(contract.id)),
+      env,
+    }),
   });
   if (emergency.status !== 'watching')
     return { ...emergency, accountId: account.account_id };
 
   const cappedAutomaticUsd = automatic && account.currency === 'USD' && (!terminalOrder || !manualDirection);
-  // cappedAutomaticUsd already covers automatic, non-terminal, USD runs including marketScan and exitsOnly.
-  const useUsdTargets = cappedAutomaticUsd;
-  const usdBreaches = useUsdTargets ? portfolio.contracts.filter(contract =>
-    contract.profit <= -AUTOMATIC_SETUP.stopLossUsd || contract.profit >= AUTOMATIC_SETUP.takeProfitUsd
-  ) : [];
-  const thresholdBreaches = useUsdTargets
-    ? usdBreaches
-    : contractsAtExitThresholds(portfolio.contracts, stopLossPercent, takeProfitPercent);
+  const thresholdBreaches = contractsAtExitThresholds(portfolio.contracts, stopLossPercent, takeProfitPercent);
   const exitContracts = thresholdBreaches.filter(contract => contract.canSell);
   let closeResults = [];
   if (exitContracts.length) {
@@ -306,6 +394,8 @@ export async function runRealAgentTick({
       closeResults = await closeRealContracts({
         ...brokerOptions,
         contractIds: exitContracts.map(contract => contract.id),
+        contractDetails: exitContracts,
+        env,
       });
     } catch (error) {
       closeResults = exitContracts.map(contract => ({
@@ -372,7 +462,14 @@ export async function runRealAgentTick({
   const candles = manualDirection ? [] : await readMarketCandles({ symbol, granularity, Socket, now });
   const analysis = manualDirection ? null : reviewMarket(candles, granularity, now(), automatic);
   const contractType = manualDirection || qualifyingDirection(analysis);
-  const strategy = analysis?.strategy || (manualDirection ? 'Manual direction' : 'Awaiting market data');
+  const strategy = analysis?.strategy || (manualDirection ? 'Manual (no signal gate)' : 'Awaiting market data');
+  let strategyId;
+  try {
+    strategyId = strategyIdentifier(strategy);
+  } catch (error) {
+    return { status: 'blocked', reason: publicStatus(error), accountId: account.account_id };
+  }
+  const decisionAt = new Date(now()).toISOString();
   if (!contractType || analysis?.block) {
     return {
       status: 'watching',
@@ -412,8 +509,11 @@ export async function runRealAgentTick({
     return { status: 'watching', reason: 'DAILY_LOSS_LIMIT', accountId: account.account_id, equity: emergency.equity };
   }
 
-  const calculatedStake = calculateStake(balance, account.currency);
-  const stake = cappedAutomaticUsd ? Math.min(calculatedStake, AUTOMATIC_SETUP.stopLossUsd) : calculatedStake;
+  const currencyPerUsd = account.currency === 'USD' ? 1 : await readCurrencyPerUsd({
+    ...brokerOptions,
+  });
+  const stakeCap = MAX_STAKE_ABSOLUTE_USD * currencyPerUsd;
+  const stake = calculateStake(balance, account.currency, currencyPerUsd);
   if (cappedAutomaticUsd) {
     const openStakeCents = portfolio.contracts.reduce((sum, contract) => sum + Math.round(contract.stake * 100), 0);
     const budgetCents = Math.floor(Math.min(balance, emergency.equity));
@@ -437,6 +537,26 @@ export async function runRealAgentTick({
       symbol,
       contract_type: contractType,
       stake,
+      stake_cap: stakeCap,
+      strategy_id: strategyId,
+      strategy_label: strategy,
+      score: analysis?.confluenceScore ?? null,
+      decision_at: decisionAt,
+      account_reference: accountReference(account.account_id),
+      technical: analysis ? {
+        candleEpoch: Number.isSafeInteger(analysis.last?.epoch) ? analysis.last.epoch : null,
+        close: analysis.last?.close ?? null,
+        sma20: analysis.sma20 ?? null,
+        sma50: analysis.sma50 ?? null,
+        rsi: analysis.rsi ?? null,
+        momentumPct: analysis.momentumPct ?? null,
+        volatilityPct: analysis.volatilityPct ?? null,
+        volatilityRank: analysis.volatilityRank ?? null,
+        bullishScore: analysis.bullishScore ?? null,
+        bearishScore: analysis.bearishScore ?? null,
+        direction: analysis.direction ?? null,
+        block: analysis.block ?? null,
+      } : null,
       duration,
       balance,
       equity: emergency.equity,
@@ -455,6 +575,8 @@ export async function runRealAgentTick({
       const closeResults = await closeRealContracts({
         ...brokerOptions,
         contractIds: portfolio.contracts.map(contract => contract.id),
+        contractDetails: portfolio.contracts,
+        env,
       });
       return {
         status: 'stopped',
@@ -474,10 +596,37 @@ export async function runRealAgentTick({
   let submitTransitionStarted = false;
   let beforeBuyStarted = false;
   try {
+    await recordOrderStrategy({
+      accountId: account.account_id,
+      intentId: reservation.intentId,
+      strategyId,
+      strategy,
+      score: analysis?.confluenceScore ?? null,
+      technical: analysis ? {
+        candleEpoch: Number.isSafeInteger(analysis.last?.epoch) ? analysis.last.epoch : null,
+        close: analysis.last?.close ?? null,
+        sma20: analysis.sma20 ?? null,
+        sma50: analysis.sma50 ?? null,
+        rsi: analysis.rsi ?? null,
+        momentumPct: analysis.momentumPct ?? null,
+        volatilityPct: analysis.volatilityPct ?? null,
+        volatilityRank: analysis.volatilityRank ?? null,
+        bullishScore: analysis.bullishScore ?? null,
+        bearishScore: analysis.bearishScore ?? null,
+        direction: analysis.direction ?? null,
+        block: analysis.block ?? null,
+      } : null,
+      exitSettings: { stopLossPercent, takeProfitPercent },
+      decisionAt,
+      accountReference: accountReference(account.account_id),
+      env,
+      fetchImpl,
+    });
     const order = await executeRealOrder({
       ...brokerOptions,
       env,
-      intent: { symbol, contractType, stake, duration, durationUnit: 'm' },
+      manualTerminal: Boolean(terminalOrder && manualDirection),
+      intent: { symbol, contractType, stake, duration, durationUnit: 'm', strategyId },
       beforeBuy: async () => {
         beforeBuyStarted = true;
         submitTransitionStarted = true;
@@ -493,24 +642,20 @@ export async function runRealAgentTick({
       intentId: reservation.intentId,
       event: 'confirm',
       contractId: order.contractId,
+      transactionId: order.transactionId,
+      buyPrice: order.buyPrice,
       env,
       fetchImpl,
     });
-    try {
-      await recordOrderStrategy({
-        accountId: account.account_id, intentId: reservation.intentId,
-        strategy: manualDirection ? 'Manual direction' : strategy,
-        score: analysis?.confluenceScore ?? null, env, fetchImpl,
-      });
-    } catch {
-      console.warn('PlayGo order strategy audit write failed');
-    }
     return {
       status: 'ordered',
       review: marketReviewReceipt(analysis),
       strategy,
       accountId: account.account_id,
       contractId: order.contractId,
+      transactionId: order.transactionId,
+      buyPrice: order.buyPrice,
+      executionDataComplete: order.executionDataComplete,
       symbol,
       contractType,
       stake,

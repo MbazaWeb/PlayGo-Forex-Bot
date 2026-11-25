@@ -1,4 +1,4 @@
-import { readTradeEvidence } from '../../../trading/real-store.js';
+import { readAgentFailures, readTradeEvidence, recordSettlementEvidence } from '../../../trading/real-store.js';
 import { isDerivAccount, canTradeAccount } from '../../../trading/agents/account/index.js';
 import { closeRealContracts, readRealHistory, readRealPortfolio, readSettlementRange } from '../../../trading/execute.js';
 
@@ -36,11 +36,61 @@ export async function readHistory({
   } else {
     body = await readRealHistory({ account, token, appId, fetchImpl });
   }
+  try {
+    await recordSettlementEvidence({
+      accountId: account.account_id,
+      transactions: body.transactions,
+      fetchImpl,
+    });
+  } catch {
+    console.warn('PlayGo broker settlement evidence persistence failed');
+  }
   if (includeEvidence) {
     try {
-      body.evidence = await readTradeEvidence({ accountId: account.account_id, contractIds: body.transactions.map(row => row.contractId), fetchImpl });
+      const settlementTimes = body.transactions
+        .map(row => row.settledAt)
+        .filter(time => Number.isSafeInteger(time) && time > 0 && time < 1e11);
+      const evidenceFrom = range !== null
+        ? Math.max(1, body.from - 60 * 60)
+        : settlementTimes.length
+          ? Math.max(1, Math.min(...settlementTimes) - 60 * 60)
+          : null;
+      const evidenceTo = range !== null
+        ? body.to
+        : settlementTimes.length
+          ? Math.floor(Date.now() / 1000)
+          : null;
+      body.evidence = await readTradeEvidence({
+        accountId: account.account_id,
+        contractIds: body.transactions.map(row => row.contractId),
+        ...(evidenceFrom !== null ? { from: evidenceFrom, to: evidenceTo } : {}),
+        fetchImpl,
+      });
     } catch {
       body.evidence = null;
+    }
+    if (range === null || offset === 0) {
+      try {
+        const to = range === null ? Math.floor(Date.now() / 1000) : body.to;
+        const earliestSettlement = body.transactions.reduce((oldest, row) =>
+          Number.isSafeInteger(row.settledAt) && row.settledAt > 0
+            ? Math.min(oldest, row.settledAt)
+            : oldest, to);
+        const from = range === null
+          ? Math.max(1, Math.min(to - 7 * 24 * 60 * 60, earliestSettlement))
+          : body.from;
+        const result = await readAgentFailures({
+          accountId: account.account_id,
+          from,
+          to,
+          fetchImpl,
+        });
+        body.failures = result.failures;
+        body.failuresComplete = result.complete;
+      } catch {
+        body.failures = null;
+        body.failuresComplete = false;
+      }
     }
   }
   return { status: 200, body };
@@ -57,7 +107,11 @@ export async function closePortfolioContract({ account, contractId, token, appId
     const contract = portfolio.contracts.find(row => row.id === contractId);
     if (!contract) return { status: 409, body: { error: 'This trade is no longer open. Check Analytics.' } };
     if (!contract.canSell) return { status: 409, body: { error: 'Deriv currently requires this trade to settle at expiry.' } };
-    const [result] = await closeRealContracts({ ...broker, contractIds: [contractId] });
+    const [result] = await closeRealContracts({
+      ...broker,
+      contractIds: [contractId],
+      contractDetails: [contract],
+    });
     if (!result?.closed) return { status: 409, body: { error: 'Deriv did not confirm the close. Check open trades before retrying.' } };
     return { status: 200, body: result };
   } catch {

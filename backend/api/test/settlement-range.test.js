@@ -129,3 +129,66 @@ test('history reports accept ranges up to 93 days and reject longer ranges', asy
   });
   assert.equal(rejected.status, 400);
 });
+
+test('report history includes account-scoped technical failures for the selected window', async () => {
+  const keys = ['PLAYGO_ENV', 'PLAYGO_LOCAL_REST_URL', 'PLAYGO_LOCAL_WORKER_JWT'];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  Object.assign(process.env, {
+    PLAYGO_ENV: 'local',
+    PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+    PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+  });
+  const now = Math.floor(Date.now() / 1000);
+  let auditCalls = 0;
+  const resultPromise = readHistory({
+    account,
+    token: 'fixture',
+    appId: 'fixture',
+    range: { mode: '1', from: String(now - 3600), to: String(now) },
+    includeEvidence: true,
+    fetchImpl: async url => {
+      if (!url.startsWith('http://127.0.0.1:3000/')) return otp();
+      const { pathname, searchParams } = new URL(url);
+      assert.equal(pathname, '/playgo_real_audit');
+      auditCalls++;
+      if (searchParams.has('id')) return Response.json([]);
+      return Response.json([{
+        id: 1,
+        intent_id: null,
+        event_type: 'AGENT_FAILURE',
+        event_data: { status: 'watching', reason: 'MARKET_DATA_GAP', symbol: 'R_100' },
+        created_at: new Date((now - 60) * 1000).toISOString(),
+      }]);
+    },
+    Socket: class {
+      constructor() {
+        this.readyState = 0;
+        queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+      }
+
+      send(raw) {
+        const request = JSON.parse(raw);
+        queueMicrotask(() => this.onmessage?.({
+          data: JSON.stringify({
+            req_id: request.req_id, msg_type: 'profit_table', profit_table: { transactions: [] },
+          }),
+        }));
+      }
+
+      close() { this.readyState = 3; }
+    },
+  });
+  try {
+    const result = await resultPromise;
+    assert.equal(result.status, 200);
+    assert.equal(result.body.transactions.length, 0);
+    assert.equal(result.body.failuresComplete, true);
+    assert.equal(result.body.failures[0].reason, 'MARKET_DATA_GAP');
+    assert.equal(auditCalls, 2);
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});

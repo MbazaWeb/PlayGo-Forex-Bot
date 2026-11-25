@@ -1,7 +1,10 @@
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
-import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders} from '../../trading/agents/index.js';
+import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders, calculateStake, MAX_STAKE_ABSOLUTE_USD, MAX_STAKE_PERCENT} from '../../trading/agents/index.js';
 import {listAccounts} from './providers/deriv.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
+import {accountReference, activateAccount, publicAccount, publicAccountBody, publicAgentResult, resolveActiveAccount} from './account-selection.js';
+import {readCurrencyPerUsd} from '../../trading/execute.js';
+import {readAutoStartPreference, writeAutoStartPreference} from '../../trading/real-store.js';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
 const REDIRECT = process.env.DERIV_REDIRECT_URI || '';
@@ -94,7 +97,7 @@ export default async function handler(req, res) {
       const data = await response.json();
       if (typeof data.access_token !== 'string' || !Number.isFinite(data.expires_in) || data.expires_in <= 0) throw new Error('invalid token');
       const seconds = Math.min(data.expires_in, 28800);
-      const tokenCookie = cookie('__Host-playgo_session', seal({ token: data.access_token, exp: Date.now() + seconds * 1000 }), seconds);
+      const tokenCookie = cookie('__Host-playgo_session', seal({ token: data.access_token, exp: Date.now() + seconds * 1000, activeAccountId: null }), seconds);
       res.setHeader('Set-Cookie', [cookie('__Host-playgo_oauth', '', 0), tokenCookie]);
       return redirect(res, ORIGIN + '/');
     } catch { return redirect(res, ORIGIN + '/?auth_error=exchange_failed'); }
@@ -109,7 +112,7 @@ export default async function handler(req, res) {
   if (!session) return respond(res, 401, { error: 'Sign in with Deriv first.' });
 
   const params = query;
-  const accountId = params.get('account');
+  if (params.has('account')) return respond(res, 400, { error: 'Use the active Deriv account.' });
   let accounts;
   try {
     accounts = await listAccounts(session.token, fetch, CLIENT);
@@ -118,17 +121,76 @@ export default async function handler(req, res) {
     if (status === 401) res.setHeader('Set-Cookie', cookie('__Host-playgo_session', '', 0));
     return respond(res, status, { error: status === 401 ? 'Deriv session expired. Sign in again.' : status === 429 ? 'Deriv account service rate limit exceeded.' : 'Could not verify Deriv accounts.' });
   }
-  const account = accounts.find(a => a.account_id === accountId && isDerivAccount(a));
+  const account = resolveActiveAccount(session, accounts);
+  const accountRef = account ? accountReference(session.token, account.account_id) : null;
 
   if (path === 'accounts' && req.method === 'GET')
-    return respond(res, 200, { accounts: accounts.filter(isDerivAccount) });
+    return respond(res, 200, {
+      accounts: accounts.filter(isDerivAccount).map(row => publicAccount(row, session.token)),
+      activeAccountRef: accountRef,
+    });
+
+  if (path === 'accounts/select' && req.method === 'POST') {
+    if (req.headers.origin !== ORIGIN || req.headers['x-playgo-request'] !== '1')
+      return respond(res, 403, { error: 'Request origin rejected.' });
+    try {
+      const selected = await activateAccount({
+        session, accounts, accountRef: params.get('accountRef'), token: session.token,
+        confirmReal: params.get('confirmReal') === '1', appId: CLIENT, env: process.env, fetchImpl: fetch,
+      });
+      const seconds = Math.max(1, Math.floor((session.exp - Date.now()) / 1000));
+      res.setHeader('Set-Cookie', cookie('__Host-playgo_session', seal(session), seconds));
+      return respond(res, 200, { activeAccount: publicAccount(selected, session.token) });
+    } catch (error) {
+      const code = error.code || 'ACCOUNT_SELECTION_FAILED';
+      return respond(res, code === 'ACCOUNT_SWITCH_OPEN_POSITIONS' ? 409 :
+        ['REAL_ACCOUNT_CONFIRMATION_REQUIRED', 'ACCOUNT_REFERENCE_NOT_FOUND'].includes(code) ? 400 : 503, { error: code });
+    }
+  }
 
   if (path.startsWith('agent/') && !account)
     return respond(res, 400, { error: 'Select a connected Deriv account.' });
 
+  if (path === 'agent/preferences' && req.method === 'GET') {
+    try {
+      const enabled = await readAutoStartPreference({ accountId: account.account_id, env: process.env, fetchImpl: fetch });
+      return respond(res, 200, { accountRef, autoStartEnabled: enabled });
+    } catch (error) {
+      return respond(res, 503, { error: error.code || 'AUTO_START_SETTINGS_UNAVAILABLE' });
+    }
+  }
+  if (path === 'agent/preferences' && req.method === 'POST') {
+    if (req.headers.origin !== ORIGIN || req.headers['x-playgo-request'] !== '1')
+      return respond(res, 403, { error: 'Request origin rejected.' });
+    const enabled = params.get('enabled');
+    if (!['0', '1'].includes(enabled)) return respond(res, 400, { error: 'Invalid auto-start setting.' });
+    if (enabled === '1' && account.account_type === 'real' && params.get('confirmReal') !== '1')
+      return respond(res, 400, { error: 'REAL_AUTO_START_CONFIRMATION_REQUIRED' });
+    try {
+      await writeAutoStartPreference({ accountId: account.account_id, enabled: enabled === '1', env: process.env, fetchImpl: fetch });
+      return respond(res, 200, { accountRef, autoStartEnabled: enabled === '1' });
+    } catch (error) {
+      return respond(res, 503, { error: error.code || 'AUTO_START_SETTINGS_UNAVAILABLE' });
+    }
+  }
+  if (path === 'agent/limits' && req.method === 'GET') {
+    try {
+      const currencyPerUsd = await readCurrencyPerUsd({ account, token: session.token, appId: CLIENT, fetchImpl: fetch });
+      const stake = calculateStake(Number(account.balance), account.currency, currencyPerUsd);
+      return respond(res, 200, {
+        accountRef, currency: account.currency, stake,
+        maxStake: MAX_STAKE_ABSOLUTE_USD * currencyPerUsd,
+        sizingPercent: MAX_STAKE_PERCENT * 100,
+      });
+    } catch (error) {
+      return respond(res, 503, { error: error.code || error.message || 'STAKE_LIMIT_UNAVAILABLE' });
+    }
+  }
+
   if (path === 'agent/status' && req.method === 'GET') {
     return respond(res, 200, {
-      accounts: await readRealAgentStatuses({ accounts: [account], env: process.env, fetchImpl: fetch }),
+      accounts: (await readRealAgentStatuses({ accounts: [account], env: process.env, fetchImpl: fetch }))
+        .map(row => publicAgentResult(row, accountRef)),
     });
   }
 
@@ -138,13 +200,13 @@ export default async function handler(req, res) {
     if (path === 'agent/start') {
       try {
         return respond(res, 200, {
-          accounts: await startRealAgents({
+          accounts: (await startRealAgents({
             accounts: [account],
             stopLossPercent: Number(params.get('stopLossPercent')),
             takeProfitPercent: Number(params.get('takeProfitPercent')),
             env: process.env,
             fetchImpl: fetch,
-          }),
+          })).map(row => publicAgentResult(row, accountRef)),
         });
       } catch (error) {
         const code = error.code || 'AGENT_START_FAILED';
@@ -153,13 +215,14 @@ export default async function handler(req, res) {
     }
     if (path === 'agent/stop') {
       return respond(res, 200, {
-        accounts: await stopRealAgents({ accounts: [account], env: process.env, fetchImpl: fetch }),
+        accounts: (await stopRealAgents({ accounts: [account], env: process.env, fetchImpl: fetch }))
+          .map(row => publicAgentResult(row, accountRef)),
       });
     }
     if (path === 'agent/place') {
       try {
         return respond(res, 200, {
-          accounts: await placeRealAgentOrders({
+          accounts: (await placeRealAgentOrders({
             accounts: [account],
             token: session.token,
             appId: CLIENT,
@@ -172,7 +235,7 @@ export default async function handler(req, res) {
             takeProfitPercent: Number(params.get('takeProfitPercent')),
             env: process.env,
             fetchImpl: fetch,
-          }),
+          })).map(row => publicAgentResult(row, accountRef)),
         });
       } catch (error) {
         const code = error.code || 'AGENT_PLACE_FAILED';
@@ -202,20 +265,21 @@ export default async function handler(req, res) {
         });
       }
     }
-    return respond(res, 200, { accounts: results });
+    return respond(res, 200, { accounts: results.map(row => publicAgentResult(row, accountRef)) });
   }
 
   if (path === 'portfolio/close' && req.method === 'POST') {
+    if (!account) return respond(res, 400, { error: 'Select a connected Deriv account.' });
     if (req.headers.origin !== ORIGIN || req.headers['x-playgo-request'] !== '1')
       return respond(res, 403, { error: 'Request origin rejected.' });
     const result = await closePortfolioContract({
       account, contractId: params.get('contract'), token: session.token, appId: CLIENT,
     });
-    return respond(res, result.status, result.body);
+    return respond(res, result.status, publicAccountBody(result.body, accountRef));
   }
 
   if (['portfolio', 'history'].includes(path) && req.method === 'GET') {
-    if (!account) return respond(res, 400, { error: 'Deriv account not found.' });
+    if (!account) return respond(res, 400, { error: 'Select a connected Deriv account.' });
     const read = path === 'history' ? readHistory : readPortfolio;
     const result = await read({
       account,
@@ -227,7 +291,7 @@ export default async function handler(req, res) {
       appId: CLIENT,
       fetchImpl: fetch,
     });
-    return respond(res, result.status, result.body);
+    return respond(res, result.status, publicAccountBody(result.body, accountRef));
   }
 
   if (path === 'mt5/status' && req.method === 'GET') return respond(res, 200, { status: 'not_linked', execution: false });

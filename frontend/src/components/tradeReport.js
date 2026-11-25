@@ -12,28 +12,90 @@ function sheet(name, rows) {
   return '<Worksheet ss:Name="' + xml(name) + '"><Table>' + content + '</Table></Worksheet>';
 }
 
-export function downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat }) {
+export function downloadTradeReport({
+  id, currency, points, performance, wins, losses, even, settlementFormat,
+  evidence = null, failures = null, failuresComplete = false,
+}) {
   const summary = [
     ['Metric', 'Value'], ['Account', id], ['Currency', currency],
-    ['Scope', 'Recent Deriv settlements, including bot and manual trades'],
+    ['Scope', 'Deriv settlements in the selected report window, including bot and manual trades'],
     ['Settled trades', points.length], ['Wins', wins], ['Losses', losses], ['Break-even', even],
-    ['Win rate (%)', 100 * wins / points.length], ['Net P&L', performance.net],
+    ['Win rate (%)', points.length ? 100 * wins / points.length : 'Unavailable'], ['Net P&L', performance.net],
     ['Average P&L', performance.average], ['Profit factor', performance.profitFactor],
     ['Maximum drawdown', performance.drawdown], ['Average win', performance.averageWin],
     ['Average loss', performance.averageLoss],
+    ['Technical failure records', Array.isArray(failures) ? failures.length : 'Unavailable'],
+    ['Failure history complete', failuresComplete ? 'Yes' : 'No; unavailable or truncated'],
   ];
   const details = [
-    ['Transaction', 'Contract', 'Settled (EAT)', 'Outcome', 'Buy price', 'Sell proceeds', 'P&L', 'Strategy', 'Loss review'],
+    ['Transaction', 'Contract', 'Settled (EAT)', 'Outcome', 'Buy price', 'Sell proceeds', 'P&L',
+      'Market', 'Direction', 'Duration (min)', 'Strategy', 'Signal score', 'Intent ID', 'Intent status',
+      'Recorded stake', 'Entry candle epoch', 'Entry close', 'SMA20', 'SMA50', 'RSI', 'Momentum %',
+      'Volatility %', 'Volatility rank', 'Bullish score', 'Bearish score', 'Stop-loss %', 'Take-profit %',
+      'Order lifecycle', 'Broker buy transaction ID', 'Settlement transaction ID', 'Close transaction ID',
+      'Broker buy price', 'Broker sell price',
+      'Settlement outcome', 'Exit outcome', 'Exit P&L at check', 'Early sale available', 'Confirmed proceeds',
+      'Close status', 'Close outcome', 'Close reason', 'Close proceeds', 'Close requested at', 'Close confirmed at',
+      'Loss review'],
     ...points.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0)).map(trade => {
       const validTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
+      const detail = evidence?.[trade.contractId];
+      const technical = detail?.technical;
+      const lifecycle = (detail?.lifecycle ?? []).map(event =>
+        event.event + (event.data?.from && event.data?.to ? ':' + event.data.from + '->' + event.data.to : '')
+      ).join('; ');
+      const exit = detail?.exit;
+      const close = detail?.close;
       return [trade.time, trade.contractId, validTime ? settlementFormat.format(trade.settledAt * 1000) : 'Unavailable',
-        trade.status, trade.buy, trade.sell, trade.value, 'Unavailable',
-        trade.value < 0 ? 'Sell proceeds were below buy price. Entry signal and exit cause are unavailable in settlement history.' : ''];
+        trade.status, trade.buy, trade.sell, trade.value,
+        detail?.symbol ?? 'Unavailable', detail?.direction ?? 'Unavailable', detail?.duration ?? 'Unavailable',
+        detail?.strategy ?? 'Unavailable', detail?.score ?? 'Unavailable',
+        detail?.execution?.intentId ?? 'Unavailable', detail?.execution?.status ?? 'Unavailable',
+        detail?.execution?.stake ?? 'Unavailable', technical?.candleEpoch ?? 'Unavailable',
+        technical?.close ?? 'Unavailable', technical?.sma20 ?? 'Unavailable', technical?.sma50 ?? 'Unavailable',
+        technical?.rsi ?? 'Unavailable', technical?.momentumPct ?? 'Unavailable',
+        technical?.volatilityPct ?? 'Unavailable', technical?.volatilityRank ?? 'Unavailable',
+        technical?.bullishScore ?? 'Unavailable', technical?.bearishScore ?? 'Unavailable',
+        detail?.exitSettings?.stopLossPercent ?? 'Unavailable',
+        detail?.exitSettings?.takeProfitPercent ?? 'Unavailable',
+        lifecycle || 'Unavailable',
+        detail?.execution?.transactionId ?? 'Unavailable',
+        detail?.execution?.settlementTransactionId ?? 'Unavailable',
+        close?.transactionId ?? 'Unavailable',
+        detail?.execution?.buy ?? 'Unavailable',
+        detail?.execution?.sell ?? 'Unavailable',
+        detail?.execution?.outcome ?? 'Unavailable',
+        exit?.outcome ?? 'Unavailable',
+        exit?.profit ?? 'Unavailable', exit?.canSell ?? 'Unavailable',
+        exit?.soldFor ?? 'Unavailable',
+        close?.status ?? 'Unavailable', close?.outcome ?? 'Unavailable',
+        close?.reason ?? 'Unavailable', close?.soldFor ?? 'Unavailable',
+        close?.requestedAt ?? 'Unavailable', close?.confirmedAt ?? 'Unavailable',
+        trade.value < 0
+          ? close ? 'Sell proceeds were below buy price. Close status: ' + close.status + '; reason: ' + (close.reason || 'Unavailable')
+            : 'Sell proceeds were below buy price. Exit cause is unavailable in settlement history.'
+          : ''];
     }),
+  ];
+  const failureRows = [
+    ['Recorded at', 'Event', 'Status', 'Reason', 'Contract', 'Market', 'Direction', 'Duration (min)',
+      'Stake', 'Proceeds', 'Outcome', 'Broker transaction ID', 'Close requested at', 'Close confirmed at',
+      'Interval (seconds)', 'Mode', 'From state', 'To state'],
+    ...(Array.isArray(failures) ? failures.map(issue => [
+      issue.recordedAt ?? 'Unavailable', issue.event ?? 'Unavailable', issue.status ?? 'Unavailable',
+      issue.reason ?? 'Unavailable', issue.contractId ?? 'Unavailable',
+      issue.symbol ?? 'Unavailable', issue.direction ?? 'Unavailable',
+      issue.duration ?? 'Unavailable', issue.stake ?? 'Unavailable', issue.soldFor ?? 'Unavailable',
+      issue.outcome ?? 'Unavailable', issue.transactionId ?? 'Unavailable',
+      issue.requestedAt ?? 'Unavailable', issue.confirmedAt ?? 'Unavailable',
+      issue.granularity ?? 'Unavailable', issue.mode ?? 'Unavailable',
+      issue.from ?? 'Unavailable', issue.to ?? 'Unavailable',
+    ]) : []),
   ];
   const workbook = '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>' +
     '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
-    sheet('Summary', summary) + sheet('Closed trades', details) + '</Workbook>';
+    sheet('Summary', summary) + sheet('Closed trades', details) +
+    sheet('Technical failures', failureRows) + '</Workbook>';
   saveReport(workbook, 'application/xml', 'PlayGo-' + id + '-trade-report.xml');
 }
 
@@ -50,6 +112,28 @@ function saveReport(data, type, filename) {
 
 const pdfText = value => String(value).replace(/[^ -~]/g, ' ').replace(/[\\()]/g, '\\$&');
 
+function wrapPdfLine(value, width = 92) {
+  const text = String(value);
+  if (!text) return [''];
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    if (word.length > width) {
+      if (line) lines.push(line);
+      line = '';
+      for (let offset = 0; offset < word.length; offset += width)
+        lines.push(word.slice(offset, offset + width));
+    } else if (line && line.length + word.length + 1 > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line += (line ? ' ' : '') + word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 // Wilson 95% score interval for a win rate; more honest than a point estimate on small samples.
 function wilsonInterval(successes, total) {
   if (!total) return null;
@@ -61,9 +145,18 @@ function wilsonInterval(successes, total) {
   return [Math.max(0, centre - half), Math.min(1, centre + half)];
 }
 
-export function downloadTradePdf({ id, currency, points, performance, wins, losses, even, settlementFormat, evidence, partial = false, requestedRange = null }) {
+export function downloadTradePdf({
+  id, currency, points, performance, wins, losses, even, settlementFormat, evidence,
+  failures = null, failuresComplete = false, partial = false, requestedRange = null,
+}) {
   const money = value => Number.isFinite(value) ? value.toFixed(2) + ' ' + currency : 'Unavailable';
   const pct = value => Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : 'Unavailable';
+  const metric = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'Unavailable';
+  const timestamp = value => {
+    if (value == null || value === '') return 'Time unavailable';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Time unavailable' : settlementFormat.format(date) + ' EAT';
+  };
   const fullLosses = points.filter(trade => trade.value < 0 && trade.sell === 0);
   const rows = points.slice().sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0));
   const gate = evaluateLiveGate(points.map(trade => ({
@@ -88,7 +181,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     '',
     'RESULTS',
     'Wins: ' + wins + ' | Losses: ' + losses + ' | Break-even: ' + even,
-    'Win rate: ' + (wins / points.length * 100).toFixed(1) + '%' +
+    'Win rate: ' + (points.length ? (wins / points.length * 100).toFixed(1) + '%' : 'Unavailable') +
       (interval ? ' (95% interval ' + pct(interval[0]) + ' to ' + pct(interval[1]) + ')' : ''),
     'Break-even win rate at these payouts: ' + pct(breakEven),
     windowText,
@@ -98,8 +191,12 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     'Maximum drawdown: ' + money(performance.drawdown),
     'Zero-proceeds losses: ' + fullLosses.length + ' | P&L: ' + money(fullLosses.reduce((sum, trade) => sum + trade.value, 0)),
     '',
-    evidence ? 'Evidence includes entries and recent exit checks recorded by PlayGo.'
+    evidence ? 'Trade audit evidence includes recorded order, strategy and exit events.'
       : 'PlayGo audit data was unavailable at the time of export.',
+    'Recorded technical failures: ' + (Array.isArray(failures) ? failures.length : 'Unavailable'),
+    failuresComplete
+      ? 'Failure history is complete for the requested report window. Older failures may predate diagnostic logging.'
+      : 'Failure history may be unavailable or truncated; do not infer that no issue occurred.',
     '',
     'LIVE-READINESS GATE: ' + (gate.passed ? 'PASSED' : 'NOT PASSED'),
     'Live trading requires every check below. This report does not show an edge until all pass.',
@@ -120,12 +217,22 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     gate.passed ? 'All checks passed. Still review the full trade log before any real-money decision.'
       : 'Not ready for live trading. Keep the account on Demo until every check passes on a new, larger sample.',
   ]);
-  for (let start = 0; start < rows.length; start += 6) {
+  for (let start = 0; start < rows.length; start += 2) {
     pages.push(['Closed trades | EAT', 'Buy price, proceeds and net P&L in ' + currency, '',
-      ...rows.slice(start, start + 6).flatMap(trade => {
+      ...rows.slice(start, start + 2).flatMap(trade => {
         const validTime = Number.isSafeInteger(trade.settledAt) && trade.settledAt > 0 && trade.settledAt < 1e11;
         const detail = evidence?.[trade.contractId];
         const exit = detail?.exit;
+        const close = detail?.close;
+        const technical = detail?.technical;
+        const lifecycle = detail?.lifecycle ?? [];
+        const lifecycleLines = lifecycle.map(event => {
+          const transition = event.data?.from && event.data?.to
+            ? ' (' + event.data.from + ' -> ' + event.data.to + ')'
+            : '';
+          return 'Order event: ' + event.event + transition +
+            (event.recordedAt ? ' at ' + timestamp(event.recordedAt) : '');
+        });
         return [
           (validTime ? settlementFormat.format(trade.settledAt * 1000) : 'Time unavailable') + ' | ' + trade.status,
           'Transaction ' + trade.time + ' | Contract ' + (trade.contractId || 'Unavailable'),
@@ -133,15 +240,79 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
           'Strategy: ' + (detail?.strategy || 'Unavailable') + (Number.isFinite(detail?.score) ? ' | Signal score: ' + detail.score + '/100' : ''),
           'Market: ' + (detail?.symbol || 'Unavailable') + ' | Direction: ' +
             ({ CALL: 'Rise', PUT: 'Fall' }[detail?.direction] || 'Unavailable') + (detail?.duration ? ' | ' + detail.duration + ' min' : ''),
+          'Execution: ' + (detail?.execution?.status || 'Unavailable') +
+            ' | Intent: ' + (detail?.execution?.intentId || 'Unavailable') +
+            ' | Buy price: ' + money(detail?.execution?.buy) +
+            ' | Recorded stake: ' + money(detail?.execution?.stake),
+          'Broker IDs: buy ' + (detail?.execution?.transactionId || 'Unavailable') +
+            ' | settlement ' + (detail?.execution?.settlementTransactionId || 'Unavailable'),
+          'Exit settings: stop-loss ' + metric(detail?.exitSettings?.stopLossPercent, 2) +
+            '% | take-profit ' + metric(detail?.exitSettings?.takeProfitPercent, 2) + '%',
+          ...(technical ? [
+            'Entry candle: close ' + metric(technical.close) + ' at ' +
+              (Number.isSafeInteger(technical.candleEpoch) ? timestamp(technical.candleEpoch * 1000) : 'Time unavailable') +
+              ' | signal: ' + (technical.direction || 'none') + ' | block: ' + (technical.block || 'none'),
+            'Technicals: SMA20 ' + metric(technical.sma20) + ', SMA50 ' + metric(technical.sma50) +
+              ', RSI ' + metric(technical.rsi, 2) + ', momentum ' + metric(technical.momentumPct, 3) + '%' +
+              ', volatility ' + metric(technical.volatilityPct, 4) + '%' +
+              ', volatility rank ' + metric(technical.volatilityRank, 3),
+            'Bullish / bearish scores: ' + metric(technical.bullishScore, 0) + ' / ' + metric(technical.bearishScore, 0),
+          ] : ['Entry technical snapshot: unavailable for this trade.']),
+          ...lifecycleLines,
+          ...(close ? [
+            'Close result: ' + (close.status || 'Unavailable') +
+              ' | outcome: ' + (close.outcome || 'Unavailable') +
+              ' | broker transaction: ' + (close.transactionId || 'Unavailable') +
+              ' | reason: ' + (close.reason || 'Unavailable') +
+              ' | proceeds: ' + money(close.soldFor) +
+              ' | requested: ' + timestamp(close.requestedAt) +
+              ' | confirmed: ' + timestamp(close.confirmedAt),
+          ] : []),
           ...(trade.value < 0 ? [trade.sell === 0 ? 'Loss: zero proceeds; the full stake was lost.' : 'Loss: sale proceeds were below the stake.'] : []),
-          exit?.outcome === 'CLOSED' ? 'Exit audit: Deriv confirmed an early close' +
-            (Number.isFinite(exit.soldFor) ? ' for ' + money(exit.soldFor) : '') + '.'
-            : exit?.canSell === false ? 'Exit audit: Deriv did not offer early sale at the recorded check.'
-              : exit ? 'Exit audit: PlayGo did not receive close confirmation.'
-                : 'Exit audit: unavailable. Exact exit cause cannot be established.',
+          exit ? 'Exit audit: ' + exit.outcome +
+            ' | P&L at check: ' + money(exit.profit) +
+            ' | early sale allowed: ' + (exit.canSell === true ? 'yes' : exit.canSell === false ? 'no' : 'unknown') +
+            (Number.isFinite(exit.soldFor) ? ' | confirmed proceeds: ' + money(exit.soldFor) : '') +
+            ' | recorded: ' + (exit.checkedAt || 'Unavailable')
+            : close ? 'Exit audit: broker close status is ' + (close.status || 'unavailable') + '.'
+            : 'Exit audit: unavailable. Exact exit cause cannot be established.',
           '',
         ];
       }),
+    ]);
+  }
+  const issueRows = Array.isArray(failures) ? failures : [];
+  for (let start = 0; start < issueRows.length; start += 6) {
+    pages.push([
+      'Technical issues and failures',
+      'Agent failures, rejected/unknown orders and market-data diagnostics recorded for the report window.',
+      '',
+      ...issueRows.slice(start, start + 6).flatMap(issue => [
+        timestamp(issue.recordedAt) + ' | ' +
+          (issue.event || 'AGENT_FAILURE') + ' | ' +
+          String(issue.status || 'unknown').toUpperCase() + ' | ' + (issue.reason || 'Reason unavailable'),
+        'Contract: ' + (issue.contractId || 'Unavailable') +
+          ' | outcome: ' + (issue.outcome || 'Unavailable') +
+          ' | proceeds: ' + money(issue.soldFor) +
+          ' | broker transaction: ' + (issue.transactionId || 'Unavailable') +
+          ' | close requested: ' + timestamp(issue.requestedAt) +
+          ' | close confirmed: ' + timestamp(issue.confirmedAt) +
+          ' | Market: ' + (issue.symbol || 'Unavailable') +
+          ' | direction: ' + (issue.direction || 'Unavailable') +
+          ' | interval: ' + (Number.isFinite(issue.granularity) ? issue.granularity + ' seconds' : 'Unavailable') +
+          ' | duration: ' + (Number.isFinite(issue.duration) ? issue.duration + ' min' : 'Unavailable') +
+          ' | stake: ' + money(issue.stake) +
+          ' | mode: ' + (issue.mode || 'Unavailable') +
+          (issue.from || issue.to ? ' | state: ' + (issue.from || 'Unavailable') + ' -> ' + (issue.to || 'Unavailable') : ''),
+      ]),
+    ]);
+  }
+  if (!issueRows.length) {
+    pages.push([
+      'Technical issues and failures',
+      failuresComplete
+        ? 'No technical failure events were recorded in this window. Older failures may predate diagnostic logging.'
+        : 'Failure records are unavailable or incomplete for this window.',
     ]);
   }
   // Only identify symbol families with known Deriv synthetic-index codes.
@@ -210,7 +381,7 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
     '   Validate any entry rule out-of-sample on at least 500 settled trades across 3+ weeks.',
     '',
     '3. Check evidence coverage. ' + missingStrategy + ' settlements have no recorded strategy.',
-    '   Capture the entry signal and early-sale outcome for trades with missing evidence.',
+    '   Entry indicators and technical failures are only available where diagnostic logging captured them.',
   ]);
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Count ' + pages.length + ' /Kids [' + pages.map((_, i) => (4 + i * 2) + ' 0 R').join(' ') + '] >>',
@@ -218,7 +389,8 @@ export function downloadTradePdf({ id, currency, points, performance, wins, loss
   for (const [index, lines] of pages.entries()) {
     const stream = 'BT /F1 18 Tf 45 790 Td (' + pdfText(lines[0]) +
       ') Tj /F1 10 Tf 14 TL 0 -26 Td\n' +
-      [...lines.slice(1), 'Page ' + (index + 1) + ' of ' + pages.length].map(line => '(' + pdfText(line) + ') Tj T*').join('\n') + '\nET';
+      [...lines.slice(1).flatMap(line => wrapPdfLine(line)), 'Page ' + (index + 1) + ' of ' + pages.length]
+        .map(line => '(' + pdfText(line) + ') Tj T*').join('\n') + '\nET';
     objects.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + (5 + index * 2) + ' 0 R >>',
       '<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream');
   }

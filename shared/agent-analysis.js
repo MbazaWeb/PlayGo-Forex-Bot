@@ -4,7 +4,7 @@ const BASE_PERIOD = 50;
 const RSI_PERIOD = 14;
 const VOLATILITY_PERIOD = 20;
 const SIGNAL_THRESHOLD = 75;
-export const MAX_STAKE_ABSOLUTE_USD = 20;
+export const MAX_STAKE_ABSOLUTE_USD = 10;
 
 function average(values) {
   return values.reduce((total, value) => total + value, 0) / values.length;
@@ -100,8 +100,6 @@ export const AUTOMATIC_SETUP = Object.freeze({
   interval: 300,
   checkInterval: 45,
   marketsPerScan: 10,
-  stopLossUsd: 10,
-  takeProfitUsd: 30,
   stopLossPercent: 35,
   takeProfitPercent: 50,
   minimumScore: 85,

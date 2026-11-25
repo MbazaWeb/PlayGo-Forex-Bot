@@ -372,25 +372,28 @@ export async function readRecentSettlements({ account, token, appId, fetchImpl =
 // Pages every settlement in [from, to] (unix seconds), oldest first, for the trade report.
 // complete is false when maxRows was reached; the report must then say the sample is partial.
 export async function readSettlementRange({
-  account, token, appId, fetchImpl = fetch, Socket, from, to, maxRows = 5000,
+  account, token, appId, fetchImpl = fetch, Socket, from, to, offset = 0, maxRows = 5000,
 }) {
   if (!isDerivAccount(account)) throw codedError('REAL_ACCOUNT_REQUIRED');
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to < from || to >= 1e11)
     throw codedError('INVALID_HISTORY_RANGE');
-  if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000)
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000 ||
+      !Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000)
     throw codedError('INVALID_HISTORY_LIMIT');
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
     const pageSize = 100;
     const byId = new Map();
     let reqId = 1;
-    for (let offset = 0; offset < maxRows; offset += pageSize) {
-      const limit = Math.min(pageSize, maxRows - offset);
+    let rowsFetched = 0;
+    for (let fetched = 0; fetched < maxRows; fetched += pageSize) {
+      const limit = Math.min(pageSize, maxRows - fetched);
       const response = await sendAndWait(socket, {
-        profit_table: 1, sort: 'ASC', limit, offset,
+        profit_table: 1, sort: 'ASC', limit, offset: offset + fetched,
         date_from: String(from), date_to: String(to),
       }, 'profit_table', reqId++);
       const page = response?.profit_table?.transactions;
       if (!Array.isArray(page) || page.length > limit) throw codedError('INVALID_HISTORY_RESPONSE');
+      rowsFetched += page.length;
       for (const row of page) {
         const parsed = parseSettlement(row);
         if (parsed.settledAt < from || parsed.settledAt > to) throw codedError('INVALID_HISTORY_RESPONSE');
@@ -399,9 +402,19 @@ export async function readSettlementRange({
         byId.set(parsed.id, parsed);
       }
       if (page.length < limit) {
-        return { transactions: [...byId.values()], complete: true, observedAt: new Date().toISOString() };
+        return {
+          transactions: [...byId.values()],
+          complete: true,
+          nextOffset: offset + rowsFetched,
+          observedAt: new Date().toISOString(),
+        };
       }
     }
-    return { transactions: [...byId.values()], complete: false, observedAt: new Date().toISOString() };
+    return {
+      transactions: [...byId.values()],
+      complete: false,
+      nextOffset: offset + rowsFetched,
+      observedAt: new Date().toISOString(),
+    };
   });
 }

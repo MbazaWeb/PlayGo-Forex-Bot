@@ -9,7 +9,10 @@ export async function readPortfolio({ account, token, appId, fetchImpl = fetch }
   return { status: 200, body };
 }
 
-export async function readHistory({ account, token, appId, range = null, includeEvidence = false, fetchImpl = fetch }) {
+export async function readHistory({
+  account, token, appId, range = null, includeEvidence = false, offset = 0, limit = 500,
+  fetchImpl = fetch, Socket,
+}) {
   if (!isDerivAccount(account)) return { status: 403, body: { error: 'REAL_ACCOUNT_REQUIRED' } };
   let body;
   if (range !== null) {
@@ -17,10 +20,18 @@ export async function readHistory({ account, token, appId, range = null, include
       return { status: 400, body: { error: 'Select a valid settlement date range.' } };
     }
     const from = Number(range.from), to = Number(range.to);
-    if (from <= 0 || to < from || to > Math.floor(Date.now() / 1000)) {
+    const now = Math.floor(Date.now() / 1000);
+    if (from <= 0 || to < from || to > now ||
+        to - from > 93 * 24 * 60 * 60) {
       return { status: 400, body: { error: 'Select a valid settlement date range.' } };
     }
-    const result = await readSettlementRange({ account, token, appId, fetchImpl, from, to, maxRows: 10_000 });
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10_000 ||
+        !Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+      return { status: 400, body: { error: 'Invalid report page.' } };
+    }
+    const result = await readSettlementRange({
+      account, token, appId, fetchImpl, Socket, from, to, offset, maxRows: limit,
+    });
     body = { ...result, accountId: account.account_id, from, to };
   } else {
     body = await readRealHistory({ account, token, appId, fetchImpl });

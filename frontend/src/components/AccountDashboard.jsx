@@ -10,6 +10,9 @@ const settlementFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Africa/Dar_es_Salaam', day: '2-digit', month: 'short', year: 'numeric',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
 });
+const REPORT_PAGE_SIZE = 500;
+const REPORT_MAX_ROWS = 10_000;
+const MAX_REPORT_RANGE_SECONDS = 93 * 24 * 60 * 60;
 
 const MarketChart = React.lazy(() => import('./MarketChart'));
 const MarketWorkspace = React.lazy(() => import('./MarketWorkspace'));
@@ -102,16 +105,69 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         setPdfBusy(false);
         return;
       }
+      if (to - from > MAX_REPORT_RANGE_SECONDS) {
+        setPdfNotice('Choose a date range of 3 months or less.');
+        setPdfBusy(false);
+        return;
+      }
       query.set('range', '1');
       query.set('from', String(from));
       query.set('to', String(to));
     }
     try {
-      const response = await brokerRequest('/api/history?' + query);
-      if (!response.ok) throw new Error('Trade report unavailable');
-      const data = await response.json();
-      if (data.accountId !== id || !Array.isArray(data.transactions)) throw new Error('Invalid trade report');
-      const exportPoints = data.transactions.map(t => {
+      const transactions = [];
+      const evidence = {};
+      let evidenceAvailable = true;
+      let complete = !ranged;
+      let partial = false;
+      let offset = 0;
+      do {
+        const pageQuery = new URLSearchParams(query);
+        pageQuery.set('offset', String(offset));
+        pageQuery.set('limit', String(ranged ? Math.min(REPORT_PAGE_SIZE, Math.max(1, REPORT_MAX_ROWS - transactions.length)) : REPORT_MAX_ROWS));
+        const response = await brokerRequest('/api/history?' + pageQuery);
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          throw new Error('The report service returned an invalid response.');
+        }
+        if (!response.ok) {
+          throw new Error(data?.error || 'Report request failed (HTTP ' + response.status + ').');
+        }
+        if (data.accountId !== id || !Array.isArray(data.transactions))
+          throw new Error('The report service returned invalid trade data.');
+        if (transactions.length + data.transactions.length > REPORT_MAX_ROWS) {
+          partial = true;
+          break;
+        }
+        transactions.push(...data.transactions);
+        if (data.evidence && typeof data.evidence === 'object' && !Array.isArray(data.evidence))
+          Object.assign(evidence, data.evidence);
+        else evidenceAvailable = false;
+        complete = !ranged || data.complete === true;
+        const nextOffset = Number(data.nextOffset);
+        if (ranged && (!Number.isSafeInteger(nextOffset) || (!complete && nextOffset <= offset)))
+          throw new Error('The report service stopped before finishing this date range.');
+        offset = nextOffset;
+        if (transactions.length === REPORT_MAX_ROWS && !complete) {
+          const probeQuery = new URLSearchParams(query);
+          probeQuery.set('offset', String(offset));
+          probeQuery.set('limit', '1');
+          const probeResponse = await brokerRequest('/api/history?' + probeQuery);
+          if (!probeResponse.ok) {
+            partial = true;
+            break;
+          }
+          const probe = await probeResponse.json();
+          if (probe.accountId !== id || !Array.isArray(probe.transactions))
+            throw new Error('The report service returned invalid trade data.');
+          if (probe.transactions.length) partial = true;
+          else complete = true;
+        }
+      } while (ranged && !complete && !partial);
+
+      const exportPoints = transactions.map(t => {
         const value = Number((t.sell - t.buy).toFixed(8));
         return { ...t, time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
       });
@@ -123,14 +179,14 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       const exportLosses = exportPoints.filter(t => t.value < 0).length;
       downloadTradePdf({ id, currency, points: exportPoints, performance: summarizeClosedTrades(exportPoints),
         wins: exportWins, losses: exportLosses, even: exportPoints.length - exportWins - exportLosses,
-        settlementFormat, evidence: data.evidence, partial: data.complete === false,
+        settlementFormat, evidence: evidenceAvailable ? evidence : null, partial,
         requestedRange: ranged ? rangeFrom + ' to ' + rangeTo + ' EAT' : null });
       const warnings = [];
-      if (data.complete === false) warnings.push('Partial report: 10,000-row cap reached. Narrow the date range for a complete export.');
-      if (!data.evidence) warnings.push('Trade audit records were unavailable.');
+      if (partial) warnings.push('Partial report: 10,000-row cap reached. Narrow the date range for a complete export.');
+      if (!evidenceAvailable) warnings.push('Some trade audit records were unavailable.');
       setPdfNotice(warnings.join(' '));
-    } catch {
-      setPdfNotice('PDF could not be prepared. If using dates, try a shorter range.');
+    } catch (error) {
+      setPdfNotice('PDF could not be prepared: ' + (error instanceof Error ? error.message : 'unknown report error'));
     } finally {
       setPdfBusy(false);
     }
@@ -172,7 +228,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       {analytics && (
         <section aria-label="Profitability">
           <div className="panelhead analytics-report-head">
-            <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p></div>
+            <div><h2>Profitability</h2><p>Selected account · {points?.length ?? 0} recent settled trades · includes bot and manual trades</p><p>PDF reports support date ranges up to 3 months.</p></div>
             <div className="analytics-report-actions">
             <button type="button" className="outline" disabled={!points?.length}
               onClick={() => downloadTradeReport({ id, currency, points, performance, wins, losses, even, settlementFormat })}>

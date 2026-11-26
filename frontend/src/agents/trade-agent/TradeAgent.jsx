@@ -20,6 +20,7 @@ const retryMarketReasons = new Set([
   'STALE_MARKET_DATA', 'UNALIGNED_MARKET_DATA', 'DUPLICATE_MARKET_DATA', 'MARKET_DATA_GAP', 'WEAK_SIGNAL', 'ELEVATED_VOLATILITY', 'BREAKOUT_NOT_CONFIRMED',
   'NO_QUALIFYING_SIGNAL', 'INSUFFICIENT', 'INVALID', 'MARKET_DATA_TIMEOUT',
   'MARKET_DATA_DISCONNECTED', 'MARKET_DATA_UNAVAILABLE', 'MARKET_DATA_SEND_FAILED',
+  'INVALID_CONTRACTS_RESPONSE',
 ]);
 
 function activityEntry(message) {
@@ -248,6 +249,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const accountRef = account?.accountRef;
   const accountDisplay = account?.maskedAccountId || 'selected account';
   const [controlLoaded, setControlLoaded] = useState(false);
+  const [statusAccountRef, setStatusAccountRef] = useState(null);
   const [manuallyStopped, setManuallyStopped] = useState(() => {
     try { return localStorage.getItem('playgo-agent-stop:' + accountRef) === '1'; }
     catch { return false; }
@@ -309,12 +311,26 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
 
   useEffect(() => {
     if (!accountRef) {
+      setControlLoaded(false);
+      setStatusAccountRef(null);
       setAgentStatuses([]);
       setAgentRunning(false);
+      setAutoStartEnabled(false);
       return undefined;
     }
+    const id = accountRef;
     const controller = new AbortController();
     let retry;
+    let initialized = false;
+    setControlLoaded(false);
+    setStatusAccountRef(null);
+    setAgentStatuses([]);
+    setAgentRunning(false);
+    setAutoStartEnabled(false);
+    setManuallyStopped(() => {
+      try { return localStorage.getItem('playgo-agent-stop:' + id) === '1'; }
+      catch { return false; }
+    });
     function loadControl() {
       brokerRequest('/api/agent/status', {
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
@@ -327,33 +343,39 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
       .then(body => {
         if (controller.signal.aborted) return;
         const statuses = Array.isArray(body.accounts) ? body.accounts : [];
-        const status = statuses.find(item => item.accountRef === accountRef);
+        const status = statuses.find(item => item.accountRef === id);
         if (!status || status.error) throw Error(status?.error || 'Account status unavailable.');
         setControlLoaded(true);
+        setStatusAccountRef(id);
         setAgentStatuses(statuses);
         setAutoStartEnabled(status.autoStartEnabled === true);
         setAgentRunning(statuses.some(item =>
           item.control?.active === true || item.control?.stop_reason === 'DRAWDOWN_LIMIT',
         ));
-        const controls = statuses.map(item => item.control);
-        const configured = controls.map(control => ({
-          stopLoss: Number(control?.stop_loss_percent),
-          takeProfit: Number(control?.take_profit_percent),
-        }));
-        const first = configured[0];
-        const allMatch = statuses.length === 1 &&
-          configured.every(settings =>
-            Number.isFinite(settings.stopLoss) && settings.stopLoss > 0 && settings.stopLoss <= 100 &&
-            Number.isFinite(settings.takeProfit) && settings.takeProfit > 0 && settings.takeProfit <= 10000 &&
-            settings.stopLoss === first?.stopLoss && settings.takeProfit === first?.takeProfit,
-          );
-        if (allMatch) {
-          setStopLossPercent(String(first.stopLoss));
-          setTakeProfitPercent(String(first.takeProfit));
-        } else {
-          setStopLossPercent('');
-          setTakeProfitPercent('');
+        if (!initialized) {
+          const controls = statuses.map(item => item.control);
+          const configured = controls.map(control => ({
+            stopLoss: Number(control?.stop_loss_percent),
+            takeProfit: Number(control?.take_profit_percent),
+          }));
+          const first = configured[0];
+          const allMatch = statuses.length === 1 &&
+            configured.every(settings =>
+              Number.isFinite(settings.stopLoss) && settings.stopLoss > 0 && settings.stopLoss <= 100 &&
+              Number.isFinite(settings.takeProfit) && settings.takeProfit > 0 && settings.takeProfit <= 10000 &&
+              settings.stopLoss === first?.stopLoss && settings.takeProfit === first?.takeProfit,
+            );
+          if (allMatch) {
+            setStopLossPercent(String(first.stopLoss));
+            setTakeProfitPercent(String(first.takeProfit));
+          } else {
+            setStopLossPercent('');
+            setTakeProfitPercent('');
+          }
+          initialized = true;
         }
+        setAgentFeedback(previous => previous === 'Bot status unavailable. Retrying automatically.' ? '' : previous);
+        retry = setTimeout(loadControl, 15000);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
@@ -403,16 +425,54 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
         if (requestGeneration !== generation.current || stopPending.current) return;
         if (scanning) setScan({ checked: trace.length, total: candidates.length, running: true, current: market.name, rows: [...trace] });
         stage = exitsOnly ? 'Exit monitoring' : `Entry check for ${market.name || market.symbol}`;
-        const body = await postAgentAction('run', {
-          symbol: market.symbol,
-          granularity: String(interval),
-          ...(exitsOnly && { exitsOnly: '1' }),
-          ...(scanning && { marketScan: '1' }),
-        });
+        let body;
+        try {
+          body = await postAgentAction('run', {
+            symbol: market.symbol,
+            granularity: String(interval),
+            ...(exitsOnly && { exitsOnly: '1' }),
+            ...(scanning && { marketScan: '1' }),
+          });
+        } catch (error) {
+          if (!scanning) throw error;
+          const timedOut = /timed out/i.test(error.message || '');
+          const row = {
+            symbol: market.symbol,
+            name: market.name,
+            status: 'error',
+            reason: timedOut ? 'AGENT_REQUEST_TIMEOUT' : 'AGENT_REQUEST_FAILED',
+            stage: 'Agent request',
+            observedAt: new Date().toISOString(),
+            nextAction: timedOut
+              ? 'Check open positions and reconciliation before retrying; an uncertain order is never resubmitted.'
+              : 'Check the connection and agent diagnostics; no order was assumed.',
+          };
+          trace.push(row);
+          setScan({ checked: trace.length, total: candidates.length, running: false, current: market.name, rows: [...trace] });
+          setCompletedScans(count => count + 1);
+          setLastScanAt(Date.now());
+          setAgentFeedback(`${row.reason.replaceAll('_', ' ')} at ${row.stage}. ${row.nextAction}`);
+          recordActivity(`${row.stage} failed for ${market.symbol}: ${row.reason}.`);
+          return;
+        }
         results = Array.isArray(body.accounts) ? body.accounts : [];
         if (scanning) {
           const outcome = results[0];
-          trace.push({ symbol: market.symbol, name: market.name, ...outcome });
+          const marketOutcome = outcome || {
+            status: 'error',
+            reason: 'AGENT_NO_RESULT',
+            stage: 'Agent response',
+            observedAt: new Date().toISOString(),
+            nextAction: 'Retry after checking the account status and request diagnostics.',
+          };
+          trace.push({ symbol: market.symbol, name: market.name, ...marketOutcome });
+          if (!outcome || results.length !== 1) {
+            setScan({ checked: trace.length, total: candidates.length, running: false, rows: [...trace] });
+            setCompletedScans(count => count + 1);
+            setLastScanAt(Date.now());
+            setAgentFeedback('No account result was returned for ' + market.symbol + '. ' + marketOutcome.nextAction);
+            return;
+          }
           if (outcome?.status === 'ordered') activeMarket.current = market.symbol;
           if (requestGeneration !== generation.current) {
             if (outcome?.status === 'ordered') {
@@ -428,7 +488,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           setScan({ checked: trace.length, total: candidates.length, running: true, rows: [...trace] });
           const canContinue = results.length === 1 && (outcome.status === 'ordered' ||
             outcome.reason === 'MARKET_ALREADY_OPEN' || retryMarketReasons.has(outcome.reason) ||
-            /^DERIV_PROPOSAL_REJECTED(?:_|$)/.test(outcome.reason || ''));
+            /^DERIV_(?:PROPOSAL_REJECTED|CONTRACT|MARKET_UNAVAILABLE)(?:_|$)/.test(outcome.reason || ''));
           if (canContinue) continue;
         }
         break;
@@ -498,7 +558,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
   const latestRun = useRef(runAgent);
   const latestBusy = useRef(agentBusy);
   useEffect(() => { latestRun.current = runAgent; latestBusy.current = agentBusy; }, [runAgent, agentBusy]);
-  const schedulerReady = Boolean(executionAvailable && selectedMarket);
+  const schedulerReady = Boolean(executionAvailable && selectedMarket && statusAccountRef === accountRef);
   useEffect(() => {
     if (!agentRunning || !schedulerReady || (!exitSettingsValid && !emergencyRetry)) {
       setNextScanSeconds(null);
@@ -563,7 +623,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
     start();
     const retry = setInterval(start, 15000);
     return () => clearInterval(retry);
-  }, [autoStartEnabled, controlLoaded, schedulerReady, exitSettingsValid, agentRunning, manuallyStopped, riskPaused]);
+  }, [autoStartEnabled, controlLoaded, schedulerReady, exitSettingsValid, agentRunning, manuallyStopped, riskPaused, statusAccountRef, accountRef]);
 
   async function saveAutoStart(enabled) {
     setAgentBusy(true);
@@ -717,13 +777,19 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
           {scan.rows.length > 0 && <ul>{scan.rows.map(row => <li key={row.symbol}>
             <strong>{row.name}</strong>
             <span>{row.status === 'ordered' ? 'Order confirmed' : simpleBotStatus(row.reason || row.status || 'No account result')}</span>
-            {row.review && <details className="scan-evidence">
+            {(row.review || row.stage) && <details className="scan-evidence">
               <summary>Decision details</summary>
               <dl className="trade-review">
+                <div><dt>Stage</dt><dd>{row.stage || 'Unavailable'}</dd></div>
+                <div><dt>Reason code</dt><dd>{row.reason || (row.status === 'ordered' ? 'ORDER_CONFIRMED' : 'Unavailable')}</dd></div>
+                <div><dt>Observed (EAT)</dt><dd>{row.observedAt ? new Date(row.observedAt).toLocaleString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' }) : 'Unavailable'}</dd></div>
+                <div><dt>Next action</dt><dd>{row.nextAction || 'Review the account and market diagnostics before the next scan.'}</dd></div>
+                {row.review && <>
                 <div><dt>Strategy</dt><dd>{row.strategy || 'Unavailable'}</dd></div>
                 <div><dt>Signal score</dt><dd>{Number.isFinite(row.score) ? row.score + '/100' : 'Unavailable'}</dd></div>
                 <div><dt>Bars received</dt><dd>{row.review.candles}</dd></div>
                 <div><dt>Last candle close (EAT)</dt><dd>{row.review.closedAt ? new Date(row.review.closedAt * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' }) : 'Unverified'}</dd></div>
+                </>}
               </dl>
             </details>}
           </li>)}</ul>}
@@ -774,7 +840,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             onChange={event => changeAutoStart(event.target.checked)} />
           <span>Allow Bot Agents to auto-start on this account</span>
         </label>
-        <p>Demo auto-start is on by default while this page is open. Real-account auto-start requires confirmation each time it is enabled.</p>
+        <p>Demo auto-start is on by default. Scheduled scans and exit monitoring run only while you are signed in with this Bot Agents page open; closing the page pauses the scheduler. Real-account auto-start requires confirmation each time it is enabled.</p>
         {!manual && (
           <dl className="agent-setup-summary">
             <div><dt>Markets</dt><dd>Up to {AUTOMATIC_SETUP.marketsPerScan} open markets</dd></div>

@@ -89,6 +89,9 @@ const sample = {
     symbol: 'R_100',
     granularity: 300,
     mode: 'automatic',
+    stage: 'Market data',
+    observedAt: '2025-10-09T10:01:00.000Z',
+    nextAction: 'Wait for at least 50 consecutive closed candles; inspect the feed if the gap persists.',
   }, {
     source: 'browser-console',
     event: 'BROWSER_CONSOLE',
@@ -124,6 +127,8 @@ test('PDF includes trade technicals, lifecycle, close evidence, and failure diag
   assert.match(pdf, /SMA20 99\.5000/);
   assert.match(pdf, /ORDER_CONFIRM/);
   assert.match(pdf, /MARKET_DATA_GAP/);
+  assert.match(pdf, /Stage: Market data/);
+  assert.match(pdf, /Wait for at least 50 consecutive closed candles/);
   assert.match(pdf, /early sale allowed/);
   assert.match(pdf, /Broker IDs: buy 67890/);
   assert.match(pdf, /settlement 98765/);
@@ -140,6 +145,8 @@ test('Excel workbook contains detailed trade and technical-failure sheets', asyn
   assert.match(workbook, /Technical failures/);
   assert.match(workbook, /Trend \+ momentum/);
   assert.match(workbook, /MARKET_DATA_GAP/);
+  assert.match(workbook, /Wait for at least 50 consecutive closed candles/);
+  assert.match(workbook, /Observed at/);
   assert.match(workbook, /Entry candle epoch/);
   assert.match(workbook, /Broker buy transaction ID/);
   assert.match(workbook, /Close reason/);

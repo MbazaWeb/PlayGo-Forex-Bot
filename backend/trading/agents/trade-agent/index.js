@@ -1,4 +1,5 @@
 import { AUTOMATIC_SETUP } from '../../../../shared/agent-analysis.js';
+import { describeAgentDecision } from '../../../../shared/agent-decision.js';
 import { isDerivAccount, canTradeAccount } from '../account/index.js';
 import { createHash } from 'node:crypto';
 import { reviewMarket, marketReviewReceipt } from '../../../../shared/market-review.js';
@@ -80,6 +81,10 @@ async function auditAgentFailure(request, result) {
       symbol,
       granularity,
       automatic,
+      stage: result.stage,
+      nextAction: result.nextAction,
+      observedAt: result.observedAt,
+      intentId: result.intentId,
       env,
       fetchImpl,
     });
@@ -303,10 +308,28 @@ export async function runRealAgentTick({
   };
   try {
     const result = await runRealAgentTickInternal(request);
+    Object.assign(result, describeAgentDecision({
+      ...result,
+      symbol: result.symbol || symbol,
+      granularity,
+      observedAt: new Date(now()).toISOString(),
+    }));
     await auditAgentFailure(request, result);
     return result;
   } catch (error) {
-    await auditAgentFailure(request, { status: 'error', reason: publicStatus(error) });
+    const result = {
+      status: 'error',
+      reason: publicStatus(error),
+      intentId: error.agentIntentId,
+      ...describeAgentDecision({
+        status: 'error',
+        reason: publicStatus(error),
+        symbol,
+        granularity,
+        observedAt: new Date(now()).toISOString(),
+      }),
+    };
+    await auditAgentFailure(request, result);
     throw error;
   }
 }
@@ -680,6 +703,7 @@ async function runRealAgentTickInternal({
         fetchImpl,
       });
     }
+    error.agentIntentId = reservation.intentId;
     throw error;
   }
 }

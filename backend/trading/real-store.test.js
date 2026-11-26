@@ -18,13 +18,18 @@ const localEnv = {
 
 test('records an account-scoped agent failure with useful market context', async () => {
   let inserted;
+  const observedAt = '2026-11-25T05:15:28.000Z';
   await recordAgentFailure({
     accountId: 'DOT1234',
-    status: 'watching',
-    reason: 'MARKET_DATA_GAP',
+    status: 'error',
+    reason: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure',
     symbol: 'R_100',
     granularity: 300,
     automatic: true,
+    stage: 'Broker proposal',
+    nextAction: 'No buy was submitted; record the broker code and try another eligible market.',
+    observedAt,
+    intentId: 'c3e219de-9cc0-4fb9-866a-215438234c18',
     env: localEnv,
     fetchImpl: async (url, init) => {
       assert.equal(new URL(url).pathname, '/playgo_real_audit');
@@ -33,13 +38,17 @@ test('records an account-scoped agent failure with useful market context', async
     },
   });
   assert.equal(inserted.account_id, 'DOT1234');
+  assert.equal(inserted.intent_id, 'c3e219de-9cc0-4fb9-866a-215438234c18');
   assert.equal(inserted.event_type, 'AGENT_FAILURE');
   assert.deepEqual(inserted.event_data, {
-    status: 'watching',
-    reason: 'MARKET_DATA_GAP',
+    status: 'error',
+    reason: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure',
     symbol: 'R_100',
     granularity: 300,
     mode: 'automatic',
+    stage: 'Broker proposal',
+    nextAction: 'No buy was submitted; record the broker code and try another eligible market.',
+    observedAt,
   });
 });
 
@@ -69,6 +78,18 @@ test('reads failures only within the requested timestamp window', async () => {
         ',created_at.lte.' + new Date(to * 1000).toISOString() + ')');
       if (query.has('id')) return Response.json([]);
       return Response.json([
+        {
+          id: 23, intent_id: intentId, event_type: 'AGENT_FAILURE',
+          event_data: {
+            status: 'error',
+            reason: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure',
+            symbol: 'R_100',
+            stage: 'Broker proposal',
+            nextAction: 'No buy was submitted; record the broker code and try another eligible market.',
+            observedAt: new Date((from + 60) * 1000).toISOString(),
+          },
+          created_at: new Date((from + 60) * 1000).toISOString(),
+        },
         {
           id: 22, intent_id: intentId, event_type: 'ORDER_REJECT',
           event_data: { from: 'submitted', to: 'rejected' },
@@ -106,8 +127,11 @@ test('reads failures only within the requested timestamp window', async () => {
   const agentFailure = result.failures.find(failure => failure.event === 'AGENT_FAILURE');
   const rejectedOrder = result.failures.find(failure => failure.event === 'ORDER_REJECT');
   assert.equal(agentFailure.reason, 'AGENT_OPERATION_FAILED');
-  assert.equal(rejectedOrder.reason, 'ORDER_REJECTED');
+  assert.equal(rejectedOrder.reason, 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure');
   assert.equal(rejectedOrder.symbol, 'R_100');
+  assert.equal(rejectedOrder.stage, 'Broker proposal');
+  assert.equal(rejectedOrder.nextAction,
+    'No buy was submitted; record the broker code and try another eligible market.');
   assert.equal(rejectedOrder.from, 'submitted');
   const closeFailure = result.failures.find(failure => failure.event === 'CLOSE_RESULT');
   assert.equal(closeFailure.status, 'error');

@@ -40,9 +40,29 @@ class BrokerSocket {
   send(raw) {
     const request = JSON.parse(raw);
     this.sent.push(request);
-    const response = request.proposal
-      ? { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } }
-      : { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345, transaction_id: 67890, buy_price: 10 } };
+    const response = request.active_symbols
+      ? {
+        req_id: request.req_id,
+        msg_type: 'active_symbols',
+        active_symbols: [{ symbol: 'R_75', exchange_is_open: 1, is_trading_suspended: 0 }],
+      }
+      : request.contracts_for
+        ? {
+          req_id: request.req_id,
+          msg_type: 'contracts_for',
+          contracts_for: {
+            available: ['CALL', 'PUT'].map(contract_type => ({
+              contract_type,
+              expiry_type: 'duration',
+              min_contract_duration: '1m',
+              max_contract_duration: '60m',
+              barriers: '0',
+            })),
+          },
+        }
+        : request.proposal
+          ? { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } }
+          : { req_id: request.req_id, msg_type: 'buy', buy: { contract_id: 12345, transaction_id: 67890, buy_price: 10 } };
     queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
   }
 
@@ -250,6 +270,10 @@ test('one-time trade checks restore an inactive control after a non-qualifying a
       control.active = false;
       return Response.json({ active: false });
     }
+    if (parsed.pathname.endsWith('/playgo_real_audit')) {
+      events.push('record-agent-failure');
+      return new Response(null, { status: 204 });
+    }
     if (parsed.pathname.endsWith('/otp')) {
       events.push('request-otp');
       return Response.json({
@@ -294,6 +318,9 @@ test('one-time trade checks restore an inactive control after a non-qualifying a
     now: () => 1_000_000_000,
   });
   assert.equal(results[0].status, 'watching');
+  assert.equal(results[0].reason, 'INSUFFICIENT');
+  assert.equal(results[0].stage, 'Market data');
+  assert.ok(events.includes('record-agent-failure'));
   assert.equal(control.active, false);
   assert.ok(events.includes('start-control'));
   assert.ok(events.includes('stop-control'));
@@ -378,6 +405,26 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
           };
         });
         response = { req_id: request.req_id, candles };
+      } else if (request.active_symbols) {
+        response = {
+          req_id: request.req_id,
+          msg_type: 'active_symbols',
+          active_symbols: [{ symbol: 'R_75', exchange_is_open: 1, is_trading_suspended: 0 }],
+        };
+      } else if (request.contracts_for) {
+        response = {
+          req_id: request.req_id,
+          msg_type: 'contracts_for',
+          contracts_for: {
+            available: ['CALL', 'PUT'].map(contract_type => ({
+              contract_type,
+              expiry_type: 'duration',
+              min_contract_duration: '1m',
+              max_contract_duration: '60m',
+              barriers: '0',
+            })),
+          },
+        };
       } else if (request.proposal) {
         response = { req_id: request.req_id, msg_type: 'proposal', proposal: { id: 'proposal-1', ask_price: 10 } };
       } else if (request.buy) {
@@ -414,6 +461,10 @@ test('one-time qualifying order keeps Bot Agents active for scheduled monitoring
   };
   const results = await placeRealAgentOrders(request);
   assert.equal(results[0].status, 'ordered');
+  assert.equal(results[0].stage, 'Buy confirmation');
+  assert.equal(results[0].nextAction, 'Monitor this broker-confirmed contract until settlement.');
+  assert.equal(results[0].symbol, 'R_75');
+  assert.ok(Number.isFinite(Date.parse(results[0].observedAt)));
   assert.equal(results[0].automationActive, true);
   assert.equal(control.active, true);
   assert.ok(events.includes('buy-request'));
@@ -855,8 +906,28 @@ test('reports the Deriv proposal rejection code without entering the buy stage',
   class RejectedProposalSocket extends BrokerSocket {
     send(raw) {
       const request = JSON.parse(raw);
-      assert.equal(request.proposal, 1);
-      const response = { req_id: request.req_id, error: { code: 'ContractCreationFailure', message: 'broker detail' } };
+      const response = request.active_symbols
+        ? {
+          req_id: request.req_id,
+          msg_type: 'active_symbols',
+          active_symbols: [{ symbol: 'R_75', exchange_is_open: 1, is_trading_suspended: 0 }],
+        }
+        : request.contracts_for
+          ? {
+            req_id: request.req_id,
+            msg_type: 'contracts_for',
+            contracts_for: {
+              available: ['CALL', 'PUT'].map(contract_type => ({
+                contract_type,
+                min_contract_duration: '1m',
+                max_contract_duration: '60m',
+              })),
+            },
+          }
+          : {
+            req_id: request.req_id,
+            error: { code: 'ContractCreationFailure', message: 'broker detail' },
+          };
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
     }
   }
@@ -866,6 +937,62 @@ test('reports the Deriv proposal rejection code without entering the buy stage',
     intent: { symbol: 'R_75', contractType: 'CALL', stake: 10, duration: 1, durationUnit: 'm', strategyId: 'test_strategy' },
     beforeBuy: () => assert.fail('rejected proposal must never submit a buy'),
   }), { code: 'DERIV_PROPOSAL_REJECTED_ContractCreationFailure' });
+});
+
+test('closed markets and unsupported contract durations are skipped before proposals', async () => {
+  for (const scenario of ['closed', 'unsupported-duration']) {
+    let proposalRequests = 0;
+    class IneligibleMarketSocket extends BrokerSocket {
+      send(raw) {
+        const request = JSON.parse(raw);
+        const response = request.active_symbols
+          ? {
+            req_id: request.req_id,
+            msg_type: 'active_symbols',
+            active_symbols: [{
+              symbol: 'R_75',
+              exchange_is_open: scenario === 'closed' ? 0 : 1,
+              is_trading_suspended: 0,
+            }],
+          }
+          : request.contracts_for
+            ? {
+              req_id: request.req_id,
+              msg_type: 'contracts_for',
+              contracts_for: {
+                available: [{
+                  contract_type: 'CALL',
+                  expiry_type: 'duration',
+                  min_contract_duration: '5m',
+                  max_contract_duration: '15m',
+                }],
+              },
+            }
+            : (proposalRequests++, {
+              req_id: request.req_id,
+              msg_type: 'proposal',
+              proposal: { id: 'proposal-1', ask_price: 10 },
+            });
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) }));
+      }
+    }
+    const expectedCode = scenario === 'closed'
+      ? 'DERIV_MARKET_UNAVAILABLE'
+      : 'DERIV_CONTRACT_DURATION_UNSUPPORTED';
+    await assert.rejects(executeRealOrder({
+      account: realAccount,
+      token: 'fixture',
+      fetchImpl: otpFetch,
+      Socket: IneligibleMarketSocket,
+      env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id },
+      intent: {
+        symbol: 'R_75', contractType: 'CALL', stake: 10,
+        duration: 1, durationUnit: 'm', strategyId: 'test_strategy',
+      },
+      beforeBuy: () => assert.fail('an ineligible market must not reach buy confirmation'),
+    }), { code: expectedCode });
+    assert.equal(proposalRequests, 0);
+  }
 });
 
 test('the real order path fails closed without stored qualification even with both keys', async () => {

@@ -1,4 +1,5 @@
 import { evaluateLiveGate } from '../../shared/live-gate.js';
+import { isMarketOpen, supportsContractDuration } from '../../shared/deriv-market.js';
 import { readLiveQualification, recordCloseResult } from './real-store.js';
 import { isDerivAccount, canTradeAccount } from './agents/account/index.js';
 const API = 'https://api.derivws.com';
@@ -175,6 +176,23 @@ export async function executeRealOrder({
   if (typeof beforeBuy !== 'function') throw codedError('PERSISTED_SUBMISSION_REQUIRED');
 
   return withRealSocket({ token, account, appId, fetchImpl, Socket }, async socket => {
+    const activeSymbols = await sendAndWait(socket, {
+      active_symbols: 'full',
+    }, 'active_symbols', 1);
+    if (!isMarketOpen(activeSymbols, intent.symbol))
+      throw codedError('DERIV_MARKET_UNAVAILABLE');
+
+    const contracts = await sendAndWait(socket, {
+      contracts_for: intent.symbol,
+    }, 'contracts_for', 2);
+    const availableContracts = contracts?.contracts_for?.available;
+    if (!Array.isArray(availableContracts))
+      throw codedError('INVALID_CONTRACTS_RESPONSE');
+    if (!availableContracts.some(row => row?.contract_type === intent.contractType))
+      throw codedError('DERIV_CONTRACT_UNAVAILABLE');
+    if (!supportsContractDuration(contracts, intent.contractType, intent.duration, intent.durationUnit))
+      throw codedError('DERIV_CONTRACT_DURATION_UNSUPPORTED');
+
     const proposal = await sendAndWait(socket, {
       proposal: 1,
       amount: intent.stake,
@@ -184,7 +202,7 @@ export async function executeRealOrder({
       duration: intent.duration,
       duration_unit: intent.durationUnit,
       underlying_symbol: intent.symbol,
-    }, 'proposal', 1);
+    }, 'proposal', 3);
     const proposalId = proposal?.proposal?.id;
     const ask = Number(proposal?.proposal?.ask_price);
     if ((typeof proposalId !== 'string' && !Number.isSafeInteger(proposalId)) ||
@@ -208,7 +226,7 @@ export async function executeRealOrder({
       throw codedError('BROKER_ORDER_OUTCOME_UNKNOWN');
     let result;
     try {
-      result = await sendAndWait(socket, { buy: proposalId, price: ask }, 'buy', 2);
+      result = await sendAndWait(socket, { buy: proposalId, price: ask }, 'buy', 4);
     } catch {
       throw codedError('BROKER_ORDER_OUTCOME_UNKNOWN');
     }

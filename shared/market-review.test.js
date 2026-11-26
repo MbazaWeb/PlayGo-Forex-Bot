@@ -16,6 +16,13 @@ test('preview and entry checks ignore the unfinished bar and hold a weak setup',
   assert.equal(review.block, 'WEAK_SIGNAL');
 });
 
+test('closed candle parsing sorts broker rows and rejects future candles', () => {
+  const closed = closedMarketBars([...bars].reverse(), 60, now);
+  assert.deepEqual(closed, bars);
+  const future = closedMarketBars([...bars, { ...bars.at(-1), epoch: start + 60 }], 60, now);
+  assert.equal(reviewMarket(future, 60, now, true).block, 'UNALIGNED_MARKET_DATA');
+});
+
 test('all signal-driven entry modes hold stale, duplicate and malformed market data', () => {
   for (const automatic of [false, true]) {
     assert.equal(reviewMarket(bars, 60, now + 180000, automatic).block, 'STALE_MARKET_DATA');
@@ -58,4 +65,12 @@ test('an old session gap does not block 60 consecutive recent candles', () => {
   const brokenRecent = [...bars];
   brokenRecent[10] = { ...brokenRecent[10], epoch: brokenRecent[10].epoch + 1 };
   assert.equal(reviewMarket([...previousSession, ...brokenRecent], 60, now, true).block, 'MARKET_DATA_GAP');
+});
+
+test('a closure gap before 50 new bars reports insufficient history, not a bad feed', () => {
+  const previousSession = bars.slice(0, 40).map(bar => ({ ...bar, epoch: bar.epoch - 86400 }));
+  const reopened = bars.slice(-20);
+  const result = reviewMarket([...previousSession, ...reopened], 60, now, true);
+  assert.equal(result.block, 'INSUFFICIENT');
+  assert.equal(result.bars, 20);
 });

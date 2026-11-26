@@ -90,13 +90,14 @@ export function downloadTradeReport({
   ];
   const failureRows = [
     ['Recorded at', 'Source', 'Event', 'Status', 'Reason', 'Contract', 'Market', 'Direction', 'Duration (min)',
-      'Stake', 'Proceeds', 'Outcome', 'Broker transaction ID', 'Close requested at', 'Close confirmed at',
+      'Stage', 'Observed at', 'Next action', 'Stake', 'Proceeds', 'Outcome', 'Broker transaction ID', 'Close requested at', 'Close confirmed at',
       'Interval (seconds)', 'Mode', 'From state', 'To state'],
     ...technicalFailures.map(issue => [
       issue.recordedAt ?? 'Unavailable', issue.source ?? 'application', issue.event ?? 'Unavailable', issue.status ?? 'Unavailable',
       issue.reason ?? 'Unavailable', issue.contractId ?? 'Unavailable',
       issue.symbol ?? 'Unavailable', issue.direction ?? 'Unavailable',
-      issue.duration ?? 'Unavailable', issue.stake ?? 'Unavailable', issue.soldFor ?? 'Unavailable',
+      issue.duration ?? 'Unavailable', issue.stage ?? 'Unavailable', issue.observedAt ?? 'Unavailable',
+      issue.nextAction ?? 'Unavailable', issue.stake ?? 'Unavailable', issue.soldFor ?? 'Unavailable',
       issue.outcome ?? 'Unavailable', issue.transactionId ?? 'Unavailable',
       issue.requestedAt ?? 'Unavailable', issue.confirmedAt ?? 'Unavailable',
       issue.granularity ?? 'Unavailable', issue.mode ?? 'Unavailable',
@@ -337,6 +338,9 @@ export function downloadTradePdf({
         (issue.source || 'application') + ' | ' +
           (issue.event || 'AGENT_FAILURE') + ' | ' +
           String(issue.status || 'unknown').toUpperCase() + ' | ' + (issue.reason || 'Reason unavailable'),
+          'Stage: ' + (issue.stage || 'Unavailable') +
+            ' | observed: ' + timestamp(issue.observedAt || issue.recordedAt),
+          'Next action: ' + (issue.nextAction || 'Unavailable'),
         'Contract: ' + (issue.contractId || 'Unavailable') +
           ' | outcome: ' + (issue.outcome || 'Unavailable') +
           ' | proceeds: ' + money(issue.soldFor) +

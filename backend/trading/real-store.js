@@ -250,17 +250,24 @@ export async function recordOrderStrategy({
 
 export async function recordAgentFailure({
   accountId, status, reason, symbol, granularity, automatic,
+  stage = null, nextAction = null, observedAt = new Date().toISOString(), intentId = null,
   env = process.env, fetchImpl = fetch,
 }) {
   if (!/^[A-Za-z0-9_-]{3,80}$/.test(accountId || '') ||
       !['blocked', 'error', 'watching'].includes(status) ||
-      !/^[A-Z][A-Z0-9_]{0,79}$/.test(reason || ''))
+      !/^[A-Za-z][A-Za-z0-9_]{0,95}$/.test(reason || '') ||
+      (intentId !== null && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(intentId)) ||
+      !Number.isFinite(Date.parse(observedAt)) ||
+      (stage !== null && !/^[A-Za-z][A-Za-z ]{0,39}$/.test(stage)) ||
+      (nextAction !== null && (typeof nextAction !== 'string' ||
+        !/^[\x20-\x7E]{1,240}$/.test(nextAction))))
     throw Error('INVALID_AGENT_FAILURE_AUDIT');
   await request(env, 'playgo_real_audit', {
     method: 'POST',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({
       account_id: accountId,
+      intent_id: intentId,
       event_type: 'AGENT_FAILURE',
       event_data: {
         status,
@@ -268,6 +275,9 @@ export async function recordAgentFailure({
         symbol: /^[A-Za-z0-9_]{2,30}$/.test(symbol || '') ? symbol : null,
         granularity: Number.isSafeInteger(granularity) ? granularity : null,
         mode: automatic ? 'automatic' : 'manual',
+        stage,
+        nextAction,
+        observedAt: new Date(observedAt).toISOString(),
       },
     }),
   }, fetchImpl);
@@ -467,6 +477,15 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
   const intentIds = [...new Set(rows
     .map(row => row.intent_id)
     .filter(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)))];
+  const rejectedIntentIds = new Set(rows
+    .filter(row => row.event_type === 'ORDER_REJECT' && typeof row.intent_id === 'string')
+    .map(row => row.intent_id));
+  const rejectionDetails = new Map();
+  for (const row of rows) {
+    if (row.event_type === 'AGENT_FAILURE' && typeof row.intent_id === 'string' &&
+        rejectedIntentIds.has(row.intent_id) && !rejectionDetails.has(row.intent_id))
+      rejectionDetails.set(row.intent_id, row);
+  }
   const intents = new Map();
   for (let offset = 0; offset < intentIds.length; offset += 100) {
     const batch = intentIds.slice(offset, offset + 100);
@@ -479,7 +498,10 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
     if (!Array.isArray(intentRows)) throw Error('INVALID_AGENT_FAILURE_INTENTS');
     for (const intent of intentRows) intents.set(intent.id, intent);
   }
-  const failures = rows.map(row => {
+  const failures = rows
+    .filter(row => !(row.event_type === 'AGENT_FAILURE' &&
+      typeof row.intent_id === 'string' && rejectedIntentIds.has(row.intent_id)))
+    .map(row => {
     if (row.event_type === 'AGENT_FAILURE')
       return { ...row.event_data, source: 'application', event: row.event_type, recordedAt: row.created_at };
     if (row.event_type === 'BROWSER_CONSOLE')
@@ -500,6 +522,10 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
         event: row.event_type,
         status: row.event_data?.close_status === 'unconfirmed' ? 'error' : 'watching',
         reason: row.event_data?.reason || 'CLOSE_STATUS',
+        stage: 'Exit monitoring',
+        nextAction: row.event_data?.close_status === 'unconfirmed'
+          ? 'Check the broker position before retrying an exit.'
+          : 'Continue monitoring until the settlement is reconciled.',
         contractId: row.event_data?.contract_id ?? null,
         outcome: row.event_data?.outcome || 'unconfirmed',
         soldFor: row.event_data?.sold_for ?? null,
@@ -510,15 +536,24 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
         recordedAt: row.created_at,
       };
     const intent = intents.get(row.intent_id);
+    const rejection = rejectionDetails.get(row.intent_id)?.event_data;
     return {
       source: 'broker',
       event: row.event_type,
       status: row.event_type === 'ORDER_UNKNOWN' ? 'error' : 'blocked',
-      reason: row.event_type === 'ORDER_UNKNOWN' ? 'ORDER_OUTCOME_UNKNOWN' : 'ORDER_REJECTED',
+      reason: row.event_type === 'ORDER_UNKNOWN'
+        ? 'ORDER_OUTCOME_UNKNOWN'
+        : rejection?.reason || 'ORDER_REJECTED',
       symbol: intent?.symbol ?? null,
       direction: intent?.contract_type ?? null,
       duration: intent?.duration ?? null,
       stake: intent ? Number(intent.stake) : null,
+      stage: rejection?.stage || (row.event_type === 'ORDER_UNKNOWN' ? 'Buy confirmation' : 'Broker proposal'),
+      nextAction: rejection?.nextAction ||
+        (row.event_type === 'ORDER_UNKNOWN'
+          ? 'Check Deriv open positions and reconciliation before allowing another order.'
+          : 'No buy was submitted; inspect the broker response and try another eligible market.'),
+      observedAt: rejection?.observedAt ?? row.created_at,
       from: row.event_data?.from ?? null,
       to: row.event_data?.to ?? null,
       mode: null,

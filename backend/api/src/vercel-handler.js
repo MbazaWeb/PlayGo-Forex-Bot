@@ -1,5 +1,6 @@
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
 import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders, calculateStake, MAX_STAKE_ABSOLUTE_USD, MAX_STAKE_PERCENT} from '../../trading/agents/index.js';
+import { describeAgentDecision } from '../../../shared/agent-decision.js';
 import {listAccounts} from './providers/deriv.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 import {accountReference, activateAccount, publicAccount, publicAccountBody, publicAgentResult, resolveActiveAccount} from './account-selection.js';
@@ -311,10 +312,17 @@ export default async function handler(req, res) {
           fetchImpl: fetch,
         }));
       } catch (error) {
+        const reason = error.code || 'AGENT_RUN_FAILED';
         results.push({
           accountId: row.account_id,
           status: 'error',
-          reason: error.code || 'AGENT_RUN_FAILED',
+          reason,
+          ...describeAgentDecision({
+            status: 'error',
+            reason,
+            symbol: params.get('symbol'),
+            granularity: Number(params.get('granularity')),
+          }),
         });
       }
     }

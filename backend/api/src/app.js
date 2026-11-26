@@ -1,5 +1,6 @@
 import {readPortfolio, readHistory, closePortfolioContract} from './portfolio/index.js';
 import {isDerivAccount, startRealAgents, stopRealAgents, readRealAgentStatuses, runRealAgentTick, placeRealAgentOrders, calculateStake, MAX_STAKE_ABSOLUTE_USD, MAX_STAKE_PERCENT} from '../../trading/agents/index.js';
+import { describeAgentDecision } from '../../../shared/agent-decision.js';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 import {accountReference, activateAccount, publicAccount, publicAccountBody, publicAgentResult, resolveActiveAccount} from './account-selection.js';
@@ -235,7 +236,11 @@ export function createApp(config,{fetcher=fetch,now=Date.now,Socket=globalThis.W
           env:process.env,fetchImpl:fetcher
         }));
       }catch(error){
-        results.push({accountId:row.account_id,status:'error',reason:error.code||'AGENT_RUN_FAILED'});
+        const reason=error.code||'AGENT_RUN_FAILED';
+        results.push({
+          accountId:row.account_id,status:'error',reason,
+          ...describeAgentDecision({status:'error',reason,symbol,granularity}),
+        });
       }
     }
     return json(res,200,{accounts:results.map(row=>publicAgentResult(row,accountRef))});

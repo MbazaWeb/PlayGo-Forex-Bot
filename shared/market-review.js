@@ -4,13 +4,21 @@ import { analyzeCandles, automaticEntryBlock } from './agent-analysis.js';
 export function closedMarketBars(rows, granularity, nowMs) {
   if (!Array.isArray(rows) || !Number.isInteger(granularity) || granularity <= 0) return [];
   const currentStart = Math.floor(nowMs / 1000 / granularity) * granularity;
-  return rows.filter(row => row && (Number(row.epoch) < currentStart || Number(row.epoch) >= currentStart + granularity)).map(row => ({
-    epoch: Number(row?.epoch),
-    open: Number(row?.open),
-    high: Number(row?.high),
-    low: Number(row?.low),
-    close: Number(row?.close),
-  }));
+  return rows
+    .filter(row => {
+      const epoch = Number(row?.epoch);
+      return !Number.isFinite(epoch) ||
+        epoch < currentStart ||
+        epoch >= currentStart + granularity;
+    })
+    .map(row => ({
+      epoch: Number(row?.epoch),
+      open: Number(row?.open),
+      high: Number(row?.high),
+      low: Number(row?.low),
+      close: Number(row?.close),
+    }))
+    .sort((a, b) => a.epoch - b.epoch);
 }
 
 export function marketIntegrityBlock(candles, granularity, nowMs, minimumBars = 50) {
@@ -35,15 +43,50 @@ export function marketIntegrityBlock(candles, granularity, nowMs, minimumBars = 
 }
 
 export function reviewMarket(candles, granularity, nowMs, automatic) {
-  // Broker history can cross an overnight market closure. Review a recent
-  // continuous window rather than rejecting an otherwise current setup.
-  const recent = Array.isArray(candles) ? candles.slice(-60) : candles;
-  const dataBlock = marketIntegrityBlock(recent, granularity, nowMs);
-  const badPrice = Array.isArray(recent) && recent.some(bar => !bar || ![bar.open, bar.high, bar.low, bar.close]
+  if (!Array.isArray(candles)) return { status: 'blocked', block: 'INVALID', bars: 0 };
+  if (!Number.isInteger(granularity) || granularity <= 0 || !Number.isFinite(nowMs))
+    return { status: 'blocked', block: 'INVALID', bars: candles.length };
+
+  const ordered = [...candles].sort((a, b) => Number(a?.epoch) - Number(b?.epoch));
+  const badPrice = ordered.some(bar => !bar || ![bar.open, bar.high, bar.low, bar.close]
     .every(price => Number.isFinite(price) && price > 0) ||
     bar.high < Math.max(bar.open, bar.close) || bar.low > Math.min(bar.open, bar.close));
-  const reason = dataBlock || (badPrice ? 'INVALID' : null);
-  if (reason) return { status: 'blocked', block: reason, bars: Array.isArray(recent) ? recent.length : 0 };
+  if (badPrice) return { status: 'blocked', block: 'INVALID', bars: ordered.length };
+  if (ordered.length < 50)
+    return { status: 'blocked', block: 'INSUFFICIENT', bars: ordered.length };
+
+  const seen = new Set();
+  for (const bar of ordered) {
+    if (!Number.isSafeInteger(bar?.epoch) || bar.epoch <= 0)
+      return { status: 'blocked', block: 'INVALID', bars: ordered.length };
+    if (seen.has(bar.epoch))
+      return { status: 'blocked', block: 'DUPLICATE_MARKET_DATA', bars: ordered.length };
+    seen.add(bar.epoch);
+  }
+
+  const latest = ordered.at(-1);
+  const nowSeconds = nowMs / 1000;
+  if (latest.epoch + granularity > nowSeconds)
+    return { status: 'blocked', block: 'UNALIGNED_MARKET_DATA', bars: ordered.length };
+  if (nowSeconds - latest.epoch > granularity * 2)
+    return { status: 'blocked', block: 'STALE_MARKET_DATA', bars: ordered.length };
+
+  let windowStart = ordered.length - 1;
+  while (windowStart > 0 &&
+      ordered[windowStart].epoch - ordered[windowStart - 1].epoch === granularity)
+    windowStart--;
+  const continuous = ordered.slice(windowStart);
+  if (continuous.length < 50) {
+    const gap = windowStart > 0
+      ? ordered[windowStart].epoch - ordered[windowStart - 1].epoch
+      : 0;
+    const block = gap > granularity * 5 ? 'INSUFFICIENT' : 'MARKET_DATA_GAP';
+    return { status: 'blocked', block, bars: continuous.length };
+  }
+
+  const recent = continuous.slice(-60);
+  const dataBlock = marketIntegrityBlock(recent, granularity, nowMs);
+  if (dataBlock) return { status: 'blocked', block: dataBlock, bars: recent.length };
 
   const analysis = analyzeCandles(recent, granularity);
   let block = automatic ? automaticEntryBlock(analysis) : analysis.direction ? null : 'NO_QUALIFYING_SIGNAL';

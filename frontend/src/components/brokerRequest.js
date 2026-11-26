@@ -39,8 +39,12 @@ export function simpleBotStatus(raw) {
     UNALIGNED_MARKET_DATA: 'Candle times do not match the selected interval.',
     DUPLICATE_MARKET_DATA: 'The market feed returned duplicate candles.',
     MARKET_DATA_GAP: 'The market feed is missing candles.',
-    INSUFFICIENT: 'Waiting for 50 closed candles.',
+    INSUFFICIENT: 'Waiting for 50 recent consecutive closed candles.',
     INVALID: 'The market feed returned an invalid candle.',
+    DERIV_MARKET_UNAVAILABLE: 'Deriv no longer lists this market as open; skipping it.',
+    DERIV_CONTRACT_UNAVAILABLE: 'Deriv does not list this contract type for the market.',
+    DERIV_CONTRACT_DURATION_UNSUPPORTED: 'Deriv does not offer this contract duration on the market.',
+    AGENT_REQUEST_TIMEOUT: 'The check timed out. Verify open positions before retrying.',
     ELEVATED_VOLATILITY: 'Waiting for volatility to ease.',
     BREAKOUT_NOT_CONFIRMED: 'Price has not confirmed the breakout.',
     LOSS_STREAK_COOLDOWN: 'Trading paused after consecutive losses.',
@@ -54,6 +58,8 @@ export function simpleBotStatus(raw) {
   }
   if (/429|RATE[ _]LIMIT|rate limit/i.test(message)) return 'Deriv is busy. PlayGo will wait before checking again.';
   if (/PROPOSAL[ _]REJECTED|ContractBuyValidationError/i.test(message)) return 'Deriv declined the trade quote. No order was placed.';
+  if (/DERIV_(?:CONTRACT|MARKET_UNAVAILABLE)|INVALID_CONTRACTS_RESPONSE/i.test(message))
+    return 'Deriv contract availability could not be verified. Skipping this market.';
   if (/WEAK[ _]SIGNAL/i.test(message)) return 'Waiting for a stronger signal.';
   if (/OPEN[ _]EXPOSURE[ _]LIMIT/i.test(message)) return 'Open trades are using the available risk budget.';
   if (/OPEN_CONTRACT_LIMIT/i.test(message)) return 'Open position limit reached.';

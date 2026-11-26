@@ -36,3 +36,18 @@ test('receipts distinguish a skipped setup from unverified candle history', () =
   assert.equal(blocked.block, 'DUPLICATE_MARKET_DATA');
   assert.equal(marketReviewReceipt(null), null);
 });
+
+test('complete five-minute candles with a consistent broker offset can be analyzed', () => {
+  const fiveMinuteBars = Array.from({ length: 50 }, (_, index) => ({
+    epoch: start - (50 - index) * 300 + 3,
+    open: 100, high: 101, low: 99, close: 100,
+  }));
+  assert.equal(reviewMarket(fiveMinuteBars, 300, now + 4000, true).block, 'WEAK_SIGNAL');
+  assert.equal(reviewMarket(fiveMinuteBars, 300, now + 1000, true).block, 'UNALIGNED_MARKET_DATA');
+  const malformed = [...fiveMinuteBars];
+  malformed[10] = { ...malformed[10], epoch: malformed[10].epoch + 1 };
+  assert.equal(reviewMarket(malformed, 300, now + 4000, true).block, 'MARKET_DATA_GAP');
+  assert.equal(reviewMarket(null, 300, now, true).block, 'INVALID');
+  const closed = closedMarketBars([...fiveMinuteBars, { ...fiveMinuteBars.at(-1), epoch: start + 3 }], 300, now + 4000);
+  assert.deepEqual(closed, fiveMinuteBars);
+});

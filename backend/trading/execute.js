@@ -191,7 +191,7 @@ export async function executeRealOrder({
         !Number.isFinite(ask) || ask <= 0 || ask > intent.stake)
       throw codedError('INVALID_BROKER_PROPOSAL');
 
-    if (account.account_type === 'real' && !manualTerminal) {
+    if (account.account_type === 'real') {
       const qualification = await readLiveQualification({ accountId: account.account_id, env, fetchImpl })
         .catch(() => null);
       const now = Date.now();

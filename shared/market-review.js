@@ -2,9 +2,9 @@ import { analyzeCandles, automaticEntryBlock } from './agent-analysis.js';
 
 // Both the preview and the execution agent use the same broker bars in arrival order.
 export function closedMarketBars(rows, granularity, nowMs) {
-  if (!Array.isArray(rows)) return [];
+  if (!Array.isArray(rows) || !Number.isInteger(granularity) || granularity <= 0) return [];
   const currentStart = Math.floor(nowMs / 1000 / granularity) * granularity;
-  return rows.filter(row => Number(row?.epoch) !== currentStart).map(row => ({
+  return rows.filter(row => row && (Number(row.epoch) < currentStart || Number(row.epoch) >= currentStart + granularity)).map(row => ({
     epoch: Number(row?.epoch),
     open: Number(row?.open),
     high: Number(row?.high),
@@ -14,14 +14,18 @@ export function closedMarketBars(rows, granularity, nowMs) {
 }
 
 export function marketIntegrityBlock(candles, granularity, nowMs, minimumBars = 50) {
+  if (!Array.isArray(candles) || !Number.isInteger(granularity) || granularity <= 0 || !Number.isFinite(nowMs)) return 'INVALID';
   const recent = candles;
   if (recent.length < minimumBars) return 'INSUFFICIENT';
-  const latestClosedStart = Math.floor(nowMs / 1000 / granularity) * granularity - granularity;
-  if (recent.at(-1).epoch < latestClosedStart - granularity) return 'STALE_MARKET_DATA';
+  const nowSeconds = nowMs / 1000;
+  if (!Number.isFinite(recent.at(-1)?.epoch)) return 'INVALID';
+  if (recent.at(-1).epoch + granularity > nowSeconds) return 'UNALIGNED_MARKET_DATA';
+  if (nowSeconds - recent.at(-1).epoch > granularity * 2) return 'STALE_MARKET_DATA';
   const seen = new Set();
   for (let index = 0; index < recent.length; index++) {
-    const { epoch } = recent[index];
-    if (epoch % granularity !== 0 || epoch > latestClosedStart) return 'UNALIGNED_MARKET_DATA';
+    const epoch = recent[index]?.epoch;
+    if (!Number.isSafeInteger(epoch) || epoch <= 0) return 'INVALID';
+    if (epoch + granularity > nowSeconds) return 'UNALIGNED_MARKET_DATA';
     if (seen.has(epoch)) return 'DUPLICATE_MARKET_DATA';
     seen.add(epoch);
   }
@@ -32,11 +36,11 @@ export function marketIntegrityBlock(candles, granularity, nowMs, minimumBars = 
 
 export function reviewMarket(candles, granularity, nowMs, automatic) {
   const dataBlock = marketIntegrityBlock(candles, granularity, nowMs);
-  const badPrice = candles.some(bar => ![bar.open, bar.high, bar.low, bar.close]
+  const badPrice = Array.isArray(candles) && candles.some(bar => !bar || ![bar.open, bar.high, bar.low, bar.close]
     .every(price => Number.isFinite(price) && price > 0) ||
     bar.high < Math.max(bar.open, bar.close) || bar.low > Math.min(bar.open, bar.close));
   const reason = dataBlock || (badPrice ? 'INVALID' : null);
-  if (reason) return { status: 'blocked', block: reason, bars: candles.length };
+  if (reason) return { status: 'blocked', block: reason, bars: Array.isArray(candles) ? candles.length : 0 };
 
   const analysis = analyzeCandles(candles, granularity);
   let block = automatic ? automaticEntryBlock(analysis) : analysis.direction ? null : 'NO_QUALIFYING_SIGNAL';

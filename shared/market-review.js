@@ -35,19 +35,22 @@ export function marketIntegrityBlock(candles, granularity, nowMs, minimumBars = 
 }
 
 export function reviewMarket(candles, granularity, nowMs, automatic) {
-  const dataBlock = marketIntegrityBlock(candles, granularity, nowMs);
-  const badPrice = Array.isArray(candles) && candles.some(bar => !bar || ![bar.open, bar.high, bar.low, bar.close]
+  // Broker history can cross an overnight market closure. Review a recent
+  // continuous window rather than rejecting an otherwise current setup.
+  const recent = Array.isArray(candles) ? candles.slice(-60) : candles;
+  const dataBlock = marketIntegrityBlock(recent, granularity, nowMs);
+  const badPrice = Array.isArray(recent) && recent.some(bar => !bar || ![bar.open, bar.high, bar.low, bar.close]
     .every(price => Number.isFinite(price) && price > 0) ||
     bar.high < Math.max(bar.open, bar.close) || bar.low > Math.min(bar.open, bar.close));
   const reason = dataBlock || (badPrice ? 'INVALID' : null);
-  if (reason) return { status: 'blocked', block: reason, bars: Array.isArray(candles) ? candles.length : 0 };
+  if (reason) return { status: 'blocked', block: reason, bars: Array.isArray(recent) ? recent.length : 0 };
 
-  const analysis = analyzeCandles(candles, granularity);
+  const analysis = analyzeCandles(recent, granularity);
   let block = automatic ? automaticEntryBlock(analysis) : analysis.direction ? null : 'NO_QUALIFYING_SIGNAL';
   let strategy = automatic ? 'Trend + momentum' : 'Manual rules';
   if (automatic && analysis.volatilityRank < 0.2) {
     strategy = 'Low-volatility breakout';
-    const prior = candles.slice(-11, -1);
+    const prior = recent.slice(-11, -1);
     const breakout = analysis.direction === 'bullish'
       ? analysis.last.close > Math.max(...prior.map(bar => bar.high))
       : analysis.direction === 'bearish' && analysis.last.close < Math.min(...prior.map(bar => bar.low));

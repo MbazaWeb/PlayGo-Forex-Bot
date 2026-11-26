@@ -149,7 +149,7 @@ export function createApp(config,{fetcher=fetch,now=Date.now,Socket=globalThis.W
 
    if(path==='/api/agent/preferences'&&req.method==='GET'){
     try{
-      const enabled=await readAutoStartPreference({accountId:account.account_id,env:process.env,fetchImpl:fetcher});
+      const enabled=await readAutoStartPreference({accountId:account.account_id,accountType:account.account_type,env:process.env,fetchImpl:fetcher});
       return json(res,200,{accountRef,autoStartEnabled:enabled});
     }catch(error){return json(res,503,{error:error.code||'AUTO_START_SETTINGS_UNAVAILABLE'});}
    }

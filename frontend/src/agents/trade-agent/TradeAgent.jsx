@@ -774,7 +774,7 @@ export default function TradeAgent({ account, realExecutionEnabled, marketSymbol
             onChange={event => changeAutoStart(event.target.checked)} />
           <span>Allow Bot Agents to auto-start on this account</span>
         </label>
-        <p>Auto-start is off by default. Real-account auto-start requires confirmation each time it is enabled.</p>
+        <p>Demo auto-start is on by default while this page is open. Real-account auto-start requires confirmation each time it is enabled.</p>
         {!manual && (
           <dl className="agent-setup-summary">
             <div><dt>Markets</dt><dd>Up to {AUTOMATIC_SETUP.marketsPerScan} open markets</dd></div>

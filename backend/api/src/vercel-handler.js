@@ -206,7 +206,7 @@ export default async function handler(req, res) {
 
   if (path === 'agent/preferences' && req.method === 'GET') {
     try {
-      const enabled = await readAutoStartPreference({ accountId: account.account_id, env: process.env, fetchImpl: fetch });
+      const enabled = await readAutoStartPreference({ accountId: account.account_id, accountType: account.account_type, env: process.env, fetchImpl: fetch });
       return respond(res, 200, { accountRef, autoStartEnabled: enabled });
     } catch (error) {
       return respond(res, 503, { error: error.code || 'AUTO_START_SETTINGS_UNAVAILABLE' });

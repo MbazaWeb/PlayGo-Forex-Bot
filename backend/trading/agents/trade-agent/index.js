@@ -271,7 +271,7 @@ export async function readRealAgentStatuses({ accounts, env = process.env, fetch
       results.push({
         accountId: account.account_id,
         control: await readRealControl({ accountId: account.account_id, env, fetchImpl }),
-        autoStartEnabled: await readAutoStartPreference({ accountId: account.account_id, env, fetchImpl }),
+        autoStartEnabled: await readAutoStartPreference({ accountId: account.account_id, accountType: account.account_type, env, fetchImpl }),
       });
     } catch (error) {
       results.push({ accountId: account.account_id, error: publicStatus(error) });

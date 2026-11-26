@@ -102,7 +102,7 @@ export async function recordAccountSelection({
   }, fetchImpl);
 }
 
-export async function readAutoStartPreference({ accountId, env = process.env, fetchImpl = fetch }) {
+export async function readAutoStartPreference({ accountId, accountType = 'real', env = process.env, fetchImpl = fetch }) {
   if (!/^[A-Za-z0-9_-]{3,80}$/.test(accountId || '')) throw Error('INVALID_ACCOUNT_ID');
   const query = new URLSearchParams({
     account_id: 'eq.' + accountId,
@@ -111,7 +111,9 @@ export async function readAutoStartPreference({ accountId, env = process.env, fe
   });
   const rows = await request(env, 'playgo_account_settings?' + query, {}, fetchImpl);
   if (!Array.isArray(rows)) throw Error('INVALID_ACCOUNT_SETTINGS_RESPONSE');
-  return rows[0]?.auto_start_enabled === true;
+  // Demo scanning starts on page load unless this account explicitly opted out.
+  // Real accounts always require an explicit opt-in.
+  return rows.length ? rows[0].auto_start_enabled === true : accountType === 'demo';
 }
 
 export async function writeAutoStartPreference({

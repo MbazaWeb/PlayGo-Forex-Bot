@@ -259,6 +259,13 @@ test('auto-start preferences default off and persist by account', async () => {
   assert.equal(await readAutoStartPreference({
     accountId: 'DOT1234', env: localEnv, fetchImpl,
   }), false);
+  assert.equal(await readAutoStartPreference({
+    accountId: 'DOT1234', accountType: 'demo', env: localEnv, fetchImpl,
+  }), true);
+  assert.equal(await readAutoStartPreference({
+    accountId: 'DOT1234', accountType: 'demo', env: localEnv,
+    fetchImpl: async () => Response.json([{ auto_start_enabled: false }]),
+  }), false);
   await writeAutoStartPreference({
     accountId: 'DOT1234', enabled: true, env: localEnv, fetchImpl,
   });

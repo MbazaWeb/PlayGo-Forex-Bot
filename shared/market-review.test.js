@@ -51,3 +51,11 @@ test('complete five-minute candles with a consistent broker offset can be analyz
   const closed = closedMarketBars([...fiveMinuteBars, { ...fiveMinuteBars.at(-1), epoch: start + 3 }], 300, now + 4000);
   assert.deepEqual(closed, fiveMinuteBars);
 });
+
+test('an old session gap does not block 60 consecutive recent candles', () => {
+  const previousSession = bars.slice(0, 20).map(bar => ({ ...bar, epoch: bar.epoch - 86400 }));
+  assert.equal(reviewMarket([...previousSession, ...bars], 60, now, true).block, 'WEAK_SIGNAL');
+  const brokenRecent = [...bars];
+  brokenRecent[10] = { ...brokenRecent[10], epoch: brokenRecent[10].epoch + 1 };
+  assert.equal(reviewMarket([...previousSession, ...brokenRecent], 60, now, true).block, 'MARKET_DATA_GAP');
+});

@@ -6,7 +6,7 @@ PlayGo Trading is a Deriv workspace for Demo and Real accounts. Bot Agents analy
 
 - Select a Demo or Real Deriv Options account. The server verifies the account against the authenticated session and checks that Deriv's OTP URL matches its account type. Demo trades use virtual funds.
 - One server-confirmed account is shared across the app. Account IDs are masked in the UI and API; selecting a Real account requires explicit confirmation, and switching is blocked until the current account has no open positions.
-- Bot Agents run on the selected account while their page is open. Per-account auto-start is off by default; enabling it is an explicit setting (and requires confirmation for a Real account).
+- Bot Agents run on the selected account while their page is open. Demo auto-start is on unless explicitly disabled for that account. Real auto-start is off until explicitly enabled with confirmation.
 - Automatic setup defaults to five-minute checks, a stop-loss target of 35% of stake, and a take-profit target of 50% of stake. It requires an 85/100 signal and skips entries during elevated relative volatility. Manual Setup allows market, interval, and exit-target overrides and uses the 75/100 signal floor. Confluence measures indicator agreement.
 - Every order mode, including manual terminal orders, is limited to 1% of the current balance and a shared $10 USD-equivalent cap, with no more than two open contracts per account. Non-USD orders require a valid Deriv exchange rate; they are blocked when it is unavailable.
 - Daily settled losses are capped at 3% of the starting balance.

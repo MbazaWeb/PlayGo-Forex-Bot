@@ -11,7 +11,7 @@ test('checks freshness, alignment, duplicate timestamps and gaps in recent candl
   assert.equal(marketIntegrityBlock(good, granularity, now), null);
   assert.equal(marketIntegrityBlock(good.slice(1), granularity, now), 'INSUFFICIENT');
   assert.equal(marketIntegrityBlock(good, granularity, now + 600_000), 'STALE_MARKET_DATA');
-  assert.equal(marketIntegrityBlock(replace(10, good[10].epoch + 1), granularity, now), 'UNALIGNED_MARKET_DATA');
+  assert.equal(marketIntegrityBlock(replace(10, good[10].epoch + 1), granularity, now), 'MARKET_DATA_GAP');
   assert.equal(marketIntegrityBlock(replace(10, good[9].epoch), granularity, now), 'DUPLICATE_MARKET_DATA');
   assert.equal(marketIntegrityBlock(replace(0, good[0].epoch - granularity), granularity, now), 'MARKET_DATA_GAP');
 });

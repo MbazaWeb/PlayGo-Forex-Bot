@@ -25,3 +25,9 @@ The monitoring loop is page-active only. If the selected account, page, or sessi
 ## Database boundaries
 
 `backend/deriv_execution/real_execution.sql` creates the service-only control, intent, audit, and per-account settings tables and RPC functions. RLS is enabled; browser roles receive no table or function access. The API uses a server-only worker identity. The migration is not automatically applied to hosted databases; the operator must apply it before relying on the database-backed Phase 2 features.
+
+## Trade-report diagnostics
+
+Reports include account-scoped application/broker audit events, sanitized browser warnings and errors, and correlated Vercel runtime logs when those sources are available. Browser diagnostics are sent only after sign-in and active-account selection; the server resolves the account from the session, checks same-origin request headers, redacts common credentials, and stores the entries in the existing service-only audit table. Console messages are bounded and filtered; they are not a complete browser recording.
+
+Vercel request logs contain only an opaque account reference, request ID, route, method, and status. Runtime-log retrieval requires server-only `VERCEL_ACCESS_TOKEN` and `VERCEL_PROJECT_ID` settings; `VERCEL_TEAM_ID` is optional. The provider's short retention window, result limits, missing configuration, and partial failures are shown in each export. Reports never imply that missing diagnostics prove no issue occurred.

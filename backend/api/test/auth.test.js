@@ -50,6 +50,16 @@ test('PKCE flow, scoped accounts, secret isolation, replay and logout',async t=>
  });
  assert.equal(selected.status,200);
  assert.equal((await selected.json()).activeAccount.accountRef,demoAccount.accountRef);
+ const diagnosticBody=JSON.stringify({
+  accountRef:demoAccount.accountRef,
+  entries:[{level:'log',message:'not allowed',path:'/',clientTime:'2025-10-09T10:00:00.000Z'}],
+ });
+ assert.equal((await request('/api/diagnostics/client',{
+  method:'POST',headers:{...agentHeaders,Origin:'http://evil.test','Content-Type':'application/json'},body:diagnosticBody,
+ })).status,403);
+ assert.equal((await request('/api/diagnostics/client',{
+  method:'POST',headers:{...agentHeaders,'Content-Type':'application/json'},body:diagnosticBody,
+ })).status,400);
  const selectedList=await (await request('/api/accounts',{headers:{Cookie:sessionCookie}})).json();
  assert.equal(selectedList.activeAccountRef,demoAccount.accountRef);
  assert.equal((await request('/api/accounts/select?accountRef='+encodeURIComponent(accountList.accounts.find(account=>account.account_type==='real').accountRef),{

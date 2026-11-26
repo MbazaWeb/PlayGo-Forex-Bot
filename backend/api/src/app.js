@@ -4,7 +4,8 @@ import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {exchangeCode,listAccounts} from './providers/deriv.js';
 import {accountReference, activateAccount, publicAccount, publicAccountBody, publicAgentResult, resolveActiveAccount} from './account-selection.js';
 import {readCurrencyPerUsd} from '../../trading/execute.js';
-import {readAutoStartPreference, writeAutoStartPreference} from '../../trading/real-store.js';
+import {readAutoStartPreference, writeAutoStartPreference, recordBrowserConsoleLogs} from '../../trading/real-store.js';
+import {readJsonBody} from './read-json-body.js';
 
 const random=()=>randomBytes(32).toString('base64url');
 const RATE_LIMIT_WINDOW_MS=60000;
@@ -96,6 +97,31 @@ export function createApp(config,{fetcher=fetch,now=Date.now,Socket=globalThis.W
    }
    const account=resolveActiveAccount(session,linkedAccounts);
    const accountRef=account?accountReference(session.token,account.account_id):null;
+
+   if(path==='/api/diagnostics/client'&&req.method==='POST'){
+    if(req.headers.origin!==config.origin||req.headers['x-playgo-request']!=='1')
+      return json(res,403,{error:'Request origin rejected.'});
+    if(!account||!accountRef)return json(res,400,{error:'Select a connected Deriv account.'});
+    let body;
+    try{body=await readJsonBody(req);}
+    catch(error){return json(res,error.message==='REQUEST_BODY_TOO_LARGE'?413:400,{error:error.message});}
+    if(body?.accountRef!==accountRef||!Array.isArray(body?.entries))
+      return json(res,400,{error:'INVALID_BROWSER_DIAGNOSTICS'});
+    try{
+      const requestId=req.headers['x-vercel-id'];
+      const result=await recordBrowserConsoleLogs({
+        accountId:account.account_id,
+        accountReference:accountRef,
+        entries:body.entries,
+        requestId:typeof requestId==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(requestId)?requestId:null,
+        fetchImpl:fetcher,
+      });
+      return json(res,202,result);
+    }catch(error){
+      const code=error.code||error.message||'BROWSER_DIAGNOSTICS_WRITE_FAILED';
+      return json(res,code.startsWith('INVALID_')?400:503,{error:code});
+    }
+   }
 
    if(path==='/api/accounts'&&req.method==='GET'){
     const active=account?accountRef:null;
@@ -227,10 +253,11 @@ export function createApp(config,{fetcher=fetch,now=Date.now,Socket=globalThis.W
     if(!account)return json(res,400,{error:'Select a connected Deriv account.'});
     const read=path==='/api/history'?readHistory:readPortfolio;
     const result=await read({account,token:session.token,includeEvidence: params.get('report') === '1',
+      accountRef,
       range: params.has('range') ? { mode: params.get('range'), from: params.get('from'), to: params.get('to') } : null,
       offset: params.has('offset') ? Number(params.get('offset')) : 0,
       limit: params.has('limit') ? Number(params.get('limit')) : 500,
-      appId:config.clientId,fetchImpl:fetcher});
+      appId:config.clientId,env:process.env,fetchImpl:fetcher});
     return json(res,result.status,publicAccountBody(result.body,accountRef));
    }
 

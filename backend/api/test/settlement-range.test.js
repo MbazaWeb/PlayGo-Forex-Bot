@@ -144,9 +144,19 @@ test('report history includes account-scoped technical failures for the selected
     account,
     token: 'fixture',
     appId: 'fixture',
+    accountRef: 'abcdefghijklmnopqrstuv',
+    env: {
+      PLAYGO_ENV: 'local',
+      PLAYGO_LOCAL_REST_URL: 'http://127.0.0.1:3000',
+      PLAYGO_LOCAL_WORKER_JWT: 'fixture-worker-token-1234567890',
+      VERCEL_ACCESS_TOKEN: 'fixture-vercel-token',
+      VERCEL_PROJECT_ID: 'prj_fixture',
+    },
     range: { mode: '1', from: String(now - 3600), to: String(now) },
     includeEvidence: true,
     fetchImpl: async url => {
+      if (String(url).startsWith('https://api.vercel.com/v7/deployments'))
+        return Response.json({ deployments: [] });
       if (!url.startsWith('http://127.0.0.1:3000/')) return otp();
       const { pathname, searchParams } = new URL(url);
       assert.equal(pathname, '/playgo_real_audit');
@@ -184,6 +194,8 @@ test('report history includes account-scoped technical failures for the selected
     assert.equal(result.body.transactions.length, 0);
     assert.equal(result.body.failuresComplete, true);
     assert.equal(result.body.failures[0].reason, 'MARKET_DATA_GAP');
+    assert.equal(result.body.serverLogs.status, 'complete');
+    assert.equal(result.body.serverLogs.logs.length, 0);
     assert.equal(auditCalls, 2);
   } finally {
     for (const key of keys) {

@@ -82,14 +82,40 @@ const sample = {
     },
   },
   failures: [{
+    source: 'application',
     recordedAt: '2025-10-09T10:01:00.000Z',
     status: 'watching',
     reason: 'MARKET_DATA_GAP',
     symbol: 'R_100',
     granularity: 300,
     mode: 'automatic',
+  }, {
+    source: 'browser-console',
+    event: 'BROWSER_CONSOLE',
+    recordedAt: '2025-10-09T10:02:00.000Z',
+    status: 'error',
+    path: '/analytics',
+    requestId: 'request-1',
+    message: 'Fetch failed: code=E_NETWORK',
   }],
   failuresComplete: true,
+  serverLogs: {
+    status: 'complete',
+    complete: true,
+    coverageFrom: '2025-10-09T09:00:00.000Z',
+    coverageTo: '2025-10-09T10:00:00.000Z',
+    note: 'Correlated Vercel logs loaded.',
+    logs: [{
+      recordedAt: '2025-10-09T10:03:00.000Z',
+      level: 'error',
+      method: 'GET',
+      path: '/api/history',
+      statusCode: 500,
+      requestId: 'request-1',
+      deploymentId: 'dpl_12345678',
+      message: 'code=E_REPORT_FAILED',
+    }],
+  },
 };
 
 test('PDF includes trade technicals, lifecycle, close evidence, and failure diagnostics', async () => {
@@ -103,6 +129,10 @@ test('PDF includes trade technicals, lifecycle, close evidence, and failure diag
   assert.match(pdf, /settlement 98765/);
   assert.match(pdf, /broker transaction: 54321/);
   assert.match(pdf, /Close result: unconfirmed/);
+  assert.match(pdf, /Browser console diagnostics/);
+  assert.match(pdf, /Fetch failed: code=E_NETWORK/);
+  assert.match(pdf, /Vercel runtime diagnostics/);
+  assert.match(pdf, /dpl_12345678/);
 });
 
 test('Excel workbook contains detailed trade and technical-failure sheets', async () => {
@@ -114,4 +144,8 @@ test('Excel workbook contains detailed trade and technical-failure sheets', asyn
   assert.match(workbook, /Broker buy transaction ID/);
   assert.match(workbook, /Close reason/);
   assert.match(workbook, /Settlement transaction ID/);
+  assert.match(workbook, /Browser console/);
+  assert.match(workbook, /Fetch failed: code=E_NETWORK/);
+  assert.match(workbook, /Vercel runtime logs/);
+  assert.match(workbook, /dpl_12345678/);
 });

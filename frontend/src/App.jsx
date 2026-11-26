@@ -5,6 +5,7 @@ import {
   ChartCandlestick, ChartNoAxesCombined, Settings,
 } from 'lucide-react';
 import AccountDashboard from './components/AccountDashboard';
+import { installBrowserConsoleCapture } from './components/browserDiagnostics.js';
 import { TradeAgent } from './agents/index.js';
 
 const MarketWorkspace = React.lazy(() => import('./components/MarketWorkspace'));
@@ -80,6 +81,11 @@ export default function App() {
   }
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!session?.authenticated || !selectedAccountRef) return undefined;
+    return installBrowserConsoleCapture(selectedAccountRef);
+  }, [session?.authenticated, selectedAccountRef]);
 
   useEffect(() => {
     if (!session?.authenticated || !selectedAccountRef) return;

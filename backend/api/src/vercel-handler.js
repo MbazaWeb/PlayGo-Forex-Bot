@@ -4,7 +4,8 @@ import {listAccounts} from './providers/deriv.js';
 import { createHash, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
 import {accountReference, activateAccount, publicAccount, publicAccountBody, publicAgentResult, resolveActiveAccount} from './account-selection.js';
 import {readCurrencyPerUsd} from '../../trading/execute.js';
-import {readAutoStartPreference, writeAutoStartPreference} from '../../trading/real-store.js';
+import {readAutoStartPreference, writeAutoStartPreference, recordBrowserConsoleLogs} from '../../trading/real-store.js';
+import {readJsonBody} from './read-json-body.js';
 
 const ORIGIN = process.env.APP_ORIGIN || '';
 const REDIRECT = process.env.DERIV_REDIRECT_URI || '';
@@ -52,6 +53,27 @@ function respond(res, status, body) {
   res.end(JSON.stringify(body));
 }
 function redirect(res, url) { res.writeHead(302, { Location: url }); res.end(); }
+function logCorrelatedRequest(req, res, path, accountRef) {
+  if (!accountRef || typeof res.once !== 'function') return;
+  const headerId = req.headers['x-vercel-id'];
+  const requestId = typeof headerId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(headerId)
+    ? headerId : randomBytes(16).toString('hex');
+  const knownRoutes = new Set([
+    'accounts', 'accounts/select', 'diagnostics/client', 'history', 'portfolio', 'portfolio/close',
+    'agent/preferences', 'agent/limits', 'agent/status', 'agent/start', 'agent/stop', 'agent/run',
+    'agent/place', 'mt5/status',
+  ]);
+  res.once('finish', () => {
+    console.info(JSON.stringify({
+      event: 'playgo.api.request',
+      requestId,
+      accountReference: accountRef,
+      method: req.method,
+      route: knownRoutes.has(path) ? path : 'other',
+      statusCode: res.statusCode,
+    }));
+  });
+}
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -123,6 +145,37 @@ export default async function handler(req, res) {
   }
   const account = resolveActiveAccount(session, accounts);
   const accountRef = account ? accountReference(session.token, account.account_id) : null;
+
+  logCorrelatedRequest(req, res, path, accountRef);
+
+  if (path === 'diagnostics/client' && req.method === 'POST') {
+    if (req.headers.origin !== ORIGIN || req.headers['x-playgo-request'] !== '1')
+      return respond(res, 403, { error: 'Request origin rejected.' });
+    if (!account || !accountRef) return respond(res, 400, { error: 'Select a connected Deriv account.' });
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return respond(res, error.message === 'REQUEST_BODY_TOO_LARGE' ? 413 : 400, { error: error.message });
+    }
+    if (body?.accountRef !== accountRef || !Array.isArray(body?.entries))
+      return respond(res, 400, { error: 'INVALID_BROWSER_DIAGNOSTICS' });
+    try {
+      const result = await recordBrowserConsoleLogs({
+        accountId: account.account_id,
+        accountReference: accountRef,
+        entries: body.entries,
+        requestId: typeof req.headers['x-vercel-id'] === 'string' &&
+          /^[A-Za-z0-9._:-]{1,128}$/.test(req.headers['x-vercel-id'])
+          ? req.headers['x-vercel-id'] : null,
+        fetchImpl: fetch,
+      });
+      return respond(res, 202, result);
+    } catch (error) {
+      const code = error.code || error.message || 'BROWSER_DIAGNOSTICS_WRITE_FAILED';
+      return respond(res, code.startsWith('INVALID_') ? 400 : 503, { error: code });
+    }
+  }
 
   if (path === 'accounts' && req.method === 'GET')
     return respond(res, 200, {
@@ -284,11 +337,13 @@ export default async function handler(req, res) {
     const result = await read({
       account,
       token: session.token,
+      accountRef,
       includeEvidence: params.get('report') === '1',
       range: params.has('range') ? { mode: params.get('range'), from: params.get('from'), to: params.get('to') } : null,
       offset: params.has('offset') ? Number(params.get('offset')) : 0,
       limit: params.has('limit') ? Number(params.get('limit')) : 500,
       appId: CLIENT,
+      env: process.env,
       fetchImpl: fetch,
     });
     return respond(res, result.status, publicAccountBody(result.body, accountRef));

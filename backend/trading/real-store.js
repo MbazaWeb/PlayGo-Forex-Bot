@@ -1,4 +1,5 @@
 import { databaseKey, databaseRoot } from './database-url.js';
+import { redactDiagnosticText } from '../../shared/diagnostic-log.js';
 
 function configuration(env) {
   const url = databaseRoot(env);
@@ -270,6 +271,43 @@ export async function recordAgentFailure({
   }, fetchImpl);
 }
 
+export async function recordBrowserConsoleLogs({
+  accountId, accountReference, entries, requestId = null, env = process.env, fetchImpl = fetch,
+}) {
+  if (!/^[A-Za-z0-9_-]{3,80}$/.test(accountId || '') ||
+      !/^[A-Za-z0-9_-]{20,30}$/.test(accountReference || '') ||
+      !Array.isArray(entries) || entries.length < 1 || entries.length > 20 ||
+      (requestId !== null && (typeof requestId !== 'string' || requestId.length > 128)))
+    throw Error('INVALID_BROWSER_DIAGNOSTICS');
+
+  const rows = entries.map(entry => {
+    if (!['warn', 'error'].includes(entry?.level) ||
+        typeof entry.message !== 'string' || !entry.message.trim() || entry.message.length > 1000)
+      throw Error('INVALID_BROWSER_DIAGNOSTIC_ENTRY');
+    if (typeof entry.path !== 'string' || !/^\/[A-Za-z0-9/_-]{0,160}$/.test(entry.path) ||
+        typeof entry.clientTime !== 'string' || !Number.isFinite(Date.parse(entry.clientTime)))
+      throw Error('INVALID_BROWSER_DIAGNOSTIC_ENTRY');
+    return {
+      account_id: accountId,
+      event_type: 'BROWSER_CONSOLE',
+      event_data: {
+        level: entry.level,
+        message: redactDiagnosticText(entry.message, 1000),
+        path: entry.path,
+        client_time: new Date(entry.clientTime).toISOString(),
+        account_reference: accountReference,
+        request_id: requestId,
+      },
+    };
+  });
+  await request(env, 'playgo_real_audit', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(rows),
+  }, fetchImpl);
+  return { recorded: rows.length };
+}
+
 export async function readTradeEvidence({
   accountId, contractIds, from, to, env = process.env, fetchImpl = fetch,
 }) {
@@ -408,7 +446,7 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
     throw Error('INVALID_AGENT_FAILURE_RANGE');
   const query = new URLSearchParams({
     account_id: 'eq.' + accountId,
-    event_type: 'in.(AGENT_FAILURE,ORDER_REJECT,ORDER_UNKNOWN,CLOSE_RESULT)',
+    event_type: 'in.(AGENT_FAILURE,ORDER_REJECT,ORDER_UNKNOWN,CLOSE_RESULT,BROWSER_CONSOLE)',
     and: '(created_at.gte.' + new Date(from * 1000).toISOString() +
       ',created_at.lte.' + new Date(to * 1000).toISOString() + ')',
     select: 'intent_id,event_type,event_data,created_at',
@@ -441,9 +479,22 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
   }
   const failures = rows.map(row => {
     if (row.event_type === 'AGENT_FAILURE')
-      return { ...row.event_data, event: row.event_type, recordedAt: row.created_at };
+      return { ...row.event_data, source: 'application', event: row.event_type, recordedAt: row.created_at };
+    if (row.event_type === 'BROWSER_CONSOLE')
+      return {
+        source: 'browser-console',
+        event: row.event_type,
+        status: row.event_data?.level || 'unknown',
+        reason: 'BROWSER_CONSOLE',
+        message: row.event_data?.message || 'Unavailable',
+        path: row.event_data?.path || 'Unavailable',
+        requestId: row.event_data?.request_id || null,
+        clientTime: row.event_data?.client_time || null,
+        recordedAt: row.created_at,
+      };
     if (row.event_type === 'CLOSE_RESULT')
       return {
+        source: 'broker',
         event: row.event_type,
         status: row.event_data?.close_status === 'unconfirmed' ? 'error' : 'watching',
         reason: row.event_data?.reason || 'CLOSE_STATUS',
@@ -458,6 +509,7 @@ export async function readAgentFailures({ accountId, from, to, limit = 5000, env
       };
     const intent = intents.get(row.intent_id);
     return {
+      source: 'broker',
       event: row.event_type,
       status: row.event_type === 'ORDER_UNKNOWN' ? 'error' : 'blocked',
       reason: row.event_type === 'ORDER_UNKNOWN' ? 'ORDER_OUTCOME_UNKNOWN' : 'ORDER_REJECTED',

@@ -14,8 +14,12 @@ function sheet(name, rows) {
 
 export function downloadTradeReport({
   id, currency, points, performance, wins, losses, even, settlementFormat,
-  evidence = null, failures = null, failuresComplete = false,
+  evidence = null, failures = null, failuresComplete = false, serverLogs = null,
 }) {
+  const browserLogs = Array.isArray(failures)
+    ? failures.filter(issue => issue.source === 'browser-console') : [];
+  const technicalFailures = Array.isArray(failures)
+    ? failures.filter(issue => issue.source !== 'browser-console') : [];
   const summary = [
     ['Metric', 'Value'], ['Account', id], ['Currency', currency],
     ['Scope', 'Deriv settlements in the selected report window, including bot and manual trades'],
@@ -26,6 +30,13 @@ export function downloadTradeReport({
     ['Average loss', performance.averageLoss],
     ['Technical failure records', Array.isArray(failures) ? failures.length : 'Unavailable'],
     ['Failure history complete', failuresComplete ? 'Yes' : 'No; unavailable or truncated'],
+    ['Browser console entries', Array.isArray(failures) ? browserLogs.length : 'Unavailable'],
+    ['Browser console capture note', Array.isArray(failures)
+      ? 'Sanitized warnings/errors captured after diagnostics were enabled; may be incomplete'
+      : 'Unavailable'],
+    ['Vercel runtime logs', Array.isArray(serverLogs?.logs) ? serverLogs.logs.length : 'Unavailable'],
+    ['Vercel log status', serverLogs?.status ?? 'Unavailable'],
+    ['Vercel log coverage', serverLogs?.note ?? 'Unavailable'],
   ];
   const details = [
     ['Transaction', 'Contract', 'Settled (EAT)', 'Outcome', 'Buy price', 'Sell proceeds', 'P&L',
@@ -78,11 +89,11 @@ export function downloadTradeReport({
     }),
   ];
   const failureRows = [
-    ['Recorded at', 'Event', 'Status', 'Reason', 'Contract', 'Market', 'Direction', 'Duration (min)',
+    ['Recorded at', 'Source', 'Event', 'Status', 'Reason', 'Contract', 'Market', 'Direction', 'Duration (min)',
       'Stake', 'Proceeds', 'Outcome', 'Broker transaction ID', 'Close requested at', 'Close confirmed at',
       'Interval (seconds)', 'Mode', 'From state', 'To state'],
-    ...(Array.isArray(failures) ? failures.map(issue => [
-      issue.recordedAt ?? 'Unavailable', issue.event ?? 'Unavailable', issue.status ?? 'Unavailable',
+    ...technicalFailures.map(issue => [
+      issue.recordedAt ?? 'Unavailable', issue.source ?? 'application', issue.event ?? 'Unavailable', issue.status ?? 'Unavailable',
       issue.reason ?? 'Unavailable', issue.contractId ?? 'Unavailable',
       issue.symbol ?? 'Unavailable', issue.direction ?? 'Unavailable',
       issue.duration ?? 'Unavailable', issue.stake ?? 'Unavailable', issue.soldFor ?? 'Unavailable',
@@ -90,12 +101,39 @@ export function downloadTradeReport({
       issue.requestedAt ?? 'Unavailable', issue.confirmedAt ?? 'Unavailable',
       issue.granularity ?? 'Unavailable', issue.mode ?? 'Unavailable',
       issue.from ?? 'Unavailable', issue.to ?? 'Unavailable',
+    ]),
+  ];
+  const browserRows = [
+    ['Capture note', Array.isArray(failures)
+      ? 'Sanitized warnings/errors captured after diagnostics were enabled; may be incomplete'
+      : 'Browser console data unavailable'],
+    ['Audit query complete', failuresComplete ? 'Yes' : 'No'],
+    [],
+    ['Recorded at', 'Level', 'Path', 'Request ID', 'Message'],
+    ...browserLogs.map(issue => [
+      issue.recordedAt ?? 'Unavailable', issue.status ?? 'unknown', issue.path ?? 'Unavailable',
+      issue.requestId ?? 'Unavailable', issue.message ?? 'Unavailable',
+    ]),
+  ];
+  const runtimeRows = [
+    ['Status', serverLogs?.status ?? 'Unavailable'],
+    ['Complete', serverLogs?.complete === true ? 'Yes' : 'No'],
+    ['Coverage from', serverLogs?.coverageFrom ?? 'Unavailable'],
+    ['Coverage to', serverLogs?.coverageTo ?? 'Unavailable'],
+    ['Coverage note', serverLogs?.note ?? 'Unavailable'],
+    [],
+    ['Recorded at', 'Level', 'Method', 'Path', 'Status code', 'Request ID', 'Deployment ID', 'Message'],
+    ...(Array.isArray(serverLogs?.logs) ? serverLogs.logs.map(log => [
+      log.recordedAt ?? 'Unavailable', log.level ?? 'unknown', log.method ?? 'Unavailable',
+      log.path ?? 'Unavailable', log.statusCode ?? 'Unavailable', log.requestId ?? 'Unavailable',
+      log.deploymentId ?? 'Unavailable', log.message ?? 'Unavailable',
     ]) : []),
   ];
   const workbook = '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>' +
     '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
     sheet('Summary', summary) + sheet('Closed trades', details) +
-    sheet('Technical failures', failureRows) + '</Workbook>';
+    sheet('Technical failures', failureRows) + sheet('Browser console', browserRows) +
+    sheet('Vercel runtime logs', runtimeRows) + '</Workbook>';
   saveReport(workbook, 'application/xml', 'PlayGo-' + id + '-trade-report.xml');
 }
 
@@ -147,7 +185,7 @@ function wilsonInterval(successes, total) {
 
 export function downloadTradePdf({
   id, currency, points, performance, wins, losses, even, settlementFormat, evidence,
-  failures = null, failuresComplete = false, partial = false, requestedRange = null,
+  failures = null, failuresComplete = false, serverLogs = null, partial = false, requestedRange = null,
 }) {
   const money = value => Number.isFinite(value) ? value.toFixed(2) + ' ' + currency : 'Unavailable';
   const pct = value => Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : 'Unavailable';
@@ -167,6 +205,10 @@ export function downloadTradePdf({
     reconciled: false,
   })));
   const interval = wilsonInterval(wins, points.length);
+  const browserLogs = Array.isArray(failures)
+    ? failures.filter(issue => issue.source === 'browser-console') : [];
+  const issueRows = Array.isArray(failures)
+    ? failures.filter(issue => issue.source !== 'browser-console') : [];
   const breakEven = gate.summary.breakEven;
   const windowText = gate.summary.trades
     ? 'Window: ' + settlementFormat.format(Math.min(...points.map(t => t.settledAt)) * 1000) + ' to ' +
@@ -197,6 +239,10 @@ export function downloadTradePdf({
     failuresComplete
       ? 'Failure history is complete for the requested report window. Older failures may predate diagnostic logging.'
       : 'Failure history may be unavailable or truncated; do not infer that no issue occurred.',
+    'Browser console warnings/errors: ' + (Array.isArray(failures) ? browserLogs.length : 'Unavailable'),
+    'Vercel runtime logs: ' + (Array.isArray(serverLogs?.logs) ? serverLogs.logs.length : 'Unavailable') +
+      ' | status: ' + (serverLogs?.status || 'unavailable'),
+    serverLogs?.note || 'Vercel runtime log coverage is unavailable.',
     '',
     'LIVE-READINESS GATE: ' + (gate.passed ? 'PASSED' : 'NOT PASSED'),
     'Live trading requires every check below. This report does not show an edge until all pass.',
@@ -281,14 +327,14 @@ export function downloadTradePdf({
       }),
     ]);
   }
-  const issueRows = Array.isArray(failures) ? failures : [];
   for (let start = 0; start < issueRows.length; start += 6) {
     pages.push([
       'Technical issues and failures',
-      'Agent failures, rejected/unknown orders and market-data diagnostics recorded for the report window.',
+      'Application, broker, rejected/unknown order and market-data diagnostics recorded for the report window.',
       '',
       ...issueRows.slice(start, start + 6).flatMap(issue => [
         timestamp(issue.recordedAt) + ' | ' +
+        (issue.source || 'application') + ' | ' +
           (issue.event || 'AGENT_FAILURE') + ' | ' +
           String(issue.status || 'unknown').toUpperCase() + ' | ' + (issue.reason || 'Reason unavailable'),
         'Contract: ' + (issue.contractId || 'Unavailable') +
@@ -313,6 +359,39 @@ export function downloadTradePdf({
       failuresComplete
         ? 'No technical failure events were recorded in this window. Older failures may predate diagnostic logging.'
         : 'Failure records are unavailable or incomplete for this window.',
+    ]);
+  }
+  for (let start = 0; start < browserLogs.length || start === 0; start += 4) {
+    pages.push([
+      'Browser console diagnostics',
+      browserLogs.length + ' sanitized browser warnings/errors captured for this report window.',
+      'Console messages are filtered and redacted before storage; entries may still be incomplete.',
+      '',
+      ...browserLogs.slice(start, start + 4).flatMap(issue => [
+        timestamp(issue.recordedAt) + ' | ' + String(issue.status || 'unknown').toUpperCase() +
+          ' | ' + (issue.path || 'Unavailable') + ' | request ' + (issue.requestId || 'Unavailable'),
+        'Message: ' + (issue.message || 'Unavailable'),
+      ]),
+      ...(!browserLogs.length ? ['No browser console entries were recorded in this window.'] : []),
+    ]);
+  }
+  const runtimeLogs = Array.isArray(serverLogs?.logs) ? serverLogs.logs : [];
+  for (let start = 0; start < runtimeLogs.length || start === 0; start += 4) {
+    pages.push([
+      'Vercel runtime diagnostics',
+      'Status: ' + (serverLogs?.status || 'unavailable') + ' | complete: ' +
+        (serverLogs?.complete === true ? 'yes' : 'no'),
+      'Coverage: ' + (serverLogs?.coverageFrom || 'Unavailable') + ' to ' +
+        (serverLogs?.coverageTo || 'Unavailable'),
+      serverLogs?.note || 'Vercel runtime logs are unavailable.',
+      '',
+      ...runtimeLogs.slice(start, start + 4).flatMap(log => [
+        timestamp(log.recordedAt) + ' | ' + String(log.level || 'unknown').toUpperCase() +
+          ' | ' + (log.method || 'Unavailable') + ' ' + (log.path || 'Unavailable') +
+          ' | HTTP ' + (log.statusCode ?? 'Unavailable') + ' | request ' + (log.requestId || 'Unavailable'),
+        'Deployment: ' + (log.deploymentId || 'Unavailable') + ' | Message: ' + (log.message || 'Unavailable'),
+      ]),
+      ...(!runtimeLogs.length ? ['No correlated Vercel runtime log entries were available.'] : []),
     ]);
   }
   // Only identify symbol families with known Deriv synthetic-index codes.

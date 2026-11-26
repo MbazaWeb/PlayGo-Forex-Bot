@@ -5,6 +5,7 @@ import {
   readAutoStartPreference,
   readTradeEvidence,
   recordAgentFailure,
+  recordBrowserConsoleLogs,
   recordSettlementEvidence,
   writeAutoStartPreference,
 } from './real-store.js';
@@ -62,7 +63,7 @@ test('reads failures only within the requested timestamp window', async () => {
         }]);
       }
       assert.equal(query.get('account_id'), 'eq.DOT1234');
-      assert.equal(query.get('event_type'), 'in.(AGENT_FAILURE,ORDER_REJECT,ORDER_UNKNOWN,CLOSE_RESULT)');
+      assert.equal(query.get('event_type'), 'in.(AGENT_FAILURE,ORDER_REJECT,ORDER_UNKNOWN,CLOSE_RESULT,BROWSER_CONSOLE)');
       assert.equal(query.get('and'),
         '(created_at.gte.' + new Date(from * 1000).toISOString() +
         ',created_at.lte.' + new Date(to * 1000).toISOString() + ')');
@@ -88,12 +89,20 @@ test('reads failures only within the requested timestamp window', async () => {
           },
           created_at: new Date((from + 15) * 1000).toISOString(),
         },
+        {
+          id: 19, intent_id: null, event_type: 'BROWSER_CONSOLE',
+          event_data: {
+            level: 'error', message: 'Fetch failed', path: '/analytics',
+            request_id: 'fra1::request-1', client_time: '2025-10-09T10:00:00.000Z',
+          },
+          created_at: new Date((from + 10) * 1000).toISOString(),
+        },
       ]);
     },
   });
   assert.equal(calls, 3);
   assert.equal(result.complete, true);
-  assert.equal(result.failures.length, 3);
+  assert.equal(result.failures.length, 4);
   const agentFailure = result.failures.find(failure => failure.event === 'AGENT_FAILURE');
   const rejectedOrder = result.failures.find(failure => failure.event === 'ORDER_REJECT');
   assert.equal(agentFailure.reason, 'AGENT_OPERATION_FAILED');
@@ -105,6 +114,40 @@ test('reads failures only within the requested timestamp window', async () => {
   assert.equal(closeFailure.contractId, '12345');
   assert.equal(closeFailure.transactionId, '54321');
   assert.equal(closeFailure.requestedAt, '2025-10-09T10:00:00.000Z');
+  const browserFailure = result.failures.find(failure => failure.source === 'browser-console');
+  assert.equal(browserFailure.status, 'error');
+  assert.equal(browserFailure.message, 'Fetch failed');
+  assert.equal(browserFailure.path, '/analytics');
+});
+
+test('stores sanitized browser console entries under the verified account', async () => {
+  let inserted;
+  const result = await recordBrowserConsoleLogs({
+    accountId: 'DOT1234',
+    accountReference: 'abcdefghijklmnopqrstuv',
+    requestId: 'fra1::request-1',
+    entries: [{
+      level: 'error', message: 'code=E_NETWORK access_token=secret-value',
+      path: '/analytics', clientTime: '2025-10-09T10:00:00.000Z',
+    }],
+    env: localEnv,
+    fetchImpl: async (url, init) => {
+      assert.equal(new URL(url).pathname, '/playgo_real_audit');
+      inserted = JSON.parse(init.body)[0];
+      return new Response(null, { status: 204 });
+    },
+  });
+  assert.deepEqual(result, { recorded: 1 });
+  assert.equal(inserted.account_id, 'DOT1234');
+  assert.equal(inserted.event_type, 'BROWSER_CONSOLE');
+  assert.equal(inserted.event_data.account_reference, 'abcdefghijklmnopqrstuv');
+  assert.equal(inserted.event_data.request_id, 'fra1::request-1');
+  assert.equal(inserted.event_data.message, 'code=E_NETWORK access_token=[REDACTED]');
+  await assert.rejects(recordBrowserConsoleLogs({
+    accountId: 'DOT1234', accountReference: 'abcdefghijklmnopqrstuv',
+    entries: [{ level: 'log', message: 'ignored', path: '/', clientTime: '2025-10-09T10:00:00.000Z' }],
+    env: localEnv, fetchImpl: async () => { throw Error('should not write invalid data'); },
+  }), /INVALID_BROWSER_DIAGNOSTIC_ENTRY/);
 });
 
 test('settlement reconciliation preserves the buy transaction ID', async () => {

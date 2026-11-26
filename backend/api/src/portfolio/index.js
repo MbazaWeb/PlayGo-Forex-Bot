@@ -1,6 +1,7 @@
 import { readAgentFailures, readTradeEvidence, recordSettlementEvidence } from '../../../trading/real-store.js';
 import { isDerivAccount, canTradeAccount } from '../../../trading/agents/account/index.js';
 import { closeRealContracts, readRealHistory, readRealPortfolio, readSettlementRange } from '../../../trading/execute.js';
+import { readVercelRuntimeLogs } from '../../../trading/vercel-runtime-logs.js';
 
 
 export async function readPortfolio({ account, token, appId, fetchImpl = fetch }) {
@@ -11,7 +12,7 @@ export async function readPortfolio({ account, token, appId, fetchImpl = fetch }
 
 export async function readHistory({
   account, token, appId, range = null, includeEvidence = false, offset = 0, limit = 500,
-  fetchImpl = fetch, Socket,
+  accountRef = null, env = process.env, fetchImpl = fetch, Socket,
 }) {
   if (!isDerivAccount(account)) return { status: 403, body: { error: 'REAL_ACCOUNT_REQUIRED' } };
   let body;
@@ -90,6 +91,31 @@ export async function readHistory({
       } catch {
         body.failures = null;
         body.failuresComplete = false;
+      }
+      const logTo = range === null ? Math.floor(Date.now() / 1000) : body.to;
+      const earliestLogSettlement = body.transactions.reduce((oldest, row) =>
+        Number.isSafeInteger(row.settledAt) && row.settledAt > 0
+          ? Math.min(oldest, row.settledAt)
+          : oldest, logTo);
+      const logFrom = range === null
+        ? Math.max(1, Math.min(logTo - 7 * 24 * 60 * 60, earliestLogSettlement))
+        : body.from;
+      try {
+        body.serverLogs = accountRef
+          ? await readVercelRuntimeLogs({
+            accountReference: accountRef, from: logFrom, to: logTo, env, fetchImpl,
+          })
+          : {
+            logs: [], status: 'unavailable', complete: false,
+            note: 'The active account reference is unavailable; server logs could not be correlated.',
+            coverageFrom: null, coverageTo: null,
+          };
+      } catch {
+        body.serverLogs = {
+          logs: [], status: 'error', complete: false,
+          note: 'Vercel runtime logs could not be loaded for this report window.',
+          coverageFrom: null, coverageTo: null,
+        };
       }
     }
   }

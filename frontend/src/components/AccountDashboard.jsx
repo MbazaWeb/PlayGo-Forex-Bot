@@ -120,6 +120,7 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       let evidenceAvailable = true;
       let failures = null;
       let failuresComplete = false;
+      let serverLogs = null;
       let complete = !ranged;
       let partial = false;
       let offset = 0;
@@ -154,6 +155,9 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
           failures = null;
           failuresComplete = false;
         }
+        if (offset === 0)
+          serverLogs = data.serverLogs && typeof data.serverLogs === 'object' && !Array.isArray(data.serverLogs)
+            ? data.serverLogs : null;
         complete = !ranged || data.complete === true;
         const nextOffset = Number(data.nextOffset);
         if (ranged && (!Number.isSafeInteger(nextOffset) || (!complete && nextOffset <= offset)))
@@ -180,8 +184,8 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
         const value = Number((t.sell - t.buy).toFixed(8));
         return { ...t, time: String(t.id), value, status: value > 0 ? 'Win' : value < 0 ? 'Loss' : 'Break-even' };
       });
-      if (!exportPoints.length && !failures?.length) {
-        setPdfNotice('No settlements found for this report.');
+      if (!exportPoints.length && !failures?.length && !serverLogs) {
+        setPdfNotice('No settlements or diagnostic logs found for this report.');
         return;
       }
       const exportWins = exportPoints.filter(t => t.value > 0).length;
@@ -189,13 +193,15 @@ export default function AccountDashboard({ accounts, mt5, navigate, marketSymbol
       const report = { id, currency, points: exportPoints, performance: summarizeClosedTrades(exportPoints),
         wins: exportWins, losses: exportLosses, even: exportPoints.length - exportWins - exportLosses,
         settlementFormat, evidence: evidenceAvailable ? evidence : null, failures, failuresComplete,
-        partial, requestedRange: ranged ? rangeFrom + ' to ' + rangeTo + ' EAT' : null };
+        serverLogs, partial, requestedRange: ranged ? rangeFrom + ' to ' + rangeTo + ' EAT' : null };
       if (format === 'excel') downloadTradeReport(report);
       else downloadTradePdf(report);
       const warnings = [];
       if (partial) warnings.push('Partial report: 10,000-row cap reached. Narrow the date range for a complete export.');
       if (!evidenceAvailable) warnings.push('Some trade audit records were unavailable.');
       if (!failuresComplete) warnings.push('Technical failure records may be unavailable or incomplete.');
+      if (!serverLogs?.complete)
+        warnings.push(serverLogs?.note || 'Server runtime logs may be unavailable or incomplete.');
       setPdfNotice(warnings.join(' '));
     } catch (error) {
       setPdfNotice((format === 'excel' ? 'Excel' : 'PDF') + ' report could not be prepared: ' +

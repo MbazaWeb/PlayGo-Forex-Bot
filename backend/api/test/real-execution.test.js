@@ -881,9 +881,8 @@ test('the real order path fails closed without stored qualification even with bo
   }), code);
 });
 
-test('manual terminal orders bypass qualification but still require a persisted submission', async () => {
-  let persisted = false;
-  const order = await executeRealOrder({
+test('manual real terminal orders require stored qualification before submission', async () => {
+  await assert.rejects(executeRealOrder({
     account: realAccount,
     token: 'fixture',
     intent: {
@@ -894,11 +893,8 @@ test('manual terminal orders bypass qualification but still require a persisted 
     env: { LIVE_TRADING_ENABLED: 'true', LIVE_TRADING_CONFIRM: realAccount.account_id },
     fetchImpl: otpFetch,
     Socket: BrokerSocket,
-    beforeBuy: async () => { persisted = true; },
-  });
-  assert.equal(persisted, true);
-  assert.equal(order.contractId, '12345');
-  assert.equal(order.executionDataComplete, true);
+    beforeBuy: () => assert.fail('manual real order must not submit without qualification'),
+  }), { code: 'LIVE_READINESS_NOT_VERIFIED' });
 });
 
 test('close confirmation persists broker outcomes and leaves unconfirmed closes unresolved', async () => {
